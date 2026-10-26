@@ -1,0 +1,22 @@
+[advisories]
+vulnerability = "deny"
+unmaintained = "warn"
+
+[licenses]
+unlicensed = "deny"
+allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "Unicode-DFS-2016", "Zlib"]
+
+[bans]
+multiple-versions = "warn"
+deny = [
+  { name = "reqwest" },
+  { name = "hyper" },
+  { name = "ureq" },
+  { name = "surf" },
+  { name = "isahc" },
+  { name = "attohttpc" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
