@@ -74,10 +74,11 @@ export default function SessionView({ deviceId, exercises, events, onRefresh }: 
       }
     }
     for (const entry of entries) {
-      const maxW = Math.max(...entry.sets.map(s => s.weight), 0);
+      const bestSet = entry.sets.reduce((a, s) => (s.weight > a.weight ? s : a), entry.sets[0] || { reps: 0, weight: 0, rpe: 0 });
+      const maxW = bestSet ? bestSet.weight : 0;
       if (maxW > 0 && maxW > (prevMax.get(entry.exerciseId) || 0)) {
         const ex = exercises.find(e => e.id === entry.exerciseId);
-        await appendEvent(newEvent(deviceId, 'pr.achieved', { exerciseId: entry.exerciseId, name: ex?.name, weight: maxW, date: session.date }));
+        await appendEvent(newEvent(deviceId, 'pr.achieved', { exerciseId: entry.exerciseId, name: ex?.name, weight: maxW, reps: bestSet.reps, date: session.date }));
       }
     }
     clearInterval(timerRef.current);
