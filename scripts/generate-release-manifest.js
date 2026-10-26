@@ -1,0 +1,1 @@
+generate-release-manifest.mjs

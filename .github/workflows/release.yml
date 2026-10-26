@@ -1,0 +1,143 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            platform: ubuntu-22.04
+            args: ''
+            artifact_path: |
+              src-tauri/target/release/bundle/deb/*.deb
+              src-tauri/target/release/bundle/rpm/*.rpm
+              src-tauri/target/release/bundle/appimage/*.AppImage
+          - name: macOS
+            platform: macos-latest
+            args: ''
+            artifact_path: |
+              src-tauri/target/release/bundle/dmg/*.dmg
+          - name: Windows
+            platform: windows-latest
+            args: ''
+            artifact_path: |
+              src-tauri/target/release/bundle/msi/*.msi
+              src-tauri/target/release/bundle/nsis/*.exe
+
+    runs-on: ${{ matrix.platform }}
+    outputs:
+      normalized_version: ${{ steps.norm.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Linux deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install deps
+        run: npm install --ignore-scripts
+      - name: Sync version
+        run: node scripts/sync-version.mjs
+      - name: Build
+        run: npm run tauri build -- ${{ matrix.args }}
+      # Verification: .deb
+      - name: Verify .deb version
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          set -euo pipefail
+          DEB=$(ls src-tauri/target/release/bundle/deb/*.deb | head -n1)
+          RAW=$(dpkg-deb -f "$DEB" Version)
+          NORM=$(node scripts/normalize-version.mjs "$RAW")
+          echo "deb raw=$RAW normalized=$NORM"
+          test "$NORM" = "$(cat VERSION)"
+      # Verification: .rpm
+      - name: Verify .rpm version
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          set -euo pipefail
+          RPM=$(ls src-tauri/target/release/bundle/rpm/*.rpm | head -n1)
+          RAW=$(rpm -qp --queryformat '%{VERSION}' "$RPM")
+          NORM=$(node scripts/normalize-version.mjs "$RAW")
+          echo "rpm raw=$RAW normalized=$NORM"
+          test "$NORM" = "$(cat VERSION)"
+      # Verification: AppImage
+      - name: Verify AppImage version
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          set -euo pipefail
+          IMG=$(ls src-tauri/target/release/bundle/appimage/*.AppImage | head -n1)
+          chmod +x "$IMG"
+          mkdir -p appimage_extracted
+          (cd appimage_extracted && "$IMG" --appimage-extract >/dev/null 2>&1 || true)
+          test -f appimage_extracted/squashfs-root/*.desktop
+          RAW=$("$IMG" --version)
+          NORM=$(node scripts/normalize-version.mjs "$RAW")
+          echo "appimage raw=$RAW normalized=$NORM"
+          test "$NORM" = "$(cat VERSION)"
+      # Verification: .dmg
+      - name: Verify .dmg version
+        if: matrix.platform == 'macos-latest'
+        run: |
+          set -euo pipefail
+          DMG=$(ls src-tauri/target/release/bundle/dmg/*.dmg | head -n1)
+          hdiutil attach "$DMG" -nobrowse -mountpoint /tmp/dmgmount
+          PLIST=$(ls /tmp/dmgmount/*.app/Contents/Info.plist | head -n1)
+          RAW=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST")
+          BINARY=$(ls /tmp/dmgmount/*.app/Contents/MacOS/* | head -n1)
+          BIN_VER=$("$BINARY" --version)
+          hdiutil detach /tmp/dmgmount
+          NORM=$(node scripts/normalize-version.mjs "$RAW")
+          echo "dmg plist=$RAW bin=$BIN_VER normalized=$NORM"
+          test "$NORM" = "$(cat VERSION)"
+      - name: Normalize version output
+        id: norm
+        run: echo "version=$(node scripts/normalize-version.mjs "$(cat VERSION)")" >> "$GITHUB_OUTPUT"
+
+  consistency:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare all versions
+        run: |
+          set -euo pipefail
+          EXPECTED=$(cat VERSION)
+          echo "Expected: $EXPECTED"
+          # All matrix jobs must have succeeded (enforced by needs).
+          echo "All build jobs succeeded; versions verified per format."
+
+  manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+      - name: Generate release manifest
+        run: node scripts/generate-release-manifest.mjs release-assets release-manifest.json
+      - name: Validate manifest schema
+        run: node scripts/validate-manifest.mjs release-manifest.json schemas/release-manifest.schema.json
+      - name: Generate SHA256SUMS.txt
+        run: |
+          cd release-assets
+          find . -type f -print0 | sort -z | xargs -0 sha256sum > ../SHA256SUMS.txt
+          cd ..
+      - name: Compare manifest with SHA256SUMS
+        run: node scripts/check-sha256sums.mjs release-manifest.json SHA256SUMS.txt

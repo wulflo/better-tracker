@@ -1,0 +1,1 @@
+sync-version.mjs

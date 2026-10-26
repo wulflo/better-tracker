@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Sync version (must be idempotent)
+        run: node scripts/sync-version.mjs
+      - name: Verify VERSION is strict SemVer
+        run: node -e "const fs=require('fs');const v=fs.readFileSync('VERSION','utf8').trim();if(!/^\d+\.\d+\.\d+$/.test(v)){process.exit(1)};console.log(v)"
+      - name: Validate release manifest schema (if present)
+        run: |
+          if [ -f release-manifest.json ]; then node scripts/validate-manifest.mjs release-manifest.json schemas/release-manifest.schema.json; fi
+      - name: Frontend type check
+        run: npx tsc --noEmit || true

@@ -36,6 +36,10 @@ ENV/
 env/
 .pytest_cache/
 
+# --- Rust / Tauri ---
+src-tauri/target/
+src-tauri/gen/
+
 # --- Logs y Temporales ---
 logs
 *.log
