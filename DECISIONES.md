@@ -51,6 +51,7 @@ La serie se calcula con las medidas guardadas. `bodyProgressSeries` deduplica po
 - La base de alimentos es local y estática (`src/foodDb.ts`), con más de 200 alimentos comunes y valores aproximados por 100 g/ml. Los alimentos personalizados se guardan como eventos `food.saved` en la bóveda y se reducen al último evento por id.
 - Las comidas del día son un borrador efímero en `localStorage` (`bt.meal.draft.v1`), con fecha. Si la fecha no coincide con hoy, se elimina al cargar; un intervalo de 30 s también lo limpia al cruzar medianoche. No forman parte de la bóveda.
 - El log de ingesta sí es un evento append-only `nutrition.logged`. Solo hay un log lógico por fecha: al guardar de nuevo se añade un evento nuevo y la reducción determinista por fecha + timestamp hace que gane el último. No se muta ni se borra el evento anterior.
+- El Panel incluye un banner de agua con incrementos rápidos (+250 ml, +500 ml y +1 L) y una corrección de −250 ml. Cada cambio guarda al momento el total del día en el mismo log `nutrition.logged`, conservando los macros ya registrados.
 - Las medidas se convierten a gramos con `units` por alimento; `g` y `ml` son equivalentes aproximados y el resto usa pesos por unidad, taza, cucharada, porción, etc.
 - Los valores son estimaciones orientativas y no sustituyen etiquetas o consejo profesional.
 

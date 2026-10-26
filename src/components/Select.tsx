@@ -85,7 +85,12 @@ export default function Select({
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
+        onClick={(e) => {
+          // Evita que un <label> contenedor reenvíe el clic al botón y lo
+          // vuelva a abrir justo después de seleccionar una opción.
+          e.preventDefault();
+          setOpen((o) => !o);
+        }}
         onKeyDown={onKeyDown}
       >
         <span className={selected ? 'select-value' : 'select-placeholder'}>
@@ -106,7 +111,11 @@ export default function Select({
               aria-selected={opt.value === value}
               className={`select-option ${opt.value === value ? 'selected' : ''} ${i === active ? 'active' : ''}`}
               onMouseEnter={() => setActive(i)}
-              onClick={() => choose(opt.value)}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                choose(opt.value);
+              }}
             >
               <span className="select-option-label">{opt.label}</span>
               {opt.hint && <span className="select-option-hint">{opt.hint}</span>}

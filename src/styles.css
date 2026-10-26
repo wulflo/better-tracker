@@ -1197,6 +1197,90 @@ input[type='checkbox'] {
   transition: width 0.35s ease;
 }
 
+.water-banner {
+  background:
+    radial-gradient(680px 240px at 10% -60%, rgba(158, 203, 255, 0.2), transparent 62%),
+    linear-gradient(135deg, rgba(32, 49, 76, 0.9), rgba(20, 25, 41, 0.96));
+  border-color: rgba(158, 203, 255, 0.2);
+}
+
+.water-banner-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+}
+
+.water-banner-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.water-banner-icon {
+  width: 46px;
+  height: 46px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 15px;
+  background: rgba(158, 203, 255, 0.14);
+  border: 1px solid rgba(158, 203, 255, 0.18);
+  color: var(--info);
+}
+
+.water-banner-copy {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.water-banner-title {
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: 0.1px;
+}
+
+.water-banner-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--on-surface-variant);
+}
+
+.water-banner-value {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.water-banner-value strong {
+  font-size: 27px;
+  font-weight: 750;
+  letter-spacing: -0.6px;
+}
+
+.water-banner-value span {
+  color: var(--on-surface-variant);
+  font-size: 12px;
+}
+
+.water-banner .progress {
+  background: rgba(4, 9, 18, 0.42);
+}
+
+.water-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.water-banner-actions .hint {
+  flex: 1 1 190px;
+}
+
 .body-heatmap {
   display: flex;
   align-items: center;

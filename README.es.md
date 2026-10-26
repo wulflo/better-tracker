@@ -24,6 +24,7 @@ En Linux la app usa GTK/WebKit y funciona en Wayland de forma nativa. Si un driv
 - Resumen diario con peso actual, IMC, porcentaje de grasa estimado y volumen de entrenamiento de la semana.
 - Registro rápido de peso y formulario completo de medidas sin salir del panel.
 - Resumen de composición corporal, objetivos de macros, agua y fibra.
+- Banner de agua con botones rápidos (+250 ml, +500 ml, +1 L) que guardan el total del día en el log de ingesta al momento.
 - Modelo de saciedad dual: presión gástrica según el volumen de comida y señal bioquímica según proteína, fibra y composición de las comidas.
 - Gráfico de descenso de grasa basado en las medidas guardadas, sin depender de la báscula.
 - Resumen semanal de entrenamiento con mapa de calor muscular y zona más cargada.

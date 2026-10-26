@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   bodyProgressSeries,
   daysBetween,
+  goalModeFromEvents,
   latestMeasurement,
   latestNutrition,
   reduceExercises,
@@ -90,6 +91,28 @@ describe('metrics', () => {
     ]);
     expect(noScale[0].bodyFat).not.toBeNull();
     expect(noScale[0].fatMass).toBeNull();
+  });
+
+  it('restores the last saved goal mode from the vault', () => {
+    expect(goalModeFromEvents([])).toBe('maintain');
+    const events = [
+      event('goal.mode', { mode: 'maintain' }, '2026-01-01T00:00:00.000Z'),
+      event('goal.mode', { mode: 'cut' }, '2026-01-02T00:00:00.000Z'),
+      event('goal.mode', { mode: 'bulk' }, '2026-01-03T00:00:00.000Z'),
+      event('goal.mode', { mode: 'cut' }, '2026-01-04T00:00:00.000Z'),
+    ];
+    expect(goalModeFromEvents(events)).toBe('cut');
+  });
+
+  it('keeps the day macros when only water is updated', () => {
+    const events = [
+      event('nutrition.logged', { date: '2026-01-01', kcal: 2100, protein: 130, carbs: 240, fat: 68, fiber: 28, water: 1000 }),
+      event('nutrition.logged', { date: '2026-01-01', kcal: 2100, protein: 130, carbs: 240, fat: 68, fiber: 28, water: 1500 }, '2026-01-01T12:00:00.000Z'),
+    ];
+    const today = latestNutrition(events, '2026-01-01');
+    expect(today?.water).toBe(1500);
+    expect(today?.kcal).toBe(2100);
+    expect(today?.protein).toBe(130);
   });
 
   it('returns a measurement merged with defaults', () => {

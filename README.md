@@ -24,6 +24,7 @@ On Linux the app uses GTK/WebKit and runs natively on Wayland. If a proprietary 
 - Daily overview with current weight, BMI, estimated body-fat percentage, and weekly training volume.
 - Quick weight logging plus a full measurement form without leaving the dashboard.
 - Body-composition summary, macro targets, water target, and fiber target.
+- Water banner with quick-add buttons (+250 ml, +500 ml, +1 L) that save the day's total to the intake log immediately.
 - Dual-satiety model: gastric pressure from food volume and biochemical fullness from protein, fiber, and meal composition.
 - Fat-loss trend based on saved measurements, independent of the scale.
 - Weekly training summary with a muscle heatmap and the most-loaded zone.

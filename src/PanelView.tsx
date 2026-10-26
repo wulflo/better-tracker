@@ -78,10 +78,18 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
   const [nutri, setNutri] = useState<NutritionEntry>(() => emptyNutrition(todayISO()));
   const dirtyNutrition = useRef(false);
   const [goalMode, setGoalMode] = useState<GoalMode>(() => goalModeFromEvents(events));
+  const [waterBusy, setWaterBusy] = useState(false);
+  const waterSaving = useRef(false);
   const [remTitle, setRemTitle] = useState('');
   const [remTime, setRemTime] = useState('18:00');
   const [remDays, setRemDays] = useState<number[]>([1, 3, 5]);
   const firedRef = useRef<Set<string>>(new Set());
+
+  // La bóveda se carga de forma asíncrona al abrir la app. Sin este efecto,
+  // el modo elegido se quedaba en "mantener" hasta el siguiente clic.
+  useEffect(() => {
+    setGoalMode(goalModeFromEvents(events));
+  }, [events]);
 
   const weights = useMemo(() => reduceWeights(events), [events]);
   const exerciseSummary = useMemo(() => trainingSummary(events, exercises), [events, exercises]);
@@ -101,6 +109,10 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
   };
   const macros = computeMacros(baseMeasures, exerciseSummary.weekMinutes, goalMode);
   const satiety = computeSatiety(nutri, macros);
+  const waterTarget = macros?.waterMl ?? 2000;
+  const waterCurrent = Math.max(0, Math.round(Number(nutri.water) || 0));
+  const waterLeft = Math.max(0, waterTarget - waterCurrent);
+  const waterPct = waterTarget > 0 ? Math.min(100, Math.round((waterCurrent / waterTarget) * 100)) : 0;
   const comp = bodyComposition(baseMeasures);
   const bmi = comp.bmi;
   const fatAvg = comp.avg;
@@ -185,6 +197,33 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
     setGoalMode(mode);
     await appendEvent(newEvent(deviceId, 'goal.mode', { mode }));
     await onRefresh();
+  };
+
+  const logWater = async (delta: number) => {
+    if (waterSaving.current) return;
+    const current = waterCurrent;
+    const next = Math.min(10000, Math.max(0, current + delta));
+    if (next === current) return;
+
+    waterSaving.current = true;
+    setWaterBusy(true);
+    setNutri((value) => ({ ...value, water: next, date: day }));
+    try {
+      // El agua forma parte del log diario de ingesta. Se guarda al momento
+      // conservando los macros ya registrados para ese día.
+      const base = savedToday ?? emptyNutrition(day);
+      await appendEvent(newEvent(deviceId, 'nutrition.logged', { ...base, date: day, water: next }));
+      await onRefresh();
+      if (current < waterTarget && next >= waterTarget) {
+        notify('Objetivo de agua alcanzado.', 'success');
+      }
+    } catch (e) {
+      setNutri((value) => ({ ...value, water: current, date: day }));
+      notify(`No se pudo guardar el agua: ${String(e)}`, 'error');
+    } finally {
+      waterSaving.current = false;
+      setWaterBusy(false);
+    }
   };
 
   const toggleRemDay = (d: number) => {
@@ -317,6 +356,59 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
       </div>
 
       <div className="grid grid-2">
+        <section className="card water-banner span-2" aria-label="Control de agua">
+          <div className="water-banner-body">
+            <div className="water-banner-top">
+              <div className="water-banner-icon"><Icon name="water" size={24} /></div>
+              <div className="water-banner-copy">
+                <div className="water-banner-title">Agua de hoy</div>
+                <div className="water-banner-sub">
+                  {waterLeft > 0
+                    ? `Te quedan ${(waterLeft / 1000).toFixed(2)} L para llegar al objetivo.`
+                    : waterCurrent > waterTarget
+                      ? `Objetivo superado por ${((waterCurrent - waterTarget) / 1000).toFixed(2)} L.`
+                      : 'Objetivo cubierto.'}{' '}
+                  Se guarda al momento en el log de hoy.
+                </div>
+              </div>
+              <div className="water-banner-value">
+                <strong>{(waterCurrent / 1000).toFixed(2)} L</strong>
+                <span>de {(waterTarget / 1000).toFixed(1)} L</span>
+              </div>
+              <span className={`badge ${waterPct >= 100 ? 'badge-success' : 'badge-primary'}`}>{waterPct}%</span>
+            </div>
+            <ProgressBar
+              label="Progreso de hidratación"
+              valueLabel={`${waterCurrent} / ${waterTarget} ml`}
+              value={waterCurrent}
+              max={waterTarget}
+              color="var(--info)"
+            />
+            <div className="water-banner-actions">
+              {[250, 500, 1000].map((amount) => (
+                <button
+                  key={amount}
+                  type="button"
+                  className="btn btn-tonal btn-sm"
+                  disabled={waterBusy || waterCurrent >= 10000}
+                  onClick={() => void logWater(amount)}
+                >
+                  <Icon name="water" size={14} /> +{amount >= 1000 ? `${amount / 1000} L` : `${amount} ml`}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                disabled={waterBusy || waterCurrent === 0}
+                onClick={() => void logWater(-250)}
+              >
+                −250 ml
+              </button>
+              {!macros && <span className="hint">Objetivo orientativo de 2 L. Añade tu peso para personalizarlo.</span>}
+            </div>
+          </div>
+        </section>
+
         <section className="card span-2">
           <div className="card-header">
             <div>
