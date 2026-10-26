@@ -134,12 +134,16 @@ try {
 } catch {}
 const date = new Date().toISOString();
 
-const files = readdirSync(assetsDir)
-  .map((f) => join(assetsDir, f))
-  .filter((p) => {
-    try { return statSync(p).isFile(); } catch { return false; }
-  })
-  .sort();
+function walk(dir) {
+  const out = [];
+  for (const f of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, f.name);
+    if (f.isDirectory()) out.push(...walk(p));
+    else if (f.isFile()) out.push(p);
+  }
+  return out;
+}
+const files = walk(assetsDir).sort();
 
 const assets = files.map((p) => {
   const { platform, arch, format } = detect(p);

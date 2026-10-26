@@ -106,6 +106,13 @@ jobs:
           NORM=$(node scripts/normalize-version.mjs "$RAW")
           echo "dmg plist=$RAW bin=$BIN_VER normalized=$NORM"
           test "$NORM" = "$(cat VERSION)"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: warn
+
       - name: Normalize version output
         id: norm
         run: echo "version=$(node scripts/normalize-version.mjs "$(cat VERSION)")" >> "$GITHUB_OUTPUT"
