@@ -36,8 +36,12 @@ pub fn get_device_id(app: AppHandle) -> String {
 }
 
 #[tauri::command]
-pub fn select_vault(app: AppHandle) -> Result<String, String> {
-    let folder = app.dialog().file().blocking_pick_folder();
+pub async fn select_vault(app: AppHandle) -> Result<String, String> {
+    let app2 = app.clone();
+    let handle = tauri::async_runtime::spawn_blocking(move || {
+        app2.dialog().file().blocking_pick_folder()
+    });
+    let folder = handle.await.map_err(|e| e.to_string())?;
     match folder {
         Some(fp) => {
             let p = fp.to_string();
@@ -59,8 +63,12 @@ pub fn append_event(app: AppHandle, event: vault::Event) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn export_events(app: AppHandle) -> Result<String, String> {
-    let path = app.dialog().file().add_filter("JSON", &["json"]).blocking_save_file();
+pub async fn export_events(app: AppHandle) -> Result<String, String> {
+    let app2 = app.clone();
+    let handle = tauri::async_runtime::spawn_blocking(move || {
+        app2.dialog().file().add_filter("JSON", &["json"]).blocking_save_file()
+    });
+    let path = handle.await.map_err(|e| e.to_string())?;
     match path {
         Some(fp) => {
             let events = vault::read_events(&app)?;
@@ -73,8 +81,14 @@ pub fn export_events(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn save_text_file(app: AppHandle, content: String, filter_name: String, ext: String) -> Result<String, String> {
-    let path = app.dialog().file().add_filter(&filter_name, &[&ext]).blocking_save_file();
+pub async fn save_text_file(app: AppHandle, content: String, filter_name: String, ext: String) -> Result<String, String> {
+    let app2 = app.clone();
+    let filter = filter_name.clone();
+    let extension = ext.clone();
+    let handle = tauri::async_runtime::spawn_blocking(move || {
+        app2.dialog().file().add_filter(&filter, &[&extension]).blocking_save_file()
+    });
+    let path = handle.await.map_err(|e| e.to_string())?;
     match path {
         Some(fp) => {
             std::fs::write(fp.to_string(), content).map_err(|e| e.to_string())?;
