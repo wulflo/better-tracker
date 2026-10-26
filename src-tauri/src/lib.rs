@@ -10,6 +10,8 @@ pub mod version;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
             commands::get_app_version,
@@ -22,8 +24,6 @@ pub fn run() {
             commands::select_vault,
             commands::list_events,
             commands::append_event,
-            commands::export_events,
-            commands::save_text_file,
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();

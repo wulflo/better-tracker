@@ -19,10 +19,16 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - name: Install deps
-        run: npm ci --ignore-scripts || npm install --ignore-scripts
-      - name: Sync version
-        run: node scripts/sync-version.mjs
+        run: npm ci
+      - name: Verify version sync
+        run: |
+          node scripts/sync-version.mjs
+          git diff --exit-code -- package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
       - name: Type check
         run: npx tsc --noEmit
       - name: Frontend tests
@@ -41,5 +47,11 @@ jobs:
           cargo audit --manifest-path src-tauri/Cargo.toml || true
       - name: No Android remnants
         run: |
-          if grep -ri "android" --include="*.rs" --include="*.ts" --include="*.tsx" --include="*.json" --include="*.toml" . | grep -v node_modules | grep -vi "docs" ; then echo "Android remnants found"; exit 1; fi
+          if grep -ri "android" \
+            --include="*.rs" --include="*.ts" --include="*.tsx" --include="*.json" --include="*.toml" \
+            --exclude="package-lock.json" \
+            --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=target --exclude-dir=gen --exclude-dir=docs . ; then
+            echo "Android remnants found"
+            exit 1
+          fi
           echo "OK"

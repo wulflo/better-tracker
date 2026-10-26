@@ -31,31 +31,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Compute version
+      - name: Verify version files
+        run: |
+          node scripts/sync-version.mjs
+          if ! git diff --quiet -- package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock; then
+            echo "::error::Version files are out of sync. Run 'node scripts/sync-version.mjs' and commit the result."
+            git diff -- package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+            exit 1
+          fi
+      - name: Read VERSION
         id: ver
         run: |
-          BASE=$(cat VERSION | tr -d '[:space:]')
-          MAJOR_MINOR=$(echo "$BASE" | cut -d. -f1,2)
-          PATCH=$(git rev-list --count HEAD)
-          VER="${MAJOR_MINOR}.${PATCH}"
-          echo "version=$VER" >> $GITHUB_OUTPUT
-          echo "tag=v$VER" >> $GITHUB_OUTPUT
-      - name: Inject version (build only)
-        run: |
-          node -e "
-            const fs=require('fs');
-            const v=process.argv[1];
-            // tauri.conf.json
-            let t=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));
-            t.version=v; fs.writeFileSync('src-tauri/tauri.conf.json',JSON.stringify(t,null,2));
-            // package.json
-            let p=JSON.parse(fs.readFileSync('package.json','utf8'));
-            p.version=v; fs.writeFileSync('package.json',JSON.stringify(p,null,2));
-            // Cargo.toml
-            let c=fs.readFileSync('src-tauri/Cargo.toml','utf8');
-            c=c.replace(/^version\\s*=\\s*\"[^\"]*\"/m,'version = \"'+v+'\"');
-            fs.writeFileSync('src-tauri/Cargo.toml',c);
-          " "${{ steps.ver.outputs.version }}"
+          VER=$(tr -d '[:space:]' < VERSION)
+          if ! [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::VERSION must be strict SemVer X.Y.Z, got '$VER'"
+            exit 1
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VER" >> "$GITHUB_OUTPUT"
 
   draft:
     needs: version
@@ -73,7 +66,7 @@ jobs:
           TAG="${{ needs.version.outputs.tag }}"
           VER="${{ needs.version.outputs.version }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release exists, reusing"
+            echo "Release $TAG exists; reusing it."
           else
             gh release create "$TAG" --draft --title "$TAG" --notes "Release $VER"
           fi
@@ -88,40 +81,104 @@ jobs:
             platform: linux
           - os: macos-14
             platform: macos
+          - os: windows-latest
+            platform: windows
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
       - name: Install Linux deps
         if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm libfuse2 xvfb
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf rpm libfuse2 xvfb
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - name: Install deps
-        run: npm ci --ignore-scripts || npm install --ignore-scripts
-      - name: Inject version
+        run: npm ci
+      - name: Sync version
+        run: node scripts/sync-version.mjs
+      - name: Import Apple certificate (optional)
+        if: matrix.platform == 'macos'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          node -e "
-            const fs=require('fs');
-            const v=process.argv[1];
-            let t=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8')); t.version=v; fs.writeFileSync('src-tauri/tauri.conf.json',JSON.stringify(t,null,2));
-            let p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version=v; fs.writeFileSync('package.json',JSON.stringify(p,null,2));
-            let c=fs.readFileSync('src-tauri/Cargo.toml','utf8'); c=c.replace(/^version\\s*=\\s*\"[^\"]*\"/m,'version = \"'+v+'\"'); fs.writeFileSync('src-tauri/Cargo.toml',c);
-          " "${{ needs.version.outputs.version }}"
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "No Apple certificate configured; building unsigned."
+            exit 0
+          fi
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 20)
+          KEYCHAIN=build.keychain
+          echo "$APPLE_CERTIFICATE" | base64 -D > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -t 3600 -u "$KEYCHAIN"
+          security import certificate.p12 -k "$KEYCHAIN" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          CERT_ID=$(security find-identity -v -p codesigning "$KEYCHAIN" | sed -n 's/.*"\(.*\)"/\1/p' | head -n1)
+          if [ -z "$CERT_ID" ]; then
+            echo "::error::The imported certificate has no code-signing identity."
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"
+            echo "APPLE_PASSWORD=$APPLE_PASSWORD" >> "$GITHUB_ENV"
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
+            echo "Notarization enabled."
+          else
+            echo "Apple certificate imported, but notarization secrets are incomplete; skipping notarization."
+          fi
+          rm -f certificate.p12
+      - name: Configure Windows signing (optional)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
+            Write-Host "No Windows certificate configured; building unsigned."
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "certificate.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $pwd = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pwd
+          $ts = if ($env:WINDOWS_TIMESTAMP_URL) { $env:WINDOWS_TIMESTAMP_URL } else { "http://timestamp.digicert.com" }
+          $json = Get-Content "src-tauri/tauri.windows.conf.json" -Raw | ConvertFrom-Json
+          $json.bundle.windows | Add-Member -NotePropertyName certificateThumbprint -NotePropertyValue $cert.Thumbprint -Force
+          $json.bundle.windows | Add-Member -NotePropertyName digestAlgorithm -NotePropertyValue "sha256" -Force
+          $json.bundle.windows | Add-Member -NotePropertyName timestampUrl -NotePropertyValue $ts -Force
+          $json | ConvertTo-Json -Depth 20 | Set-Content "src-tauri/tauri.windows.conf.json"
+          "WINDOWS_CERT_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
+          Remove-Item $pfx
+          Write-Host "Windows certificate imported: $($cert.Thumbprint)"
       - name: Build (Linux)
         if: matrix.platform == 'linux'
         run: npm run tauri build
       - name: Build (macOS universal)
         if: matrix.platform == 'macos'
-        run: |
-          npm run tauri build -- --target universal-apple-darwin
+        run: npm run tauri build -- --target universal-apple-darwin
+      - name: Build (Windows)
+        if: matrix.platform == 'windows'
+        run: npm run tauri build
       - name: Verify Linux artifacts
         if: matrix.platform == 'linux'
         run: |
@@ -132,39 +189,141 @@ jobs:
           chmod +x "$IMG"
           mkdir -p appimage_extracted
           ABS=$(realpath "$IMG")
-          (cd appimage_extracted && "$ABS" --appimage-extract)
+          (cd appimage_extracted && "$ABS" --appimage-extract >/dev/null)
           test -n "$(find appimage_extracted/squashfs-root -name '*.desktop' -print -quit)"
+          UPD=$(ls src-tauri/target/release/bundle/appimage/*.AppImage | head -n1)
+          test -f "$UPD"
+          test -f "$UPD.sig"
+          base64 -d "$UPD.sig" | grep -q '^untrusted comment:'
+      - name: Verify macOS artifacts
+        if: matrix.platform == 'macos'
+        run: |
+          set -euo pipefail
+          VER="${{ needs.version.outputs.version }}"
+          BASE="src-tauri/target/universal-apple-darwin/release/bundle"
+          test -n "$(ls "$BASE"/dmg/*.dmg)"
+          APP=$(ls -d "$BASE"/macos/*.app | head -n1)
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist" | grep -Fx "$VER"
+          UPD=$(ls "$BASE"/macos/*.app.tar.gz | head -n1)
+          test -f "$UPD"
+          test -f "$UPD.sig"
+          base64 -D "$UPD.sig" | grep -q '^untrusted comment:'
+          if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
+            codesign --verify --deep --strict "$APP"
+            spctl -a -vvv -t install "$APP"
+          else
+            echo "Unsigned build: skipping codesign/spctl verification."
+          fi
+      - name: Verify Windows artifacts
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $base = "src-tauri/target/release/bundle"
+          $exe = Get-ChildItem "$base/nsis" -Filter *.exe -ErrorAction SilentlyContinue
+          $msi = Get-ChildItem "$base/msi" -Filter *.msi -ErrorAction SilentlyContinue
+          $exeSig = Get-ChildItem "$base/nsis" -Filter *.exe.sig -ErrorAction SilentlyContinue
+          $msiSig = Get-ChildItem "$base/msi" -Filter *.msi.sig -ErrorAction SilentlyContinue
+          if (-not $exe) { throw "NSIS installer missing" }
+          if (-not $msi) { throw "MSI installer missing" }
+          if (-not $exeSig) { throw "NSIS updater signature missing" }
+          if (-not $msiSig) { throw "MSI updater signature missing" }
+          if ((Get-Item $exeSig.FullName).Length -lt 100) { throw "NSIS updater signature looks empty" }
+          if ((Get-Item $msiSig.FullName).Length -lt 100) { throw "MSI updater signature looks empty" }
+          if ($env:WINDOWS_CERT_THUMBPRINT) {
+            foreach ($f in @($exe + $msi)) {
+              $sig = Get-AuthenticodeSignature $f.FullName
+              if ($sig.Status -ne "Valid") { throw "Invalid signature on $($f.Name): $($sig.Status)" }
+            }
+          } else {
+            Write-Host "Unsigned build: skipping Authenticode verification."
+          }
       - name: Upload assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
+          set -euo pipefail
           TAG="${{ needs.version.outputs.tag }}"
+          shopt -s nullglob
+          files=()
           if [ "${{ matrix.platform }}" = "linux" ]; then
-            for f in src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/rpm/*.rpm src-tauri/target/release/bundle/appimage/*.AppImage; do
-              gh release upload "$TAG" "$f" --clobber
-            done
+            files+=(src-tauri/target/release/bundle/deb/*.deb)
+            files+=(src-tauri/target/release/bundle/deb/*.deb.sig)
+            files+=(src-tauri/target/release/bundle/rpm/*.rpm)
+            files+=(src-tauri/target/release/bundle/rpm/*.rpm.sig)
+            files+=(src-tauri/target/release/bundle/appimage/*.AppImage)
+            files+=(src-tauri/target/release/bundle/appimage/*.AppImage.sig)
+          elif [ "${{ matrix.platform }}" = "macos" ]; then
+            files+=(src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg)
+            files+=(src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz)
+            files+=(src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig)
           else
-            for f in src-tauri/target/release/bundle/dmg/*.dmg; do
-              gh release upload "$TAG" "$f" --clobber
-            done
+            files+=(src-tauri/target/release/bundle/nsis/*.exe)
+            files+=(src-tauri/target/release/bundle/nsis/*.exe.sig)
+            files+=(src-tauri/target/release/bundle/msi/*.msi)
+            files+=(src-tauri/target/release/bundle/msi/*.msi.sig)
           fi
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No release assets found for ${{ matrix.platform }}"
+            exit 1
+          fi
+          gh release upload "$TAG" "${files[@]}" --clobber
 
   publish:
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Generate SHA256SUMS
+      - name: Download release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ needs.build.outputs.tag || '' }}"
-          # fallback: get tag from version job not available; use latest draft tag
-          TAG=$(gh release list --json tagName,isDraft -q '.[] | select(.isDraft==true) | .tagName' | head -n1)
+          TAG="${{ needs.version.outputs.tag }}"
+          rm -rf assets
           mkdir -p assets
           gh release download "$TAG" --dir assets
-          cd assets && find . -type f -print0 | sort -z | xargs -0 sha256sum > ../SHA256SUMS.txt && cd ..
+          rm -f assets/latest.json assets/release-manifest.json assets/SHA256SUMS.txt
+      - name: Generate updater manifest
+        run: |
+          TAG="${{ needs.version.outputs.tag }}"
+          VER="${{ needs.version.outputs.version }}"
+          node scripts/generate-updater-manifest.mjs assets latest.json "$TAG" "$VER" "${{ github.repository }}" --require-all
+      - name: Generate release manifest
+        run: |
+          node scripts/generate-release-manifest.mjs assets release-manifest.json
+          node scripts/validate-manifest.mjs release-manifest.json
+      - name: Upload manifests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.version.outputs.tag }}"
+          gh release upload "$TAG" latest.json release-manifest.json --clobber
+      - name: Generate SHA256SUMS
+        run: |
+          rm -rf publish_assets
+          mkdir -p publish_assets
+          cp -a assets/. publish_assets/
+          cp latest.json release-manifest.json publish_assets/
+          (cd publish_assets && find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum | sed 's#  \./#  #') > SHA256SUMS.txt
+          node scripts/check-sha256sums.mjs release-manifest.json SHA256SUMS.txt
+      - name: Upload SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.version.outputs.tag }}"
           gh release upload "$TAG" SHA256SUMS.txt --clobber
-          gh release edit "$TAG" --draft=false
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.version.outputs.tag }}"
+          VER="${{ needs.version.outputs.version }}"
+          NOTES="docs/releases/$TAG.md"
+          if [ ! -f "$NOTES" ]; then
+            NOTES=$(mktemp)
+            printf 'Release %s\n' "$VER" > "$NOTES"
+          fi
+          gh release edit "$TAG" --draft=false --title "$TAG" --notes-file "$NOTES" --latest
+          gh release view "$TAG" --json tagName,isDraft,assets

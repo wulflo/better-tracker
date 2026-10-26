@@ -1,31 +1,54 @@
 # Decisiones técnicas
 
-## Nombre de la app
-Better Tracker. Definido en `tauri.conf.json` (productName) y usado en nombres de archivo.
+## Nombre e identidad
+Better Tracker. El nombre se define en `tauri.conf.json` (`productName`) y se usa en los nombres de archivo. El logo original se guarda como fuente en `src-tauri/icons/icon-source.png`; `tauri icon` genera `.ico`, `.icns` y los PNG. La misma imagen se usa en la interfaz (`public/logo.png`) y en el splash.
 
 ## Plataformas
-Solo Linux x86_64 (.deb, .rpm, .AppImage) y macOS (.dmg universal arm64+x86_64). Sin Windows/Android/iOS.
+Desktop, sin móvil:
+- Linux x86_64: `.deb`, `.rpm`, `.AppImage`. Wayland mediante GTK/WebKit de Tauri 2.
+- Windows 10/11 x64: NSIS (instalación `currentUser`) y MSI.
+- macOS 11+: `.dmg` y `.app` universal (Intel + Apple Silicon).
+
+Cada plataforma tiene su archivo de configuración (`tauri.linux.conf.json`, `tauri.windows.conf.json`, `tauri.macos.conf.json`) para que los targets y el instalador no interfieran entre sí.
 
 ## Stack
-Tauri 2 + React + TypeScript + Vite. Toda la lógica de archivos en Rust. Frontend solo llama comandos tipados.
+Tauri 2 + React 18 + TypeScript + Vite. La lógica de archivos y comandos vive en Rust; el frontend usa IPC tipado y un mock de navegador solo para pruebas visuales.
 
 ## Almacenamiento
-Bóveda en carpeta elegida por el usuario. Eventos append-only JSONL por dispositivo (`devices/<id>/events.jsonl`). Fusión determinista por timestamp. Lápidas para borrados.
-
-## Icono placeholder
-Se usa un icono temporal (los del repo). El usuario debe reemplazarlos manualmente. Anotado aquí.
+Bóveda en una carpeta elegida por el usuario. Eventos append-only en JSONL por dispositivo (`devices/<id>/events.jsonl`). La reducción es determinista por timestamp; los borrados usan eventos de “limpieza” o lápidas. Sin cifrado activo, sin fotos y sin adjuntos.
 
 ## Entrada de datos
-Bloqueo global de pegado/arrastrar. Controles numéricos con min/max. Tabla de límites compartida pendiente de generar para Rust.
+El pegado y el arrastre se interceptan globalmente. Solo se acepta `text/plain`; en campos de una línea se eliminan los saltos de línea. No se aceptan archivos, HTML enriquecido ni imágenes.
 
-## Cifrado
-Diseñado el envelope con versión y campo de cifrado. Implementación (Argon2id + XChaCha20-Poly1305) pendiente. Documentado como vía futura.
+## Actualizaciones
+- Plugin oficial `tauri-plugin-updater` + `tauri-plugin-process`.
+- Comprobación **manual** desde Ajustes. No hay chequeo automático en segundo plano.
+- Manifiesto estático `latest.json` en el release de GitHub, con una entrada por plataforma/arquitectura:
+  - `linux-x86_64` → AppImage + `.AppImage.sig`.
+  - `windows-x86_64` → instalador NSIS `.exe` + `.exe.sig` (MSI como alternativa).
+  - `darwin-x86_64` y `darwin-aarch64` → `.app.tar.gz` universal + firma.
+- El plugin verifica la firma minisign antes de instalar. Si el manifiesto o la firma no son válidos, se muestra un error y no se instala nada.
+- Linux solo puede actualizarse solo con AppImage; `.deb` y `.rpm` se actualizan manualmente desde el release. La interfaz detecta el formato y desactiva el botón cuando no corresponde.
+- Windows prefiere NSIS sobre MSI para evitar permisos de administrador.
+- La comprobación de red solo ocurre al pulsar “Buscar actualizaciones”.
 
-## Otras plataformas
-La capa de almacenamiento está detrás de un trait para añadir backends futuros.
+## Claves y secretos
+- La clave privada del updater nunca se versiona. Vive en GitHub Actions Secrets (`TAURI_SIGNING_PRIVATE_KEY` y `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) y en una copia local con permisos `0600` fuera del repositorio.
+- La clave pública está en `tauri.conf.json` (`plugins.updater.pubkey`).
+- Los certificados opcionales de Windows y macOS se cargan desde secrets y se importan en el runner. Si no existen, el build sale sin firma de sistema; el updater sigue firmado.
+- `.key`, `.pem` y `.p12` están ignorados por git. Ver `docs/RELEASE_SECRETS.md`.
+
+## Versión y release
+`VERSION` es la fuente única y el tag es exactamente `v<VERSION>`. El workflow ya no calcula el patch con el número de commits. `scripts/sync-version.mjs` sincroniza `package.json`, `package-lock.json`, `tauri.conf.json`, `Cargo.toml` y `Cargo.lock`, y CI falla si hay desincronización.
+
+El workflow compila las tres plataformas, sube los instaladores y los artefactos del updater, genera `latest.json`, `release-manifest.json` y `SHA256SUMS.txt`, y publica el release solo cuando todos los builds y las verificaciones terminan bien.
+
+## UI
+Cuatro secciones: Panel, Entrenamiento, Historial y Figura corporal. Entrenamiento incluye biblioteca, rutinas, plan, sesión, calendario y progreso. Los mesociclos y recordatorios están integrados en el plan y el panel.
 
 ## Limitaciones
-- Sin cifrado activo todavía.
+- Sin cifrado de bóveda.
 - Sin fotos de progreso.
-- Sin mesociclos ni recordatorios.
-- Tests visuales y de sincronización pendientes.
+- Recordatorios solo mientras la app está abierta; no se programan en el sistema operativo.
+- Los builds de Windows/macOS no se prueban localmente en este equipo Linux.
+- Las estimaciones son orientativas y no sustituyen valoración médica.

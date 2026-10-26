@@ -48,6 +48,19 @@ try {
   console.warn('Cargo.lock not found; skipping (run cargo build to generate).');
 }
 
+// --- package-lock.json (root package metadata only) ---
+const packageLockPath = join(ROOT, 'package-lock.json');
+try {
+  const packageLock = JSON.parse(readFileSync(packageLockPath, 'utf8'));
+  packageLock.version = version;
+  if (packageLock.packages && packageLock.packages['']) {
+    packageLock.packages[''].version = version;
+  }
+  writeFileSync(packageLockPath, `${JSON.stringify(packageLock, null, 2)}\n`);
+} catch (e) {
+  console.warn('package-lock.json not found; skipping (run npm install to generate).');
+}
+
 // --- Verification: fail if any file does not match VERSION ---
 function extractJsonVersion(text) {
   const m = text.match(/"version"\s*:\s*"([^"]*)"/);
@@ -69,6 +82,11 @@ const checks = [
 ];
 try {
   checks.push(['Cargo.lock', extractLockVersion(readFileSync(lockPath, 'utf8'))]);
+} catch {}
+try {
+  const pl = JSON.parse(readFileSync(packageLockPath, 'utf8'));
+  checks.push(['package-lock.json', pl.version]);
+  checks.push(['package-lock.json (root)', pl.packages?.['']?.version]);
 } catch {}
 
 let ok = true;

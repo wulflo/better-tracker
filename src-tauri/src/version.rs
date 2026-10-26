@@ -14,6 +14,7 @@ pub struct AppInfo {
     pub commit: String,
     pub build_date: String,
     pub vault_schema_version: u32,
+    pub install_format: String,
 }
 
 pub fn app_info() -> AppInfo {
@@ -22,6 +23,7 @@ pub fn app_info() -> AppInfo {
         commit: COMMIT.to_string(),
         build_date: BUILD_DATE.to_string(),
         vault_schema_version: VAULT_SCHEMA_VERSION,
+        install_format: detect_install_format().to_string(),
     }
 }
 
@@ -64,6 +66,9 @@ pub fn detect_install_format() -> &'static str {
         Ok("nsis") => "nsis",
         Ok("exe") => "exe",
         Ok("apk") => "apk",
+        _ if cfg!(target_os = "windows") => "windows",
+        _ if cfg!(target_os = "macos") => "macos",
+        _ if cfg!(target_os = "linux") => "linux",
         _ => "unknown",
     }
 }
