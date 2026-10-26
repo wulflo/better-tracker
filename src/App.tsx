@@ -6,6 +6,9 @@ import RoutinesView from './RoutinesView';
 import SessionView from './SessionView';
 import NutritionView from './NutritionView';
 import StatsView from './StatsView';
+import PlanView from './PlanView';
+import InjuriesView from './InjuriesView';
+import WellnessView from './WellnessView';
 
 interface AppInfo { version: string; commit: string; build_date: string; vault_schema_version: number; }
 interface Exercise { id: string; name: string; muscle: string; type: string; }
@@ -55,7 +58,7 @@ function bodyFatCunBae(bmi: number, age: number, sex: 'male'|'female'): number {
   return -44.988 + (0.503 * age) + (10.689 * s) + (3.172 * bmi) - (0.026 * bmi * bmi) + (0.181 * bmi * s) - (0.02 * bmi * age) - (0.005 * bmi * bmi * s) + (0.00021 * bmi * bmi * age);
 }
 
-type View = 'exercises' | 'workout' | 'history' | 'weight' | 'measurements' | 'body' | 'routines' | 'session' | 'nutrition' | 'stats' | 'status' | 'about';
+type View = 'exercises' | 'workout' | 'history' | 'weight' | 'measurements' | 'body' | 'routines' | 'session' | 'plan' | 'injuries' | 'wellness' | 'nutrition' | 'stats' | 'status' | 'about';
 
 export default function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -165,6 +168,9 @@ export default function App() {
         {navBtn('workout','Entrenar')}
         {navBtn('routines','Rutinas')}
         {navBtn('session','Sesión')}
+        {navBtn('plan','Planificación')}
+        {navBtn('injuries','Lesiones')}
+        {navBtn('wellness','Bienestar')}
         {navBtn('history','Historial')}
         {navBtn('weight','Peso')}
         {navBtn('measurements','Medidas')}
@@ -305,6 +311,9 @@ export default function App() {
         )}
         {view === 'routines' && <RoutinesView deviceId={deviceId} exercises={exercises} events={events} onRefresh={refresh} />}
         {view === 'session' && <SessionView deviceId={deviceId} exercises={exercises} events={events} onRefresh={refresh} />}
+        {view === 'plan' && <PlanView deviceId={deviceId} events={events} routines={events.filter(e=>e.kind==='routine.saved').map(e=>e.payload as any)} onRefresh={refresh} />}
+        {view === 'injuries' && <InjuriesView deviceId={deviceId} events={events} onRefresh={refresh} />}
+        {view === 'wellness' && <WellnessView deviceId={deviceId} events={events} onRefresh={refresh} />}
         {view === 'nutrition' && <NutritionView deviceId={deviceId} events={events} onRefresh={refresh} />}
         {view === 'stats' && <StatsView events={events} />}
         {view === 'status' && (
