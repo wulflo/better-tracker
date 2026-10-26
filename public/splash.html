@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin:0; height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-family: system-ui, sans-serif; background:#0f172a; color:#e2e8f0;
+  }
+  @media (prefers-color-scheme: light) { body { background:#f8fafc; color:#0f172a; } }
+  .logo { width:64px; height:64px; border-radius:12px; background:#38bdf8; margin-bottom:1rem; }
+  .title { font-size:1.4rem; font-weight:600; }
+  .sub { margin-top:.5rem; opacity:.7; }
+  .spinner { margin-top:1.2rem; width:28px; height:28px; border:3px solid rgba(127,127,127,.3); border-top-color:#38bdf8; border-radius:50%; animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <div class="logo"></div>
+  <div class="title">Better Tracker</div>
+  <div class="sub">Cargando…</div>
+  <div class="spinner"></div>
+</body>
+</html>
