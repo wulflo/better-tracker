@@ -3,15 +3,83 @@
 <head>
   <meta charset="UTF-8" />
   <title>Better Tracker</title>
+  <style>
+    :root { --bg:#0f172a; --fg:#e2e8f0; --card:#1e293b; --accent:#38bdf8; --muted:#94a3b8; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+    header { padding:1rem 1.5rem; background:#020617; display:flex; justify-content:space-between; align-items:center; }
+    nav button { margin-left:.5rem; background:var(--card); color:var(--fg); border:1px solid #334155; padding:.4rem .8rem; border-radius:.4rem; cursor:pointer; }
+    nav button.active { background:var(--accent); color:#0f172a; border-color:var(--accent); }
+    main { padding:1.5rem; max-width:1100px; margin:0 auto; }
+    .card { background:var(--card); border-radius:.6rem; padding:1rem; margin-bottom:1rem; }
+    h2 { margin-top:0; }
+    input, select { padding:.4rem; border-radius:.4rem; border:1px solid #334155; background:#0f172a; color:var(--fg); }
+    button.action { background:var(--accent); color:#0f172a; border:none; padding:.4rem .8rem; border-radius:.4rem; cursor:pointer; }
+    table { width:100%; border-collapse:collapse; }
+    th,td { padding:.4rem; border-bottom:1px solid #334155; text-align:left; }
+    .muted { color:var(--muted); font-size:.9rem; }
+    .row { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+    .hidden { display:none; }
+  </style>
 </head>
 <body>
-  <main>
+  <header>
     <h1>Better Tracker</h1>
-    <section id="about">
-      <h2>Acerca de</h2>
-      <p>Versión: <span id="version">—</span></p>
-      <p>Commit: <span id="commit">—</span></p>
-      <p>Compilado: <span id="build-date">—</span></p>
+    <nav>
+      <button data-view="exercises" class="active">Ejercicios</button>
+      <button data-view="workout">Entrenar</button>
+      <button data-view="history">Historial</button>
+      <button data-view="about">Acerca de</button>
+    </nav>
+  </header>
+  <main>
+    <section id="view-exercises">
+      <div class="card">
+        <h2>Nuevo ejercicio</h2>
+        <div class="row">
+          <input id="ex-name" placeholder="Nombre (ej. Press banca)" />
+          <input id="ex-muscle" placeholder="Grupo muscular" />
+          <button class="action" id="ex-add">Añadir</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Ejercicios</h2>
+        <table><thead><tr><th>Nombre</th><th>Grupo</th><th></th></tr></thead><tbody id="ex-list"></tbody></table>
+      </div>
+    </section>
+
+    <section id="view-workout" class="hidden">
+      <div class="card">
+        <h2>Nuevo entrenamiento</h2>
+        <div class="row">
+          <input id="wo-name" placeholder="Nombre del entrenamiento" />
+          <input id="wo-date" type="date" />
+          <button class="action" id="wo-add-ex">Añadir ejercicio</button>
+          <select id="wo-ex-select"></select>
+        </div>
+      </div>
+      <div id="wo-entries"></div>
+      <div class="card">
+        <button class="action" id="wo-save">Guardar entrenamiento</button>
+        <span class="muted" id="wo-status"></span>
+      </div>
+    </section>
+
+    <section id="view-history" class="hidden">
+      <div class="card">
+        <h2>Historial</h2>
+        <div id="history-list"></div>
+      </div>
+    </section>
+
+    <section id="view-about" class="hidden">
+      <div class="card">
+        <h2>Acerca de</h2>
+        <p>Versión: <span id="version">—</span></p>
+        <p>Commit: <span id="commit">—</span></p>
+        <p>Compilado: <span id="build-date">—</span></p>
+        <p class="muted">Esquema de bóveda: <span id="vault">—</span></p>
+      </div>
     </section>
   </main>
   <script type="module" src="/src/main.ts"></script>
