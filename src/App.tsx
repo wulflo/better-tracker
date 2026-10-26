@@ -10,6 +10,9 @@ import PlanView from './PlanView';
 import InjuriesView from './InjuriesView';
 import WellnessView from './WellnessView';
 import GoalsView from './GoalsView';
+import MesocyclesView from './MesocyclesView';
+import RemindersView from './RemindersView';
+import CalendarView from './CalendarView';
 
 interface AppInfo { version: string; commit: string; build_date: string; vault_schema_version: number; }
 interface Exercise { id: string; name: string; muscle: string; type: string; }
@@ -59,7 +62,7 @@ function bodyFatCunBae(bmi: number, age: number, sex: 'male'|'female'): number {
   return -44.988 + (0.503 * age) + (10.689 * s) + (3.172 * bmi) - (0.026 * bmi * bmi) + (0.181 * bmi * s) - (0.02 * bmi * age) - (0.005 * bmi * bmi * s) + (0.00021 * bmi * bmi * age);
 }
 
-type View = 'exercises' | 'workout' | 'history' | 'weight' | 'measurements' | 'body' | 'routines' | 'session' | 'plan' | 'injuries' | 'wellness' | 'nutrition' | 'goals' | 'stats' | 'status' | 'about';
+type View = 'exercises' | 'workout' | 'history' | 'weight' | 'measurements' | 'body' | 'routines' | 'session' | 'plan' | 'calendar' | 'injuries' | 'wellness' | 'nutrition' | 'goals' | 'mesocycles' | 'reminders' | 'stats' | 'status' | 'about';
 
 export default function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -170,6 +173,9 @@ export default function App() {
         {navBtn('routines','Rutinas')}
         {navBtn('session','Sesión')}
         {navBtn('plan','Planificación')}
+        {navBtn('calendar','Calendario')}
+        {navBtn('mesocycles','Mesociclos')}
+        {navBtn('reminders','Recordatorios')}
         {navBtn('injuries','Lesiones')}
         {navBtn('wellness','Bienestar')}
         {navBtn('history','Historial')}
@@ -314,6 +320,9 @@ export default function App() {
         {view === 'routines' && <RoutinesView deviceId={deviceId} exercises={exercises} events={events} onRefresh={refresh} />}
         {view === 'session' && <SessionView deviceId={deviceId} exercises={exercises} events={events} onRefresh={refresh} />}
         {view === 'plan' && <PlanView deviceId={deviceId} events={events} routines={events.filter(e=>e.kind==='routine.saved').map(e=>e.payload as any)} onRefresh={refresh} />}
+        {view === 'calendar' && <CalendarView events={events} />}
+        {view === 'mesocycles' && <MesocyclesView deviceId={deviceId} events={events} onRefresh={refresh} />}
+        {view === 'reminders' && <RemindersView deviceId={deviceId} events={events} onRefresh={refresh} />}
         {view === 'injuries' && <InjuriesView deviceId={deviceId} events={events} onRefresh={refresh} />}
         {view === 'wellness' && <WellnessView deviceId={deviceId} events={events} onRefresh={refresh} />}
         {view === 'goals' && <GoalsView deviceId={deviceId} events={events} onRefresh={refresh} />}
@@ -328,7 +337,7 @@ export default function App() {
               <p><strong>Eventos:</strong> {events.length}</p>
               <p><strong>Último evento:</strong> {events.length ? events[events.length-1].timestamp : '—'}</p>
             </div>
-            <button onClick={async () => { try { const p = await invoke<string>('export_events'); alert('Exportado a ' + p); } catch(e){ console.error(e); } }} style={{ marginTop:12, padding:'0.6rem 1.2rem', background:'#38bdf8', border:'none', borderRadius:6, cursor:'pointer' }}>Exportar JSON</button>
+            <p style={{ fontSize:12, opacity:.6, marginTop:8 }}>Sin exportación (datos solo en la bóveda).</p>
           </>
         )}
         {view === 'about' && info && (

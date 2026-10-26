@@ -45,7 +45,7 @@ export default function StatsView({ events }: Props) {
         <div style={{ background:'#f1f5f9', color:'#0f172a', padding:'1rem', borderRadius:6 }}><strong>Registros de peso</strong><p>{weights.length}</p></div>
         <div style={{ background:'#f1f5f9', color:'#0f172a', padding:'1rem', borderRadius:6 }}><strong>PRs</strong><p>{prs.length}</p></div>
       </div>
-      <button onClick={exportCsv} style={{ marginTop:12, padding:'0.6rem 1.2rem', background:'#38bdf8', border:'none', borderRadius:6, cursor:'pointer' }}>Exportar CSV</button>
+      <p style={{ fontSize:11, opacity:.6, marginTop:8 }}>Sin exportación. Sincroniza la carpeta de la bóveda con tu herramienta preferida.</p>
       {oneRMs.length > 0 && (
         <>
           <h2 style={{ marginTop:16 }}>Estimación de 1RM (Epley/Brzycki)</h2>
