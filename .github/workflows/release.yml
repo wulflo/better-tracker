@@ -207,7 +207,7 @@ jobs:
           UPD=$(ls "$BASE"/macos/*.app.tar.gz | head -n1)
           test -f "$UPD"
           test -f "$UPD.sig"
-          base64 -D "$UPD.sig" | grep -q '^untrusted comment:'
+          base64 -D < "$UPD.sig" | grep -q '^untrusted comment:'
           if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
             codesign --verify --deep --strict "$APP"
             spctl -a -vvv -t install "$APP"
