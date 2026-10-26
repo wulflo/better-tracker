@@ -1,4 +1,5 @@
 import React from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { VaultEvent } from './vault';
 
 interface Props { events: VaultEvent[]; }
@@ -12,6 +13,18 @@ export default function StatsView({ events }: Props) {
   const totalTime = sessions.reduce((a, s) => a + (s.payload.duration || 0), 0);
 
   // 1RM estimates from PRs
+  const exportCsv = async () => {
+    const rows = ['fecha,ejercicio,series,reps,peso'];
+    for (const w of workouts) {
+      for (const e of w.payload.entries) {
+        for (const s of e.sets) {
+          rows.push(`${w.payload.date},${e.exerciseId},${e.sets.length},${s.reps},${s.weight}`);
+        }
+      }
+    }
+    try { await invoke('save_text_file', { content: rows.join('\n'), filterName: 'CSV', ext: 'csv' }); } catch (e) { console.error(e); }
+  };
+
   const oneRMs = prs.map(p => {
     const w = p.payload.weight;
     // assume ~5 reps for estimate; use stored reps if available
@@ -32,6 +45,7 @@ export default function StatsView({ events }: Props) {
         <div style={{ background:'#f1f5f9', color:'#0f172a', padding:'1rem', borderRadius:6 }}><strong>Registros de peso</strong><p>{weights.length}</p></div>
         <div style={{ background:'#f1f5f9', color:'#0f172a', padding:'1rem', borderRadius:6 }}><strong>PRs</strong><p>{prs.length}</p></div>
       </div>
+      <button onClick={exportCsv} style={{ marginTop:12, padding:'0.6rem 1.2rem', background:'#38bdf8', border:'none', borderRadius:6, cursor:'pointer' }}>Exportar CSV</button>
       {oneRMs.length > 0 && (
         <>
           <h2 style={{ marginTop:16 }}>Estimación de 1RM (Epley/Brzycki)</h2>

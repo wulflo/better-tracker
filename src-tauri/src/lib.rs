@@ -22,6 +22,7 @@ pub fn run() {
             commands::list_events,
             commands::append_event,
             commands::export_events,
+            commands::save_text_file,
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();

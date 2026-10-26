@@ -71,3 +71,15 @@ pub fn export_events(app: AppHandle) -> Result<String, String> {
         None => Err("cancelled".into()),
     }
 }
+
+#[tauri::command]
+pub fn save_text_file(app: AppHandle, content: String, filter_name: String, ext: String) -> Result<String, String> {
+    let path = app.dialog().file().add_filter(&filter_name, &[&ext]).blocking_save_file();
+    match path {
+        Some(fp) => {
+            std::fs::write(fp.to_string(), content).map_err(|e| e.to_string())?;
+            Ok(fp.to_string())
+        }
+        None => Err("cancelled".into()),
+    }
+}
