@@ -2,15 +2,16 @@
 
 Entrenamiento, composición corporal, nutrición y carga semanal en una app de escritorio local-first.
 
-Versión actual: **0.8.1**.
+Versión actual: **0.8.2**.
 
 ## Plataformas
+
+Better Tracker se publica únicamente para Linux y Windows.
 
 | Sistema | Artefactos | Actualización integrada |
 | --- | --- | --- |
 | Linux x86_64 | `.AppImage`, `.deb`, `.rpm` | Solo AppImage. `.deb`/`.rpm` se actualizan con el paquete nuevo. |
 | Windows 10/11 x64 | NSIS `.exe` (instalación por usuario), `.msi` | NSIS. |
-| macOS 11+ (Intel y Apple Silicon) | `.dmg` universal | App firmada; el actualizador descarga el `.app.tar.gz` firmado. |
 
 En Linux la app usa GTK/WebKit y funciona en Wayland de forma nativa. Si un driver propietario provoca fallos de renderizado, prueba a iniciar con `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
 
@@ -51,7 +52,7 @@ La versión vive en `VERSION`. Después de cambiarla:
 node scripts/sync-version.mjs
 ```
 
-El workflow de release compila Linux, Windows y macOS, firma los artefactos del updater, genera `latest.json`, `release-manifest.json` y `SHA256SUMS.txt`, y publica el release. Consulta [docs/VERSIONING.md](docs/VERSIONING.md) y [docs/RELEASE_SECRETS.md](docs/RELEASE_SECRETS.md).
+El workflow de release compila Linux y Windows, firma los artefactos del updater, genera `latest.json`, `release-manifest.json` y `SHA256SUMS.txt`, y publica el release. Consulta [docs/VERSIONING.md](docs/VERSIONING.md) y [docs/RELEASE_SECRETS.md](docs/RELEASE_SECRETS.md).
 
 ## Verificación
 
@@ -63,7 +64,7 @@ El workflow de release compila Linux, Windows y macOS, firma los artefactos del 
 ## Limitaciones conocidas
 
 - La bóveda no está cifrada.
-- Los certificados de firma de código de Windows y macOS son opcionales y no están incluidos en el repositorio; sin ellos los instaladores se publican sin firma de sistema, aunque el updater sí va firmado.
-- Los builds de Windows y macOS se verifican en GitHub Actions, no en esta máquina Linux.
+- El certificado de firma de código de Windows es opcional y no está incluido en el repositorio; sin él los instaladores se publican sin firma de sistema, aunque el updater sí va firmado.
+- El build de Windows se verifica en GitHub Actions; Linux se verifica localmente y en CI.
 - Las estimaciones de composición y carga son orientativas, no diagnóstico médico.
 - La base de alimentos incluida usa valores aproximados por 100 g/ml y sirve para estimar; no sustituye etiquetas, tablas oficiales ni asesoramiento profesional.

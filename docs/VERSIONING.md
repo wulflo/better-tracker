@@ -29,7 +29,7 @@ git diff -- package.json package-lock.json src-tauri/tauri.conf.json \
 4. El workflow `.github/workflows/release.yml`:
    - ejecuta CI;
    - crea un release draft con el tag exacto;
-   - compila Linux, Windows y macOS;
+   - compila Linux y Windows;
    - firma los artefactos del updater con la clave de GitHub Secrets;
    - verifica los instaladores y las firmas;
    - sube los assets;
@@ -44,9 +44,8 @@ Los cambios que solo tocan `*.md` o `docs/**` no disparan el workflow por `paths
 | --- | --- | --- | --- |
 | Linux x86_64 | `.AppImage`, `.deb`, `.rpm` | El propio `.AppImage` + `.AppImage.sig` | `linux-x86_64` |
 | Windows x64 | NSIS `.exe`, `.msi` | El `.exe` de NSIS + `.exe.sig` (preferido; MSI como alternativa) | `windows-x86_64` |
-| macOS universal | `.dmg` | `.app.tar.gz` + `.app.tar.gz.sig` | `darwin-x86_64` y `darwin-aarch64` |
 
-Tauri verifica la firma minisign del artefacto del updater antes de instalar. El `.dmg`, `.deb` y `.rpm` no son artefactos de actualización automática; se descargan manualmente.
+Tauri verifica la firma minisign del artefacto del updater antes de instalar. El `.deb` y `.rpm` no son artefactos de actualización automática; se descargan manualmente.
 
 ## `latest.json`
 
@@ -54,11 +53,12 @@ Es el manifiesto que lee el plugin updater. Se genera con `scripts/generate-upda
 
 ```json
 {
-  "version": "0.8.1",
+  "version": "0.8.2",
   "notes": "Notas del release",
   "pub_date": "2026-10-26T00:00:00.000Z",
   "platforms": {
-    "linux-x86_64": { "signature": "...", "url": "https://github.com/.../download/v0.8.1/..." }
+    "linux-x86_64": { "signature": "...", "url": "https://github.com/.../download/v0.8.2/..." },
+    "windows-x86_64": { "signature": "...", "url": "https://github.com/.../download/v0.8.2/..." }
   }
 }
 ```
@@ -69,7 +69,7 @@ El endpoint configurado es:
 https://github.com/wulflo/better-tracker/releases/latest/download/latest.json
 ```
 
-El workflow exige las cuatro claves (`linux-x86_64`, `windows-x86_64`, `darwin-x86_64`, `darwin-aarch64`) antes de publicar. Si falta un build o una firma, el release queda en draft.
+El workflow exige las dos claves (`linux-x86_64`, `windows-x86_64`) antes de publicar. Si falta un build o una firma, el release queda en draft.
 
 ## `release-manifest.json` y `SHA256SUMS.txt`
 
@@ -78,7 +78,6 @@ Además del manifiesto del updater, el release incluye el catálogo interno de a
 ## Firma de código del sistema operativo
 
 - **Windows**: si existe `WINDOWS_CERTIFICATE`, el workflow importa el PFX y añade `certificateThumbprint`, `digestAlgorithm` y `timestampUrl` a la configuración de Windows. Si no existe, el instalador se publica sin Authenticode.
-- **macOS**: si existe `APPLE_CERTIFICATE`, se importa en un keychain temporal y se configura `APPLE_SIGNING_IDENTITY`. Si además están `APPLE_ID`, `APPLE_PASSWORD` y `APPLE_TEAM_ID`, Tauri notariza. Si no, se publica sin firma/notarización.
 - El updater siempre va firmado con la clave minisign, independientemente de la firma del sistema operativo.
 
 Ver `docs/RELEASE_SECRETS.md` para la lista de secretos.
@@ -91,9 +90,8 @@ Verificación en el workflow:
 - `.deb`: `dpkg-deb -I`.
 - `.rpm`: `rpm -qpi`.
 - AppImage: extracción y comprobación del `.desktop`.
-- `.dmg`/`.app`: `CFBundleShortVersionString` y, si hay certificado, `codesign`/`spctl`.
 - Windows: presencia de NSIS, MSI y sus firmas del updater; Authenticode si hay certificado.
-- Updater: `.sig` con cabecera minisign válida y manifiesto con todas las plataformas.
+- Updater: `.sig` con cabecera minisign válida y manifiesto con todas las plataformas publicadas.
 
 ## Actualización en la app
 

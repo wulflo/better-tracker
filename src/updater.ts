@@ -13,9 +13,8 @@ export function canUseUpdater(installFormat?: string): boolean {
   if (!isTauri()) return false;
   // Tauri's Linux updater only supports AppImage. deb/rpm users should use
   // their package manager instead of trying to replace a system package.
-  // Windows/macOS builds fall back to their platform name until the plugin
-  // reports a more specific install format.
-  return ['appimage', 'windows', 'macos', 'dmg', 'msi', 'nsis', 'exe'].includes(installFormat ?? '');
+  // Windows builds may report a generic or a specific installer format.
+  return ['appimage', 'windows', 'msi', 'nsis', 'exe'].includes(installFormat ?? '');
 }
 
 export async function checkForUpdate(): Promise<Update | null> {
@@ -40,8 +39,8 @@ export async function installUpdate(
       onProgress(downloaded, total);
     }
   });
-  // Windows exits after launching the installer. On Linux/macOS we must
-  // relaunch to start the newly installed version.
+  // Windows exits after launching the installer. On Linux we must relaunch
+  // to start the newly installed version.
   await relaunch();
 }
 

@@ -61,13 +61,11 @@ pub fn detect_install_format() -> &'static str {
         Ok("deb") => "deb",
         Ok("rpm") => "rpm",
         Ok("appimage") => "appimage",
-        Ok("dmg") => "dmg",
         Ok("msi") => "msi",
         Ok("nsis") => "nsis",
         Ok("exe") => "exe",
         Ok("apk") => "apk",
         _ if cfg!(target_os = "windows") => "windows",
-        _ if cfg!(target_os = "macos") => "macos",
         _ if cfg!(target_os = "linux") => "linux",
         _ => "unknown",
     }

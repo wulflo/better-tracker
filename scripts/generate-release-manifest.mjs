@@ -62,21 +62,6 @@ function detect(p) {
     else if (machine === 0xb7) arch = 'aarch64';
     return { platform, arch, format };
   }
-  // Mach-O / dmg
-  if (hex.startsWith('7801730d') /* dmg UDIF */ || buf.includes(Buffer.from('koly'))) {
-    // crude dmg detection
-    format = 'dmg';
-    platform = 'macos';
-    arch = 'universal';
-    return { platform, arch, format };
-  }
-  if (hex.startsWith('cffaedfe') || hex.startsWith('cefaedfe') || hex.startsWith('cafebabe') || hex.startsWith('cafebabf')) {
-    // Mach-O
-    format = 'dmg';
-    platform = 'macos';
-    arch = hex.startsWith('cafebabe') || hex.startsWith('cafebabf') ? 'universal' : normalizeArch(execFileSync('file', ['-b', p], { encoding: 'utf8' }));
-    return { platform, arch, format };
-  }
   // PE (Windows exe/msi)
   if (hex.startsWith('4d5a')) {
     platform = 'windows';

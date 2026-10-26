@@ -42,13 +42,6 @@ function archFromName(name) {
   return 'x86_64';
 }
 
-function macArchFromName(name) {
-  if (/aarch64|arm64/i.test(name)) return 'aarch64';
-  if (/x86_64|amd64|x64/i.test(name)) return 'x86_64';
-  // Tauri names universal bundles without an architecture suffix.
-  return 'universal';
-}
-
 function assetUrl(file) {
   return `https://github.com/${repo}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(basename(file))}`;
 }
@@ -90,14 +83,6 @@ for (const sig of files.filter((f) => f.endsWith('.sig'))) {
   } else if (/\.AppImage\.tar\.gz$/i.test(name)) {
     // Legacy v1-compatible updater archive.
     addPlatform(`linux-${arch}`, asset, signature, 10);
-  } else if (/\.app\.tar\.gz$/i.test(name)) {
-    const macArch = macArchFromName(name);
-    if (macArch === 'universal') {
-      addPlatform('darwin-x86_64', asset, signature, 20);
-      addPlatform('darwin-aarch64', asset, signature, 20);
-    } else {
-      addPlatform(`darwin-${macArch}`, asset, signature, 20);
-    }
   } else if (/\.exe$/i.test(name)) {
     // NSIS installer, preferred on Windows because it installs per-user.
     addPlatform('windows-x86_64', asset, signature, 30);
@@ -110,7 +95,7 @@ for (const sig of files.filter((f) => f.endsWith('.sig'))) {
   }
 }
 
-const required = ['linux-x86_64', 'windows-x86_64', 'darwin-x86_64', 'darwin-aarch64'];
+const required = ['linux-x86_64', 'windows-x86_64'];
 const missing = required.filter((key) => !platforms[key]);
 if (missing.length) {
   console.error(`Missing updater artifacts for: ${missing.join(', ')}`);

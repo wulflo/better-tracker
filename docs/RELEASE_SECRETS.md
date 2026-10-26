@@ -44,24 +44,6 @@ El contenido útil es el bloque entre las líneas `-----BEGIN CERTIFICATE-----` 
 
 Variable opcional del repositorio: `WINDOWS_TIMESTAMP_URL` (por defecto `http://timestamp.digicert.com`).
 
-## Firma y notarización de macOS (opcional)
-
-| Secreto | Contenido |
-| --- | --- |
-| `APPLE_CERTIFICATE` | Certificado `.p12` en base64. |
-| `APPLE_CERTIFICATE_PASSWORD` | Contraseña del `.p12`. |
-| `APPLE_ID` | Apple ID para notarización. |
-| `APPLE_PASSWORD` | Contraseña específica de app para notarización. |
-| `APPLE_TEAM_ID` | Team ID de Apple Developer. |
-
-El workflow crea un keychain temporal, importa el certificado, obtiene la identidad de firma y la exporta como `APPLE_SIGNING_IDENTITY`. Si los tres secretos de notarización están completos, Tauri notariza y grapa el ticket. Si no, el build queda sin notarizar.
-
-Exportar el `.p12` a base64 en macOS:
-
-```bash
-base64 -i certificate.p12 | tr -d '\n' > certificate-base64.txt
-```
-
 ## Comprobar secretos
 
 ```bash
@@ -75,5 +57,4 @@ No es posible leer el valor de un secreto desde `gh`; solo se lista su nombre y 
 
 - **Firma del updater (minisign)**: obligatoria para que la app acepte la actualización. La verifica el plugin Tauri antes de instalar.
 - **Authenticode (Windows)**: reduce avisos de SmartScreen y permite verificar el editor. No sustituye la firma del updater.
-- **Developer ID / notarización (macOS)**: evita bloqueos de Gatekeeper. No sustituye la firma del updater.
 - **SHA-256**: integridad de las descargas manuales, no autenticidad criptográfica por sí solo.
