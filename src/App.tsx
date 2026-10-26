@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { appendEvent, getDeviceId, getVaultPath, listEvents, newEvent, selectVault, VaultEvent } from './vault';
+import BodyFigure, { BodyMeasures } from './BodyFigure';
 
 interface AppInfo { version: string; commit: string; build_date: string; vault_schema_version: number; }
 interface Exercise { id: string; name: string; muscle: string; type: string; }
@@ -8,7 +9,7 @@ interface SetEntry { reps: number; weight: number; }
 interface WorkoutEntry { exerciseId: string; sets: SetEntry[]; }
 interface Workout { id: string; date: string; name: string; entries: WorkoutEntry[]; }
 interface WeightEntry { date: string; kg: number; }
-interface MeasurementEntry { date: string; neck: number; chest: number; waist: number; hip: number; arm: number; thigh: number; calf: number; height: number; }
+interface MeasurementEntry extends BodyMeasures { date: string; }
 
 function reduceExercises(events: VaultEvent[]): Exercise[] {
   const map = new Map<string, Exercise>();
@@ -50,7 +51,7 @@ function bodyFatCunBae(bmi: number, age: number, sex: 'male'|'female'): number {
   return -44.988 + (0.503 * age) + (10.689 * s) + (3.172 * bmi) - (0.026 * bmi * bmi) + (0.181 * bmi * s) - (0.02 * bmi * age) - (0.005 * bmi * bmi * s) + (0.00021 * bmi * bmi * age);
 }
 
-type View = 'exercises' | 'workout' | 'history' | 'weight' | 'measurements' | 'about';
+type View = 'exercises' | 'workout' | 'history' | 'weight' | 'measurements' | 'body' | 'about';
 
 export default function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -70,7 +71,7 @@ export default function App() {
   const [weightKg, setWeightKg] = useState('');
   const [weightDate, setWeightDate] = useState(new Date().toISOString().slice(0,10));
 
-  const [meas, setMeas] = useState<MeasurementEntry>({ date: new Date().toISOString().slice(0,10), neck: 38, chest: 100, waist: 85, hip: 95, arm: 32, thigh: 55, calf: 38, height: 175 });
+  const [meas, setMeas] = useState<MeasurementEntry>({ date: new Date().toISOString().slice(0,10), sex: 'male', age: 30, weight: 75, height: 175, neck: 38, chest: 100, waist: 85, hip: 95, arm: 32, thigh: 55, calf: 38, wrist: 17 });
   const [sex, setSex] = useState<'male'|'female'>('male');
   const [age, setAge] = useState(30);
 
@@ -161,6 +162,7 @@ export default function App() {
         {navBtn('history','Historial')}
         {navBtn('weight','Peso')}
         {navBtn('measurements','Medidas')}
+        {navBtn('body','Figura corporal')}
         {navBtn('about','Acerca de')}
         <p style={{ fontSize:11, opacity:.6, marginTop:'1rem' }}>Eventos: {events.length}</p>
       </aside>
@@ -284,6 +286,12 @@ export default function App() {
               <p>% grasa CUN-BAE: {bodyFatCunBae(bmiVal, age, sex).toFixed(1)}%</p>
               {measurements.length > 0 && <p>Registros guardados: {measurements.length}</p>}
             </div>
+          </>
+        )}
+        {view === 'body' && (
+          <>
+            <h1>Figura corporal</h1>
+            <BodyFigure measures={meas} onChange={(m) => setMeas({ ...meas, ...m })} />
           </>
         )}
         {view === 'about' && info && (
