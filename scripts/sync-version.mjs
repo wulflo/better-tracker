@@ -39,8 +39,8 @@ const lockPath = join(ROOT, 'src-tauri', 'Cargo.lock');
 try {
   let lock = readFileSync(lockPath, 'utf8');
   lock = lock.replace(
-    /(name = "better-tracker"\nversion = ")[^"]*(")/,
-    `$1${version}$2`
+    /(name = "better-tracker")(\r?\n)(version = ")[^"]*(")/,
+    `$1$2$3${version}$4`
   );
   writeFileSync(lockPath, lock);
 } catch (e) {
@@ -58,7 +58,7 @@ function extractCargoVersion(text) {
   return m ? m[1] : null;
 }
 function extractLockVersion(text) {
-  const m = text.match(/name = "better-tracker"\nversion = "([^"]*)"/);
+  const m = text.match(/name = "better-tracker"\r?\nversion = "([^"]*)"/);
   return m ? m[1] : null;
 }
 
