@@ -8,6 +8,7 @@ import Select from './components/Select';
 import { NumberInput, Field, EmptyState, Stat } from './components/Fields';
 import { Icon } from './components/Icons';
 import { MiniSparkline } from './components/Charts';
+import FatTrend from './components/FatTrend';
 
 interface Props {
   deviceId: string;
@@ -103,6 +104,8 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
           caption={comp.whtr !== null ? `Cintura/altura ${comp.whtr.toFixed(2)}` : 'Faltan peso y altura'}
         />
       </div>
+
+      <FatTrend events={events} />
 
       <div className="body-layout">
         <section className="card">

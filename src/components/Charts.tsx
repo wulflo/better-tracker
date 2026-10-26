@@ -29,21 +29,29 @@ export function LineChart({
   height = 170,
   suffix = '',
   area = true,
+  zeroBased = true,
+  decimals = 0,
 }: {
   points: LinePoint[];
   color?: string;
   height?: number;
   suffix?: string;
   area?: boolean;
+  zeroBased?: boolean;
+  decimals?: number;
 }) {
   if (points.length === 0) return <EmptyChart />;
   const w = 640;
   const h = height;
   const pad = { l: 42, r: 12, t: 16, b: 28 };
   const values = points.map((p) => p.value);
-  const max = Math.max(...values, 1);
-  const min = Math.min(...values, 0);
+  const dataMin = Math.min(...values);
+  const dataMax = Math.max(...values);
+  const padValue = Math.max(0.5, (dataMax - dataMin) * 0.18);
+  const max = zeroBased ? Math.max(dataMax, 1) : dataMax + padValue;
+  const min = zeroBased ? Math.min(dataMin, 0) : dataMin - padValue;
   const span = max - min || 1;
+  const formatValue = (value: number) => value.toFixed(decimals);
   const x = (i: number) => pad.l + (i / Math.max(1, points.length - 1)) * (w - pad.l - pad.r);
   const y = (v: number) => pad.t + (1 - (v - min) / span) * (h - pad.t - pad.b);
   const line = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
@@ -57,7 +65,7 @@ export function LineChart({
         <g key={i}>
           <line x1={pad.l} x2={w - pad.r} y1={y(t)} y2={y(t)} stroke="var(--outline-variant)" strokeDasharray="3 5" />
           <text x={pad.l - 8} y={y(t) + 4} textAnchor="end" className="chart-axis">
-            {Math.round(t)}
+            {formatValue(t)}
           </text>
         </g>
       ))}
@@ -66,7 +74,7 @@ export function LineChart({
       {points.map((p, i) => (
         <g key={`${p.label}-${i}`}>
           <circle cx={x(i)} cy={y(p.value)} r={p.mark ? 5 : 3} fill={p.mark ? 'var(--warning)' : color} stroke="var(--surface)" strokeWidth="1.5">
-            <title>{`${p.label}: ${p.value}${suffix}${p.mark ? ' · marca personal' : ''}`}</title>
+            <title>{`${p.label}: ${formatValue(p.value)}${suffix}${p.mark ? ' · marca personal' : ''}`}</title>
           </circle>
           {p.mark && <circle cx={x(i)} cy={y(p.value)} r={9} fill="none" stroke="var(--warning)" strokeWidth="1.5" opacity="0.7" />}
           {i % labelEvery === 0 && (

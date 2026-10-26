@@ -1,6 +1,60 @@
 export type Sex = 'male' | 'female' | 'unspecified';
 export type GoalMode = 'cut' | 'maintain' | 'bulk';
 
+export type FoodCategory =
+  | 'fruta'
+  | 'verdura'
+  | 'cereal'
+  | 'legumbre'
+  | 'carne'
+  | 'pescado'
+  | 'huevo'
+  | 'lacteo'
+  | 'fruto_seco'
+  | 'grasa'
+  | 'bebida'
+  | 'condimento'
+  | 'dulce'
+  | 'procesado'
+  | 'suplemento'
+  | 'otro';
+
+export type MealSlot = 'desayuno' | 'comida' | 'cena' | 'snack';
+
+export interface FoodPer100 {
+  kcal: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+}
+
+export interface Food {
+  id: string;
+  name: string;
+  category: FoodCategory;
+  per100: FoodPer100;
+  /** Gramos que pesa una unidad de cada medida (g/ml se manejan aparte). */
+  units: Record<string, number>;
+  custom?: boolean;
+}
+
+export interface FoodLogItem {
+  id: string;
+  foodId: string;
+  name: string;
+  category: FoodCategory;
+  meal: MealSlot;
+  quantity: number;
+  unit: string;
+  grams: number;
+  kcal: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+}
+
 export interface Exercise {
   id: string;
   name: string;

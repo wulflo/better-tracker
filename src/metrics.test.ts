@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bodyProgressSeries,
   daysBetween,
   latestMeasurement,
+  latestNutrition,
   reduceExercises,
+  reduceNutrition,
   safeNum,
   startOfWeek,
   todayISO,
@@ -51,6 +54,42 @@ describe('metrics', () => {
     ];
     const visible = visibleTrainingEvents(events);
     expect(visible.map((e) => e.kind)).toEqual(['weight.logged', 'history.cleared', 'session.saved']);
+  });
+
+  it('keeps only the latest nutrition log per day', () => {
+    const events = [
+      event('nutrition.logged', { date: '2026-01-01', kcal: 2000, protein: 120, carbs: 220, fat: 60, fiber: 25, water: 2000 }),
+      event('nutrition.logged', { date: '2026-01-01', kcal: 2200, protein: 140, carbs: 240, fat: 65, fiber: 30, water: 2500 }, '2026-01-01T12:00:00.000Z'),
+      event('nutrition.logged', { date: '2026-01-02', kcal: 2100, protein: 130, carbs: 230, fat: 62, fiber: 28, water: 2200 }, '2026-01-02T08:00:00.000Z'),
+    ];
+    expect(reduceNutrition(events)).toHaveLength(3);
+    expect(latestNutrition(events, '2026-01-01')?.kcal).toBe(2200);
+    expect(latestNutrition(events, '2026-01-02')?.protein).toBe(130);
+  });
+
+  it('builds a fat-progress series without requiring a scale', () => {
+    const events = [
+      event('measurement.saved', {
+        date: '2026-01-01', sex: 'male', age: 35, height: 180, weight: 90,
+        neck: 40, waist: 100, hip: 100, chest: 105, arm: 35, thigh: 60, calf: 39, wrist: 17,
+      }),
+      event('measurement.saved', {
+        date: '2026-02-01', sex: 'male', age: 35, height: 180, weight: 86,
+        neck: 39, waist: 94, hip: 98, chest: 103, arm: 34.5, thigh: 58, calf: 38.5, wrist: 17,
+      }, '2026-02-01T00:00:00.000Z'),
+    ];
+    const series = bodyProgressSeries(events);
+    expect(series).toHaveLength(2);
+    expect(series[0].bodyFat).not.toBeNull();
+    expect(series[1].bodyFat).not.toBeNull();
+    expect(series[1].bodyFat as number).toBeLessThan(series[0].bodyFat as number);
+    expect(series[1].fatMass).toBeCloseTo((series[1].weight as number) * (series[1].bodyFat as number) / 100, 5);
+
+    const noScale = bodyProgressSeries([
+      event('measurement.saved', { date: '2026-03-01', sex: 'female', age: 30, height: 165, neck: 33, waist: 80, hip: 100 }),
+    ]);
+    expect(noScale[0].bodyFat).not.toBeNull();
+    expect(noScale[0].fatMass).toBeNull();
   });
 
   it('returns a measurement merged with defaults', () => {

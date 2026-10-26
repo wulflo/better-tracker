@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   BodyMeasures,
   Exercise,
+  Food,
+  FoodLogItem,
   GoalMode,
   MeasurementEntry,
   NutritionEntry,
@@ -26,11 +28,15 @@ import {
   trainingAlerts,
   trainingSummary,
 } from './metrics';
+import { FOODS, mealTotals, reduceCustomFoods } from './foodDb';
+import { clearMealDraft, loadMealDraft, saveMealDraft } from './meals';
 import { ZONE_MAP } from './zones';
 import Select from './components/Select';
 import { NumberInput, Field, EmptyState, Stat } from './components/Fields';
 import { Icon } from './components/Icons';
 import { BodyHeatmap, MiniSparkline, ProgressBar } from './components/Charts';
+import FoodLog from './components/FoodLog';
+import FatTrend from './components/FatTrend';
 
 interface Props {
   deviceId: string;
@@ -42,6 +48,14 @@ interface Props {
 }
 
 const DAY_NAMES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+function emptyNutrition(date: string): NutritionEntry {
+  return { date, kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, water: 0 };
+}
+
+function emptyMacros(date: string): Pick<NutritionEntry, 'date' | 'kcal' | 'protein' | 'carbs' | 'fat' | 'fiber'> {
+  return { date, kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+}
 
 export default function PanelView({ deviceId, events, exercises, onRefresh, notify, onNavigate }: Props) {
   const lastMeas = latestMeasurement(events);
@@ -59,15 +73,10 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
 
   const [weightDate, setWeightDate] = useState(todayISO());
   const [weightKg, setWeightKg] = useState(0);
-  const [nutri, setNutri] = useState<NutritionEntry>({
-    date: todayISO(),
-    kcal: 0,
-    protein: 0,
-    carbs: 0,
-    fat: 0,
-    fiber: 0,
-    water: 0,
-  });
+  const [day, setDay] = useState(() => todayISO());
+  const [mealItems, setMealItems] = useState<FoodLogItem[]>(() => loadMealDraft(todayISO()));
+  const [nutri, setNutri] = useState<NutritionEntry>(() => emptyNutrition(todayISO()));
+  const dirtyNutrition = useRef(false);
   const [goalMode, setGoalMode] = useState<GoalMode>(() => goalModeFromEvents(events));
   const [remTitle, setRemTitle] = useState('');
   const [remTime, setRemTime] = useState('18:00');
@@ -79,6 +88,9 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
   const zoneLoad = exerciseSummary.zoneLoad;
   const alerts = useMemo(() => trainingAlerts(exerciseSummary), [exerciseSummary]);
   const reminders = useMemo(() => reduceReminders(events), [events]);
+  const customFoods = useMemo(() => reduceCustomFoods(events), [events]);
+  const foods = useMemo(() => [...FOODS, ...customFoods], [customFoods]);
+  const savedToday = useMemo(() => latestNutrition(events, day), [events, day]);
 
   const currentWeight =
     (weights.length ? weights[weights.length - 1].kg : 0) || lastMeas?.weight || 0;
@@ -126,9 +138,47 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
       notify('Los valores de ingesta no pueden ser negativos.', 'error');
       return;
     }
-    await appendEvent(newEvent(deviceId, 'nutrition.logged', { ...nutri }));
+    const wasSaved = savedToday !== null;
+    await appendEvent(newEvent(deviceId, 'nutrition.logged', { ...nutri, date: day }));
+    dirtyNutrition.current = false;
     await onRefresh();
-    notify('Ingesta del día guardada.', 'success');
+    notify(
+      wasSaved
+        ? 'Ingesta de hoy actualizada: se sobrescribió el log de este día.'
+        : 'Ingesta de hoy guardada como log diario.',
+      'success',
+    );
+  };
+
+  const createFood = async (food: Food) => {
+    await appendEvent(newEvent(deviceId, 'food.saved', food));
+    await onRefresh();
+    notify(`Alimento "${food.name}" añadido a la base local.`, 'success');
+  };
+
+  const addMeal = (item: FoodLogItem) => {
+    dirtyNutrition.current = true;
+    setMealItems((items) => [...items, item]);
+  };
+
+  const removeMeal = (id: string) => {
+    const next = mealItems.filter((item) => item.id !== id);
+    dirtyNutrition.current = true;
+    setMealItems(next);
+    if (!next.length) {
+      setNutri((current) => ({ ...current, ...emptyMacros(day) }));
+    }
+  };
+
+  const clearMeals = () => {
+    dirtyNutrition.current = true;
+    setMealItems([]);
+    setNutri((current) => ({ ...current, ...emptyMacros(day) }));
+  };
+
+  const changeNutri = (patch: Partial<NutritionEntry>) => {
+    dirtyNutrition.current = true;
+    setNutri((current) => ({ ...current, ...patch, date: day }));
   };
 
   const changeGoal = async (mode: GoalMode) => {
@@ -188,14 +238,43 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
     return () => window.clearInterval(id);
   }, [reminders, notify]);
 
-  const loadNutritionForDate = (date: string) => {
-    const existing = latestNutrition(events, date);
-    setNutri(
-      existing ?? { date, kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, water: 0 },
-    );
-  };
+  useEffect(() => {
+    if (dirtyNutrition.current) return;
+    if (mealItems.length > 0) return;
+    setNutri(savedToday ?? emptyNutrition(day));
+  }, [savedToday, day, mealItems.length]);
 
-  const hasNutrition = nutri.kcal > 0 || nutri.protein > 0 || nutri.carbs > 0 || nutri.fat > 0 || nutri.fiber > 0 || nutri.water > 0;
+  useEffect(() => {
+    if (!mealItems.length) return;
+    const totals = mealTotals(mealItems);
+    setNutri((current) => ({
+      ...current,
+      ...emptyMacros(day),
+      ...totals,
+      water: current.water || savedToday?.water || 0,
+    }));
+  }, [mealItems, day, savedToday]);
+
+  useEffect(() => {
+    saveMealDraft(day, mealItems);
+  }, [day, mealItems]);
+
+  useEffect(() => {
+    const check = () => {
+      const current = todayISO();
+      if (current === day) return;
+      clearMealDraft();
+      setDay(current);
+      setMealItems([]);
+      setNutri(emptyNutrition(current));
+      dirtyNutrition.current = false;
+    };
+    const id = window.setInterval(check, 30_000);
+    check();
+    return () => window.clearInterval(id);
+  }, [day]);
+
+  const hasNutrition = mealItems.length > 0 || nutri.kcal > 0 || nutri.protein > 0 || nutri.carbs > 0 || nutri.fat > 0 || nutri.fiber > 0 || nutri.water > 0;
   const topZone = exerciseSummary.topZone;
 
   return (
@@ -313,6 +392,8 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
           </div>
         </section>
 
+        <FatTrend events={events} className="span-2" />
+
         <section className="card">
           <div className="card-header">
             <div>
@@ -362,33 +443,73 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
           </div>
         </section>
 
-        <section className="card">
+        <section className="card span-2">
           <div className="card-header">
             <div>
-              <div className="card-title"><Icon name="bowl" /> Saciedad dual</div>
-              <div className="card-sub">Presión gástrica (volumen, fibra, agua) + señal bioquímica (proteína, fibra, grasas). No es una sola vía.</div>
+              <div className="card-title"><Icon name="bowl" /> Ingesta y saciedad dual</div>
+              <div className="card-sub">Añade alimentos del día, calcula calorías y macros automáticamente y guarda un único log diario. El borrador se borra al terminar el día.</div>
             </div>
+            <span className={`badge ${savedToday ? 'badge-success' : 'badge-muted'}`}>
+              {savedToday ? 'Log de hoy guardado' : 'Sin log de hoy'}
+            </span>
           </div>
           <div className="card-body stack">
-            <div className="grid grid-2" style={{ gap: 10 }}>
-              <Field label="Fecha de ingesta"><input className="input" type="date" value={nutri.date} onChange={(e) => loadNutritionForDate(e.target.value)} /></Field>
-              <Field label="Calorías (kcal)"><NumberInput value={nutri.kcal} onChange={(v) => setNutri({ ...nutri, kcal: v })} placeholder="2200" min={0} max={8000} /></Field>
-              <Field label="Proteína (g)"><NumberInput value={nutri.protein} onChange={(v) => setNutri({ ...nutri, protein: v })} placeholder="135" min={0} max={500} /></Field>
-              <Field label="Carbohidratos (g)"><NumberInput value={nutri.carbs} onChange={(v) => setNutri({ ...nutri, carbs: v })} placeholder="250" min={0} max={1000} /></Field>
-              <Field label="Grasas (g)"><NumberInput value={nutri.fat} onChange={(v) => setNutri({ ...nutri, fat: v })} placeholder="70" min={0} max={400} /></Field>
-              <Field label="Fibra (g)"><NumberInput value={nutri.fiber} onChange={(v) => setNutri({ ...nutri, fiber: v })} placeholder="30" min={0} max={150} /></Field>
-              <Field label="Agua (ml)"><NumberInput value={nutri.water} onChange={(v) => setNutri({ ...nutri, water: v })} placeholder="2500" min={0} max={10000} step={100} /></Field>
+            <FoodLog
+              foods={foods}
+              items={mealItems}
+              onAdd={addMeal}
+              onRemove={removeMeal}
+              onClear={clearMeals}
+              onCreateFood={createFood}
+            />
+
+            <div className="divider" />
+
+            <div className="row between wrap">
+              <span className="badge badge-primary"><Icon name="calendar" size={12} /> Hoy · {day}</span>
+              <span className="hint">El log diario se guarda una sola vez por fecha; guardar de nuevo sobrescribe el de hoy.</span>
             </div>
-            <div className="row between">
-              <button className="btn btn-primary btn-sm" onClick={saveNutrition}><Icon name="check" size={14} /> Guardar ingesta</button>
+
+            <div className="grid grid-2" style={{ gap: 10 }}>
+              <Field label="Agua (ml)">
+                <NumberInput value={nutri.water} onChange={(v) => changeNutri({ water: v })} placeholder="2500" min={0} max={10000} step={100} />
+              </Field>
+              <div className="stack-sm">
+                <span className="field-label">Totales actuales</span>
+                <div className="chips">
+                  <span className="chip active">{nutri.kcal} kcal</span>
+                  <span className="chip active">{nutri.protein} g proteína</span>
+                  <span className="chip active">{nutri.carbs} g carbohidratos</span>
+                  <span className="chip active">{nutri.fat} g grasas</span>
+                  <span className="chip active">{nutri.fiber} g fibra</span>
+                </div>
+              </div>
+            </div>
+
+            <details className="details">
+              <summary>Ajustar macros manualmente (opcional)</summary>
+              <div className="grid grid-3" style={{ marginTop: 12 }}>
+                <Field label="Calorías (kcal)"><NumberInput value={nutri.kcal} onChange={(v) => changeNutri({ kcal: v })} placeholder="2200" min={0} max={8000} /></Field>
+                <Field label="Proteína (g)"><NumberInput value={nutri.protein} onChange={(v) => changeNutri({ protein: v })} placeholder="135" min={0} max={500} /></Field>
+                <Field label="Carbohidratos (g)"><NumberInput value={nutri.carbs} onChange={(v) => changeNutri({ carbs: v })} placeholder="250" min={0} max={1000} /></Field>
+                <Field label="Grasas (g)"><NumberInput value={nutri.fat} onChange={(v) => changeNutri({ fat: v })} placeholder="70" min={0} max={400} /></Field>
+                <Field label="Fibra (g)"><NumberInput value={nutri.fiber} onChange={(v) => changeNutri({ fiber: v })} placeholder="30" min={0} max={150} /></Field>
+              </div>
+            </details>
+
+            <div className="row between wrap">
+              <button className="btn btn-primary" onClick={saveNutrition} disabled={!hasNutrition}>
+                <Icon name="check" size={15} /> {savedToday ? 'Actualizar ingesta de hoy' : 'Guardar ingesta de hoy'}
+              </button>
               {macros && <span className="hint">Objetivo: {macros.kcal} kcal · {macros.protein} g proteína · {(macros.waterMl / 1000).toFixed(1)} L</span>}
             </div>
+
             {!macros ? (
               <p className="hint">Añade tu peso para comparar la ingesta con tus objetivos.</p>
             ) : !hasNutrition ? (
               <div className="notice notice-info">
                 <Icon name="info" size={16} />
-                <span>Registra tu ingesta del día para ver las dos vías de saciedad.</span>
+                <span>Añade comidas o agua para ver las dos vías de saciedad.</span>
               </div>
             ) : satiety && (
               <div className="stack">

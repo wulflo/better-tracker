@@ -16,10 +16,12 @@ En Linux la app usa GTK/WebKit y funciona en Wayland de forma nativa. Si un driv
 
 ## Qué incluye
 
-- **Panel**: peso, composición, macros, agua, saciedad dual, recordatorios y alertas de carga.
+- **Panel**: peso, composición, macros, agua, saciedad dual, progreso de grasa, recordatorios y alertas de carga.
 - **Entrenamiento**: biblioteca de ejercicios, rutinas, plan semanal, sesión en vivo, calendario y progreso.
 - **Historial**: sesiones, entrenamientos, marcas personales y borrado visible.
-- **Figura corporal**: silueta adaptativa, circunferencias y estimaciones de grasa corporal.
+- **Figura corporal**: silueta adaptativa, circunferencias, estimaciones de grasa y gráfico de descenso de grasa. El % de grasa se puede seguir solo con medidas (cintura + altura), sin báscula.
+- **Ingesta diaria**: buscador local con más de 200 alimentos comunes, cantidades en gramos, mililitros, unidades, tazas, cucharadas, porciones y otras medidas, cálculo dinámico de calorías/macros y alimentos personalizados guardados en la bóveda.
+- **Borrador de comidas y log diario**: las comidas del día se guardan como borrador efímero y se borran al terminar el día. Al guardar la ingesta se crea un único log por fecha; volver a guardar el mismo día lo sobrescribe lógicamente sin borrar el historial append-only.
 
 ## Datos y privacidad
 
@@ -53,7 +55,7 @@ El workflow de release compila Linux, Windows y macOS, firma los artefactos del 
 
 ## Verificación
 
-- `npm test` ejecuta las pruebas unitarias de la lógica de métricas.
+- `npm test` ejecuta las pruebas unitarias de métricas, alimentos y borrador diario.
 - `npx tsc --noEmit` comprueba tipos.
 - `cargo test`, `cargo clippy` y el workflow de CI comprueban Rust.
 - El workflow de release verifica los artefactos de cada plataforma y exige las firmas del updater.
@@ -64,3 +66,4 @@ El workflow de release compila Linux, Windows y macOS, firma los artefactos del 
 - Los certificados de firma de código de Windows y macOS son opcionales y no están incluidos en el repositorio; sin ellos los instaladores se publican sin firma de sistema, aunque el updater sí va firmado.
 - Los builds de Windows y macOS se verifican en GitHub Actions, no en esta máquina Linux.
 - Las estimaciones de composición y carga son orientativas, no diagnóstico médico.
+- La base de alimentos incluida usa valores aproximados por 100 g/ml y sirve para estimar; no sustituye etiquetas, tablas oficiales ni asesoramiento profesional.

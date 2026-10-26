@@ -44,11 +44,21 @@ El pegado y el arrastre se interceptan globalmente. Solo se acepta `text/plain`;
 El workflow compila las tres plataformas, sube los instaladores y los artefactos del updater, genera `latest.json`, `release-manifest.json` y `SHA256SUMS.txt`, y publica el release solo cuando todos los builds y las verificaciones terminan bien.
 
 ## UI
-Cuatro secciones: Panel, Entrenamiento, Historial y Figura corporal. Entrenamiento incluye biblioteca, rutinas, plan, sesión, calendario y progreso. Los mesociclos y recordatorios están integrados en el plan y el panel.
+Cuatro secciones: Panel, Entrenamiento, Historial y Figura corporal. Entrenamiento incluye biblioteca, rutinas, plan, sesión, calendario y progreso. Los mesociclos y recordatorios están integrados en el plan y el panel. El logo se muestra tal cual, sin contenedor circular ni recorte adicional; su propia forma redondeada define el borde.
+
+## Progreso de grasa
+La serie se calcula con las medidas guardadas. `bodyProgressSeries` deduplica por fecha y usa `bodyComposition` para obtener % grasa, masa grasa, masa magra y cintura. El % de grasa puede estimarse sin báscula mediante RFM/Navy; la masa grasa en kg solo aparece si hay peso. El gráfico no usa base cero para que los cambios pequeños sean visibles, y es orientativo.
+
+## Ingesta, comidas y alimentos
+- La base de alimentos es local y estática (`src/foodDb.ts`), con más de 200 alimentos comunes y valores aproximados por 100 g/ml. Los alimentos personalizados se guardan como eventos `food.saved` en la bóveda y se reducen al último evento por id.
+- Las comidas del día son un borrador efímero en `localStorage` (`bt.meal.draft.v1`), con fecha. Si la fecha no coincide con hoy, se elimina al cargar; un intervalo de 30 s también lo limpia al cruzar medianoche. No forman parte de la bóveda.
+- El log de ingesta sí es un evento append-only `nutrition.logged`. Solo hay un log lógico por fecha: al guardar de nuevo se añade un evento nuevo y la reducción determinista por fecha + timestamp hace que gane el último. No se muta ni se borra el evento anterior.
+- Las medidas se convierten a gramos con `units` por alimento; `g` y `ml` son equivalentes aproximados y el resto usa pesos por unidad, taza, cucharada, porción, etc.
+- Los valores son estimaciones orientativas y no sustituyen etiquetas o consejo profesional.
 
 ## Limitaciones
 - Sin cifrado de bóveda.
 - Sin fotos de progreso.
 - Recordatorios solo mientras la app está abierta; no se programan en el sistema operativo.
 - Los builds de Windows/macOS no se prueban localmente en este equipo Linux.
-- Las estimaciones son orientativas y no sustituyen valoración médica.
+- Las estimaciones y la base de alimentos son orientativas y no sustituyen valoración médica.

@@ -148,9 +148,23 @@ export function latestMeasurement(events: VaultEvent[]): MeasurementEntry | null
 
 export function reduceNutrition(events: VaultEvent[]): NutritionEntry[] {
   return events
-    .filter((e) => e.kind === 'nutrition.logged')
-    .map((e) => ({ ...(e.payload as NutritionEntry), fiber: Number(e.payload?.fiber) || 0 }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+    .map((event, index) => ({ event, index }))
+    .filter(({ event }) => event.kind === 'nutrition.logged')
+    .map(({ event, index }) => ({
+      entry: {
+        ...(event.payload as NutritionEntry),
+        fiber: Number(event.payload?.fiber) || 0,
+      },
+      timestamp: event.timestamp,
+      index,
+    }))
+    .sort(
+      (a, b) =>
+        a.entry.date.localeCompare(b.entry.date) ||
+        a.timestamp.localeCompare(b.timestamp) ||
+        a.index - b.index,
+    )
+    .map(({ entry }) => entry);
 }
 
 export function latestNutrition(events: VaultEvent[], date: string): NutritionEntry | null {
@@ -671,6 +685,45 @@ export function bodyComposition(m: BodyMeasures): BodyComposition {
     missing: [...new Set(missing)],
     used: methods.map((x) => x.name),
   };
+}
+
+export interface BodyProgressPoint {
+  date: string;
+  bodyFat: number | null;
+  fatMass: number | null;
+  leanMass: number | null;
+  waist: number | null;
+  weight: number | null;
+}
+
+/**
+ * Serie de progreso corporal para el gráfico de grasa.
+ *
+ * El % de grasa puede estimarse solo con cintura + altura (RFM), así que la
+ * gráfica funciona sin báscula. La masa grasa en kg requiere además el peso.
+ * Si hay varias medidas en la misma fecha, gana el último evento guardado.
+ */
+export function bodyProgressSeries(events: VaultEvent[]): BodyProgressPoint[] {
+  const byDate = new Map<string, MeasurementEntry>();
+  for (const event of events) {
+    if (event.kind !== 'measurement.saved') continue;
+    const raw = event.payload as Partial<MeasurementEntry> | null;
+    if (!raw || typeof raw.date !== 'string' || !raw.date) continue;
+    byDate.set(raw.date, { ...EMPTY_MEASURES, ...raw, date: raw.date });
+  }
+  return [...byDate.values()]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((measurement) => {
+      const comp = bodyComposition(measurement);
+      return {
+        date: measurement.date,
+        bodyFat: comp.avg,
+        fatMass: comp.fatMass,
+        leanMass: comp.leanMass,
+        waist: measurement.waist > 0 ? measurement.waist : null,
+        weight: measurement.weight > 0 ? measurement.weight : null,
+      };
+    });
 }
 
 export function estimate1RM(weight: number, reps: number): { epley: number | null; brzycki: number | null } {
