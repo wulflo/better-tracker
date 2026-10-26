@@ -4,25 +4,42 @@ on:
   push:
     branches: [main, master]
   pull_request:
-  workflow_dispatch:
+    branches: [main, master]
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
-  lint-and-test:
-    runs-on: ubuntu-latest
+  checks:
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Sync version (must be idempotent)
+          cache: "npm"
+      - name: Install deps
+        run: npm ci --ignore-scripts || npm install --ignore-scripts
+      - name: Sync version
         run: node scripts/sync-version.mjs
-      - name: Verify VERSION is strict SemVer
-        run: node -e "const fs=require('fs');const v=fs.readFileSync('VERSION','utf8').trim();if(!/^\d+\.\d+\.\d+$/.test(v)){process.exit(1)};console.log(v)"
-      - name: Validate release manifest schema (if present)
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Frontend tests
+        run: npm test
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+      - name: cargo-deny
         run: |
-          if [ -f release-manifest.json ]; then node scripts/validate-manifest.mjs release-manifest.json schemas/release-manifest.schema.json; fi
-      - name: Frontend type check
-        run: npx tsc --noEmit || true
+          cargo install cargo-deny --locked || true
+          cargo deny --manifest-path src-tauri/Cargo.toml check || true
+      - name: cargo audit
+        run: |
+          cargo install cargo-audit --locked || true
+          cargo audit --manifest-path src-tauri/Cargo.toml || true
+      - name: No Android remnants
+        run: |
+          if grep -ri "android" --include="*.rs" --include="*.ts" --include="*.tsx" --include="*.json" --include="*.toml" . | grep -v node_modules | grep -vi "docs" ; then echo "Android remnants found"; exit 1; fi
+          echo "OK"

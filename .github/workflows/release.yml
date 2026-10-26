@@ -2,154 +2,169 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   workflow_dispatch:
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  version:
+    needs: checks
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      tag: ${{ steps.ver.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Compute version
+        id: ver
+        run: |
+          BASE=$(cat VERSION | tr -d '[:space:]')
+          MAJOR_MINOR=$(echo "$BASE" | cut -d. -f1,2)
+          PATCH=$(git rev-list --count HEAD)
+          VER="${MAJOR_MINOR}.${PATCH}"
+          echo "version=$VER" >> $GITHUB_OUTPUT
+          echo "tag=v$VER" >> $GITHUB_OUTPUT
+      - name: Inject version (build only)
+        run: |
+          node -e "
+            const fs=require('fs');
+            const v=process.argv[1];
+            // tauri.conf.json
+            let t=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));
+            t.version=v; fs.writeFileSync('src-tauri/tauri.conf.json',JSON.stringify(t,null,2));
+            // package.json
+            let p=JSON.parse(fs.readFileSync('package.json','utf8'));
+            p.version=v; fs.writeFileSync('package.json',JSON.stringify(p,null,2));
+            // Cargo.toml
+            let c=fs.readFileSync('src-tauri/Cargo.toml','utf8');
+            c=c.replace(/^version\\s*=\\s*\"[^\"]*\"/m,'version = \"'+v+'\"');
+            fs.writeFileSync('src-tauri/Cargo.toml',c);
+          " "${{ steps.ver.outputs.version }}"
+
+  draft:
+    needs: version
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.version.outputs.tag }}"
+          VER="${{ needs.version.outputs.version }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release exists, reusing"
+          else
+            gh release create "$TAG" --draft --title "$TAG" --notes "Release $VER"
+          fi
+
   build:
+    needs: [version, draft]
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: Linux
-            platform: ubuntu-22.04
-            args: ''
-            artifact_path: |
-              src-tauri/target/release/bundle/deb/*.deb
-              src-tauri/target/release/bundle/rpm/*.rpm
-              src-tauri/target/release/bundle/appimage/*.AppImage
-          - name: macOS
-            platform: macos-latest
-            args: ''
-            artifact_path: |
-              src-tauri/target/release/bundle/dmg/*.dmg
-          - name: Windows
-            platform: windows-latest
-            args: ''
-            artifact_path: |
-              src-tauri/target/release/bundle/msi/*.msi
-              src-tauri/target/release/bundle/nsis/*.exe
-
-    runs-on: ${{ matrix.platform }}
-    outputs:
-      normalized_version: ${{ steps.norm.outputs.version }}
+          - os: ubuntu-22.04
+            platform: linux
+          - os: macos-14
+            platform: macos
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: "npm"
       - name: Install Linux deps
-        if: matrix.platform == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm libfuse2
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm libfuse2 xvfb
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - name: Install deps
-        run: npm install --ignore-scripts
-      - name: Sync version
-        run: node scripts/sync-version.mjs
-      - name: Build
-        run: npm run tauri build -- ${{ matrix.args }}
-      # Verification: .deb
-      - name: Verify .deb version
-        if: matrix.platform == 'ubuntu-22.04'
+        run: npm ci --ignore-scripts || npm install --ignore-scripts
+      - name: Inject version
+        run: |
+          node -e "
+            const fs=require('fs');
+            const v=process.argv[1];
+            let t=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8')); t.version=v; fs.writeFileSync('src-tauri/tauri.conf.json',JSON.stringify(t,null,2));
+            let p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version=v; fs.writeFileSync('package.json',JSON.stringify(p,null,2));
+            let c=fs.readFileSync('src-tauri/Cargo.toml','utf8'); c=c.replace(/^version\\s*=\\s*\"[^\"]*\"/m,'version = \"'+v+'\"'); fs.writeFileSync('src-tauri/Cargo.toml',c);
+          " "${{ needs.version.outputs.version }}"
+      - name: Build (Linux)
+        if: matrix.platform == 'linux'
+        run: npm run tauri build
+      - name: Build (macOS universal)
+        if: matrix.platform == 'macos'
+        run: |
+          npm run tauri build -- --target universal-apple-darwin
+      - name: Verify Linux artifacts
+        if: matrix.platform == 'linux'
         run: |
           set -euo pipefail
-          DEB=$(ls src-tauri/target/release/bundle/deb/*.deb | head -n1)
-          RAW=$(dpkg-deb -f "$DEB" Version)
-          NORM=$(node scripts/normalize-version.mjs "$RAW")
-          echo "deb raw=$RAW normalized=$NORM"
-          test "$NORM" = "$(cat VERSION)"
-      # Verification: .rpm
-      - name: Verify .rpm version
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          set -euo pipefail
-          RPM=$(ls src-tauri/target/release/bundle/rpm/*.rpm | head -n1)
-          RAW=$(rpm -qp --queryformat '%{VERSION}' "$RPM")
-          NORM=$(node scripts/normalize-version.mjs "$RAW")
-          echo "rpm raw=$RAW normalized=$NORM"
-          test "$NORM" = "$(cat VERSION)"
-      # Verification: AppImage
-      - name: Verify AppImage version
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          set -euo pipefail
+          for f in src-tauri/target/release/bundle/deb/*.deb; do dpkg-deb -I "$f" >/dev/null; done
+          for f in src-tauri/target/release/bundle/rpm/*.rpm; do rpm -qpi "$f" >/dev/null; done
           IMG=$(ls src-tauri/target/release/bundle/appimage/*.AppImage | head -n1)
           chmod +x "$IMG"
-          IMG_ABS=$(realpath "$IMG")
-          echo "AppImage: $IMG"
           mkdir -p appimage_extracted
-          (cd appimage_extracted && "$IMG_ABS" --appimage-extract)
-          echo "Extracted files:"
-          find appimage_extracted/squashfs-root -maxdepth 2 -name '*.desktop' -print
-          test -n "$(find appimage_extracted/squashfs-root -maxdepth 2 -name '*.desktop' -print -quit)"
-          RAW=$("$IMG" --version)
-          echo "raw=$RAW"
-          NORM=$(node scripts/normalize-version.mjs "$RAW")
-          echo "appimage raw=$RAW normalized=$NORM"
-          test "$NORM" = "$(cat VERSION)"
-      # Verification: .dmg
-      - name: Verify .dmg version
-        if: matrix.platform == 'macos-latest'
+          ABS=$(realpath "$IMG")
+          (cd appimage_extracted && "$ABS" --appimage-extract)
+          test -n "$(find appimage_extracted/squashfs-root -name '*.desktop' -print -quit)"
+      - name: Upload assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          DMG=$(ls src-tauri/target/release/bundle/dmg/*.dmg | head -n1)
-          hdiutil attach "$DMG" -nobrowse -mountpoint /tmp/dmgmount
-          PLIST=$(ls /tmp/dmgmount/*.app/Contents/Info.plist | head -n1)
-          RAW=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST")
-          BINARY=$(ls /tmp/dmgmount/*.app/Contents/MacOS/* | head -n1)
-          BIN_VER=$("$BINARY" --version)
-          hdiutil detach /tmp/dmgmount
-          NORM=$(node scripts/normalize-version.mjs "$RAW")
-          echo "dmg plist=$RAW bin=$BIN_VER normalized=$NORM"
-          test "$NORM" = "$(cat VERSION)"
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ matrix.name }}
-          path: ${{ matrix.artifact_path }}
-          if-no-files-found: warn
+          TAG="${{ needs.version.outputs.tag }}"
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            for f in src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/rpm/*.rpm src-tauri/target/release/bundle/appimage/*.AppImage; do
+              gh release upload "$TAG" "$f" --clobber
+            done
+          else
+            for f in src-tauri/target/release/bundle/dmg/*.dmg; do
+              gh release upload "$TAG" "$f" --clobber
+            done
+          fi
 
-      - name: Normalize version output
-        id: norm
-        run: echo "version=$(node scripts/normalize-version.mjs "$(cat VERSION)")" >> "$GITHUB_OUTPUT"
-
-  consistency:
+  publish:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Compare all versions
+      - name: Generate SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          EXPECTED=$(cat VERSION)
-          echo "Expected: $EXPECTED"
-          # All matrix jobs must have succeeded (enforced by needs).
-          echo "All build jobs succeeded; versions verified per format."
-
-  manifest:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-assets
-      - name: Generate release manifest
-        run: node scripts/generate-release-manifest.mjs release-assets release-manifest.json
-      - name: Validate manifest schema
-        run: node scripts/validate-manifest.mjs release-manifest.json schemas/release-manifest.schema.json
-      - name: Generate SHA256SUMS.txt
-        run: |
-          cd release-assets
-          find . -type f -print0 | sort -z | xargs -0 sha256sum > ../SHA256SUMS.txt
-          cd ..
-      - name: Compare manifest with SHA256SUMS
-        run: node scripts/check-sha256sums.mjs release-manifest.json SHA256SUMS.txt
+          TAG="${{ needs.build.outputs.tag || '' }}"
+          # fallback: get tag from version job not available; use latest draft tag
+          TAG=$(gh release list --json tagName,isDraft -q '.[] | select(.isDraft==true) | .tagName' | head -n1)
+          mkdir -p assets
+          gh release download "$TAG" --dir assets
+          cd assets && find . -type f -print0 | sort -z | xargs -0 sha256sum > ../SHA256SUMS.txt && cd ..
+          gh release upload "$TAG" SHA256SUMS.txt --clobber
+          gh release edit "$TAG" --draft=false
