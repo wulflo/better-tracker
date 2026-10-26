@@ -79,9 +79,10 @@ jobs:
           set -euo pipefail
           IMG=$(ls src-tauri/target/release/bundle/appimage/*.AppImage | head -n1)
           chmod +x "$IMG"
+          IMG_ABS=$(realpath "$IMG")
           echo "AppImage: $IMG"
           mkdir -p appimage_extracted
-          (cd appimage_extracted && "$IMG" --appimage-extract)
+          (cd appimage_extracted && "$IMG_ABS" --appimage-extract)
           echo "Extracted files:"
           find appimage_extracted/squashfs-root -maxdepth 2 -name '*.desktop' -print
           test -n "$(find appimage_extracted/squashfs-root -maxdepth 2 -name '*.desktop' -print -quit)"
