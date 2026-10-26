@@ -65,6 +65,21 @@ export default function SessionView({ deviceId, exercises, events, onRefresh }: 
       rpeSession: 7,
     };
     await appendEvent(newEvent(deviceId, 'session.saved', session));
+    // PR detection: max weight per exercise
+    const prevMax = new Map<string, number>();
+    for (const ev of events) {
+      if (ev.kind === 'pr.achieved') {
+        const p = ev.payload as any;
+        if (typeof p.weight === 'number') prevMax.set(p.exerciseId, Math.max(prevMax.get(p.exerciseId) || 0, p.weight));
+      }
+    }
+    for (const entry of entries) {
+      const maxW = Math.max(...entry.sets.map(s => s.weight), 0);
+      if (maxW > 0 && maxW > (prevMax.get(entry.exerciseId) || 0)) {
+        const ex = exercises.find(e => e.id === entry.exerciseId);
+        await appendEvent(newEvent(deviceId, 'pr.achieved', { exerciseId: entry.exerciseId, name: ex?.name, weight: maxW, date: session.date }));
+      }
+    }
     clearInterval(timerRef.current);
     setSessionStart(null);
     setEntries([]);

@@ -55,7 +55,7 @@ function bodyFatCunBae(bmi: number, age: number, sex: 'male'|'female'): number {
   return -44.988 + (0.503 * age) + (10.689 * s) + (3.172 * bmi) - (0.026 * bmi * bmi) + (0.181 * bmi * s) - (0.02 * bmi * age) - (0.005 * bmi * bmi * s) + (0.00021 * bmi * bmi * age);
 }
 
-type View = 'exercises' | 'workout' | 'history' | 'weight' | 'measurements' | 'body' | 'routines' | 'session' | 'nutrition' | 'stats' | 'about';
+type View = 'exercises' | 'workout' | 'history' | 'weight' | 'measurements' | 'body' | 'routines' | 'session' | 'nutrition' | 'stats' | 'status' | 'about';
 
 export default function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -171,6 +171,7 @@ export default function App() {
         {navBtn('body','Figura corporal')}
         {navBtn('nutrition','Nutrición')}
         {navBtn('stats','Estadísticas')}
+        {navBtn('status','Estado bóveda')}
         {navBtn('about','Acerca de')}
         <p style={{ fontSize:11, opacity:.6, marginTop:'1rem' }}>Eventos: {events.length}</p>
       </aside>
@@ -306,6 +307,18 @@ export default function App() {
         {view === 'session' && <SessionView deviceId={deviceId} exercises={exercises} events={events} onRefresh={refresh} />}
         {view === 'nutrition' && <NutritionView deviceId={deviceId} events={events} onRefresh={refresh} />}
         {view === 'stats' && <StatsView events={events} />}
+        {view === 'status' && (
+          <>
+            <h1>Estado de la bóveda</h1>
+            <div style={{ background:'#f1f5f9', color:'#0f172a', padding:'1rem', borderRadius:6 }}>
+              <p><strong>Ruta:</strong> {vault}</p>
+              <p><strong>Dispositivo:</strong> {deviceId}</p>
+              <p><strong>Eventos:</strong> {events.length}</p>
+              <p><strong>Último evento:</strong> {events.length ? events[events.length-1].timestamp : '—'}</p>
+            </div>
+            <button onClick={async () => { try { const p = await invoke<string>('export_events'); alert('Exportado a ' + p); } catch(e){ console.error(e); } }} style={{ marginTop:12, padding:'0.6rem 1.2rem', background:'#38bdf8', border:'none', borderRadius:6, cursor:'pointer' }}>Exportar JSON</button>
+          </>
+        )}
         {view === 'about' && info && (
           <>
             <h1>Acerca de</h1>

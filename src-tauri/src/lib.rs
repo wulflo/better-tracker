@@ -21,6 +21,7 @@ pub fn run() {
             commands::select_vault,
             commands::list_events,
             commands::append_event,
+            commands::export_events,
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();

@@ -57,3 +57,17 @@ pub fn list_events(app: AppHandle) -> Result<Vec<vault::Event>, String> {
 pub fn append_event(app: AppHandle, event: vault::Event) -> Result<(), String> {
     vault::append_event(&app, &event)
 }
+
+#[tauri::command]
+pub fn export_events(app: AppHandle) -> Result<String, String> {
+    let path = app.dialog().file().add_filter("JSON", &["json"]).blocking_save_file();
+    match path {
+        Some(fp) => {
+            let events = vault::read_events(&app)?;
+            let json = serde_json::to_string_pretty(&events).map_err(|e| e.to_string())?;
+            std::fs::write(fp.to_string(), json).map_err(|e| e.to_string())?;
+            Ok(fp.to_string())
+        }
+        None => Err("cancelled".into()),
+    }
+}
