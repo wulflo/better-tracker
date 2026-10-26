@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { appendEvent, getDeviceId, getVaultPath, listEvents, newEvent, selectVault, VaultEvent } from './vault';
 import BodyFigure, { BodyMeasures } from './BodyFigure';
+import RoutinesView from './RoutinesView';
+import SessionView from './SessionView';
 
 interface AppInfo { version: string; commit: string; build_date: string; vault_schema_version: number; }
 interface Exercise { id: string; name: string; muscle: string; type: string; }
@@ -51,7 +53,7 @@ function bodyFatCunBae(bmi: number, age: number, sex: 'male'|'female'): number {
   return -44.988 + (0.503 * age) + (10.689 * s) + (3.172 * bmi) - (0.026 * bmi * bmi) + (0.181 * bmi * s) - (0.02 * bmi * age) - (0.005 * bmi * bmi * s) + (0.00021 * bmi * bmi * age);
 }
 
-type View = 'exercises' | 'workout' | 'history' | 'weight' | 'measurements' | 'body' | 'about';
+type View = 'exercises' | 'workout' | 'history' | 'weight' | 'measurements' | 'body' | 'routines' | 'session' | 'about';
 
 export default function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -159,6 +161,8 @@ export default function App() {
         <h2>Better Tracker</h2>
         {navBtn('exercises','Ejercicios')}
         {navBtn('workout','Entrenar')}
+        {navBtn('routines','Rutinas')}
+        {navBtn('session','Sesión')}
         {navBtn('history','Historial')}
         {navBtn('weight','Peso')}
         {navBtn('measurements','Medidas')}
@@ -294,6 +298,8 @@ export default function App() {
             <BodyFigure measures={meas} onChange={(m) => setMeas({ ...meas, ...m })} />
           </>
         )}
+        {view === 'routines' && <RoutinesView deviceId={deviceId} exercises={exercises} events={events} onRefresh={refresh} />}
+        {view === 'session' && <SessionView deviceId={deviceId} exercises={exercises} events={events} onRefresh={refresh} />}
         {view === 'about' && info && (
           <>
             <h1>Acerca de</h1>
