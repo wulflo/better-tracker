@@ -71,6 +71,12 @@ export default function App() {
   }, [vault, refresh]);
 
   useEffect(() => {
+    const onRefresh = () => void refresh();
+    window.addEventListener('better-tracker:refresh', onRefresh);
+    return () => window.removeEventListener('better-tracker:refresh', onRefresh);
+  }, [refresh]);
+
+  useEffect(() => {
     const onRejection = (e: PromiseRejectionEvent) => {
       e.preventDefault();
       notify(`Error: ${String(e.reason)}`, 'error');

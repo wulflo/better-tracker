@@ -9,7 +9,7 @@ use std::io::Write;
 /* Acceso a los JSONL locales para el motor de sincronización          */
 /* ------------------------------------------------------------------ */
 
-pub const DOMAINS: [&str; 14] = [
+pub const DOMAINS: [&str; 15] = [
   "collections",
   "products",
   "colors",
@@ -24,6 +24,7 @@ pub const DOMAINS: [&str; 14] = [
   "expenses",
   "settings",
   "device_info",
+  "events",
 ];
 
 pub fn ensure_layout(root: &str) -> Result<(), String> {

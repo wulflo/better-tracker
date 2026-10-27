@@ -50,11 +50,11 @@ export default function SyncPanel({ notify }: { notify: (m: string, t?: any) => 
   };
   const syncAll = async () => {
     const r = await call(() => invoke<any>('sync_now', { deviceId: null, address: null }));
-    if (r) notify(`Sincronización: ${JSON.stringify(r)}`, 'info');
+    if (r) { notify(`Sincronización: ${JSON.stringify(r)}`, 'info'); window.dispatchEvent(new Event('better-tracker:refresh')); }
   };
   const syncPeer = async (deviceId: string, addr?: string | null) => {
     const r = await call(() => invoke<any>('sync_now', { deviceId, address: addr ?? null }));
-    if (r) notify(`Sincronizado con ${deviceId}`, 'success');
+    if (r) { notify(`Sincronizado con ${deviceId}`, 'success'); window.dispatchEvent(new Event('better-tracker:refresh')); }
   };
 
   useEffect(() => { refreshPeers(); }, []);

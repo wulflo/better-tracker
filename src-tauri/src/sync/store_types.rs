@@ -46,7 +46,7 @@ pub fn domain_for_event_type(event_type: &str) -> &'static str {
     "Expense" => "expenses",
     "Setting" => "settings",
     "Device" => "device_info",
-    _ => "settings",
+    _ => "events",
   }
 }
 
@@ -60,6 +60,6 @@ mod tests {
     assert_eq!(domain_for_event_type("OrderLine.Added"), "order_lines");
     assert_eq!(domain_for_event_type("ProductionOrder.Created"), "production_orders");
     assert_eq!(domain_for_event_type("Stock.Moved"), "stock_movements");
-    assert_eq!(domain_for_event_type("Unknown.Thing"), "settings");
+    assert_eq!(domain_for_event_type("Unknown.Thing"), "events");
   }
 }

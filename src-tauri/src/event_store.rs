@@ -131,7 +131,7 @@ pub fn store_mtimes(root: String) -> Result<Value, String> {
   let domains = [
     "collections", "products", "colors", "variants", "customers", "orders",
     "order_lines", "payments", "production_orders", "production_lines",
-    "stock_movements", "expenses", "settings", "device_info",
+    "stock_movements", "expenses", "settings", "device_info", "events",
   ];
   let mut out = BTreeMap::new();
   for domain in domains {
