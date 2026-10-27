@@ -52,7 +52,20 @@ pub fn device_id(app: &AppHandle) -> String {
 }
 
 pub fn vault_path(app: &AppHandle) -> Option<PathBuf> {
-    load_config(app).vault_path.map(PathBuf::from)
+    if let Some(p) = load_config(app).vault_path {
+        return Some(PathBuf::from(p));
+    }
+    #[cfg(target_os = "android")]
+    {
+        let p = app.path().app_data_dir().ok()?.join("vault");
+        let _ = fs::create_dir_all(&p);
+        let _ = fs::create_dir_all(p.join("devices"));
+        return Some(p);
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        None
+    }
 }
 
 pub fn set_vault_path(app: &AppHandle, path: &str) -> Result<(), String> {

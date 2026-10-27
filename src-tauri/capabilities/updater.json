@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.tauri.app/v2/capability",
+  "identifier": "updater",
+  "description": "Updater permissions (desktop only)",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["main"],
+  "permissions": [
+    "updater:default"
+  ]
+}

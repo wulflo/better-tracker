@@ -17,6 +17,7 @@ import HistoryView from './HistoryView';
 import BodyView from './BodyView';
 import { Icon, LogoMark } from './components/Icons';
 import UpdatePanel from './components/UpdatePanel';
+import SyncPanel from './components/SyncPanel';
 
 type View = 'panel' | 'training' | 'history' | 'body';
 type ToastTone = 'success' | 'error' | 'info';
@@ -314,6 +315,10 @@ export default function App() {
                 <span className="value mono">{info?.install_format ?? '—'}</span>
               </div>
               <UpdatePanel installFormat={info?.install_format} notify={notify} />
+              <div style={{ marginTop: 12 }}>
+                <div className="modal-title" style={{ fontSize: 14, marginBottom: 6 }}>Sincronización P2P (LAN)</div>
+                <SyncPanel notify={notify} />
+              </div>
               <div className="notice notice-info">
                 <Icon name="info" size={16} />
                 <span>

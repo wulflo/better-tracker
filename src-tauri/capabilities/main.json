@@ -6,7 +6,6 @@
   "permissions": [
     "core:default",
     "dialog:default",
-    "updater:default",
     "process:default"
   ]
 }

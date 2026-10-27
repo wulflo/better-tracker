@@ -2,13 +2,13 @@
 
 Training, body composition, nutrition, and weekly load in a local-first desktop app.
 
-Current version: **0.8.3**.
+Current version: **0.9.0**.
 
 [Leer en español](README.es.md)
 
 ## Platforms
 
-Better Tracker is built and published for Linux and Windows only.
+Better Tracker is built and published for Linux, Windows and Android.
 
 | System | Artifacts | Built-in updates |
 | --- | --- | --- |
