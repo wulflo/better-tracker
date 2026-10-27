@@ -85,6 +85,8 @@ pub fn run() {
             sync_remove_peer,
             sync_auto_get,
             sync_auto_set,
+            sync_discover,
+            generate_qr_svg,
             battery_status,
         ])
         .run(tauri::generate_context!())
@@ -241,6 +243,50 @@ fn sync_set_peer_address(
 #[tauri::command]
 fn sync_remove_peer(state: tauri::State<'_, SyncManager>, device_id: String) -> Result<(), String> {
     state.remove_peer(&device_id)
+}
+
+#[tauri::command]
+async fn sync_discover(duration_ms: Option<u64>) -> Result<Vec<serde_json::Value>, String> {
+    use std::collections::BTreeSet;
+    use tokio::net::UdpSocket;
+    let dur = duration_ms.unwrap_or(2000);
+    let sock = UdpSocket::bind("0.0.0.0:0").await.map_err(|e| e.to_string())?;
+    sock.set_broadcast(true).map_err(|e| e.to_string())?;
+    let _ = sock.send_to(b"DISCOVER", "255.255.255.255:14244").await;
+    let mut buf = [0u8; 2048];
+    let mut found = Vec::new();
+    let mut seen = BTreeSet::new();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(dur);
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep_until(deadline) => break,
+            res = sock.recv_from(&mut buf) => {
+                if let Ok((len, src)) = res {
+                    if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&buf[..len]) {
+                        if json.get("app").and_then(|v| v.as_str()) == Some("better-tracker") {
+                            let port = json.get("port").and_then(|v| v.as_u64()).unwrap_or(14242);
+                            let addr = format!("{}:{}", src.ip(), port);
+                            if seen.insert(addr.clone()) {
+                                let mut entry = json.clone();
+                                if let Some(obj) = entry.as_object_mut() {
+                                    obj.insert("address".to_string(), serde_json::Value::String(addr));
+                                }
+                                found.push(entry);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(found)
+}
+
+#[tauri::command]
+fn generate_qr_svg(text: String) -> Result<String, String> {
+    use qrcode::QrCode;
+    let code = QrCode::new(text.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(code.render::<qrcode::render::svg::Color>().build())
 }
 
 /* ------------------------------------------------------------------ */

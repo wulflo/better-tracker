@@ -144,7 +144,7 @@ pub fn store_mtimes(root: String) -> Result<Value, String> {
       }
     }
   }
-  Ok(serde_json::to_value(out).map_err(|e| format!("Error serializando mtimes: {e}"))?)
+  serde_json::to_value(out).map_err(|e| format!("Error serializando mtimes: {e}"))
 }
 
 /** Lee o genera el identificador de dispositivo persistido junto a los datos. */
@@ -178,11 +178,11 @@ fn uuid_v7() -> String {
     .unwrap_or(0);
   let mut seed = ts.wrapping_add(COUNTER.fetch_add(1, Ordering::Relaxed));
   let mut bytes = [0u8; 16];
-  for i in 0..16 {
+  for chunk in bytes.iter_mut() {
     seed = seed
       .wrapping_mul(6364136223846793005)
       .wrapping_add(1442695040888963407);
-    bytes[i] = (seed >> 32) as u8;
+    *chunk = (seed >> 32) as u8;
   }
   bytes[6] = 0x70 | (bytes[6] & 0x0f); // version 7
   bytes[8] = 0x80 | (bytes[8] & 0x3f); // variant 10

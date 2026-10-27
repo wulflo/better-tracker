@@ -78,7 +78,7 @@ pub fn read_frame<R: Read>(reader: &mut R) -> io::Result<Frame> {
   let mut len_buf = [0u8; 4];
   reader.read_exact(&mut len_buf)?;
   let total = u32::from_be_bytes(len_buf) as usize;
-  if total < 5 || total > MAX_FRAME_SIZE + 5 {
+  if !(5..=MAX_FRAME_SIZE + 5).contains(&total) {
     return Err(io::Error::new(
       io::ErrorKind::InvalidData,
       "longitud de frame inválida",
@@ -113,7 +113,7 @@ pub async fn read_frame_async<R: tokio::io::AsyncRead + Unpin>(
   let mut len_buf = [0u8; 4];
   reader.read_exact(&mut len_buf).await?;
   let total = u32::from_be_bytes(len_buf) as usize;
-  if total < 5 || total > MAX_FRAME_SIZE + 5 {
+  if !(5..=MAX_FRAME_SIZE + 5).contains(&total) {
     return Err(io::Error::new(
       io::ErrorKind::InvalidData,
       "longitud de frame inválida",

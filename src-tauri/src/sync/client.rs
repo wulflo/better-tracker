@@ -141,17 +141,13 @@ pub async fn sync_peer(
     }
 
     // Procesar IdList del servidor y enviar SOLO los eventos que le falten
-    let mut sent_bye = false;
     loop {
       let frame = match tokio::time::timeout(std::time::Duration::from_secs(2), read_frame_async(&mut stream)).await {
         Ok(Ok(f)) => f,
         Ok(Err(e)) => return Err(format!("Error leyendo del peer: {e}")),
         Err(_) => {
           // Timeout: enviar Bye y terminar
-          if !sent_bye {
-            let _ = write_json(&mut stream, FrameType::Bye, &serde_json::json!({})).await;
-            sent_bye = true;
-          }
+          let _ = write_json(&mut stream, FrameType::Bye, &serde_json::json!({})).await;
           break;
         }
       };
@@ -209,10 +205,7 @@ pub async fn sync_peer(
           }
         }
         FrameType::Bye => {
-          if !sent_bye {
-            let _ = write_json(&mut stream, FrameType::Bye, &serde_json::json!({})).await;
-            sent_bye = true;
-          }
+          let _ = write_json(&mut stream, FrameType::Bye, &serde_json::json!({})).await;
           break;
         }
         FrameType::KeepAlive | FrameType::Summary | FrameType::BatchAck => {}

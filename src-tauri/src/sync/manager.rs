@@ -2,8 +2,7 @@ use crate::sync::client;
 use crate::sync::identity::{cert_der_to_pem, fingerprint_from_der, identity_dir, Identity};
 use crate::sync::net::{local_lan_addresses, validate_peer_addr};
 use crate::sync::pairing::{
-  connect_pairing, now_ms, PendingPairing, PairingRegistry, PAIRING_PORT, PAIRING_TTL_MS,
-  SYNC_PORT,
+  connect_pairing, PendingPairing, PairingRegistry, PAIRING_PORT, PAIRING_TTL_MS, SYNC_PORT,
 };
 use crate::sync::peer::{Peer, PeersStore};
 use crate::sync::store_types::{DomainEvent, EventMetadata};
@@ -56,6 +55,7 @@ pub struct SyncManager {
   server: Mutex<Option<SyncServerHandle>>,
   pairing_server: Mutex<Option<PairingServerHandle>>,
   pending: Arc<Mutex<PairingRegistry>>,
+  discovery: Mutex<Option<tokio::task::JoinHandle<()>>>,
   sync_lock: AsyncMutex<()>,
 }
 
@@ -81,6 +81,7 @@ impl SyncManager {
       server: Mutex::new(None),
       pairing_server: Mutex::new(None),
       pending: Arc::new(Mutex::new(PairingRegistry::new())),
+      discovery: Mutex::new(None),
       sync_lock: AsyncMutex::new(()),
     }
   }
@@ -229,6 +230,33 @@ impl SyncManager {
         *guard = Some(handle);
       }
     }
+    // Responder de descubrimiento UDP en LAN
+    {
+      let mut guard = self.discovery.lock().unwrap_or_else(|e| e.into_inner());
+      if let Some(old) = guard.take() { old.abort(); }
+      let identity = identity.clone();
+      let task = tokio::spawn(async move {
+        use tokio::net::UdpSocket;
+        if let Ok(sock) = UdpSocket::bind("0.0.0.0:14244").await {
+          let mut buf = [0u8; 1024];
+          loop {
+            if let Ok((len, src)) = sock.recv_from(&mut buf).await {
+              let msg = String::from_utf8_lossy(&buf[..len]);
+              if msg.trim() == "DISCOVER" {
+                let resp = serde_json::json!({
+                  "app": "better-tracker",
+                  "name": identity.name,
+                  "port": 14242u16,
+                  "device_id": identity.device_id
+                });
+                let _ = sock.send_to(resp.to_string().as_bytes(), src).await;
+              }
+            }
+          }
+        }
+      });
+      *guard = Some(task);
+    }
     if let Some(app) = &self.app { let _ = app.emit("sync-status", self.local_info()); }
     Ok(self.info_with_identity(identity))
   }
@@ -260,6 +288,9 @@ impl SyncManager {
       .take();
     if let Some(pairing) = pairing {
       pairing.stop();
+    }
+    if let Some(task) = self.discovery.lock().unwrap_or_else(|e| e.into_inner()).take() {
+      task.abort();
     }
     if let Some(app) = &self.app { let _ = app.emit("sync-status", self.local_info()); }
   }

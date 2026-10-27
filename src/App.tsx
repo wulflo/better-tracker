@@ -16,6 +16,7 @@ import TrainingView from './TrainingView';
 import HistoryView from './HistoryView';
 import BodyView from './BodyView';
 import { Icon, LogoMark } from './components/Icons';
+import { useLanguage, t } from './i18n';
 import UpdatePanel from './components/UpdatePanel';
 import SyncPanel from './components/SyncPanel';
 
@@ -45,6 +46,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null);
   const toastTimer = useRef<number | null>(null);
+  const { lang, setLang } = useLanguage();
 
   const notify = useCallback((message: string, tone: ToastTone = 'info') => {
     setToast({ message, tone });
@@ -185,7 +187,7 @@ export default function App() {
           <div className="brand-logo"><LogoMark size={40} /></div>
           <div className="brand-text">
             <strong>Better Tracker</strong>
-            <span>Entrena local, entiende tu cuerpo</span>
+            <span>{t('app.subtitle', lang)}</span>
           </div>
         </div>
 
@@ -199,7 +201,7 @@ export default function App() {
               onClick={() => setView(item.id)}
             >
               <span className="nav-icon"><Icon name={item.icon} size={19} /></span>
-              <span className="nav-label">{item.label}</span>
+              <span className="nav-label">{t(`nav.${item.id === 'panel' ? 'panel' : item.id === 'training' ? 'training' : item.id === 'history' ? 'history' : 'body'}`, lang)}</span>
             </button>
           ))}
         </nav>
@@ -212,7 +214,7 @@ export default function App() {
             <span>{vault.split(/[\\/]/).filter(Boolean).pop() || vault}</span>
           </div>
           <button type="button" className="settings-btn" onClick={() => setSettingsOpen(true)}>
-            <Icon name="settings" size={17} /> Ajustes y bóveda
+            <Icon name="settings" size={17} /> {t('settings', lang)}
           </button>
         </div>
       </aside>
@@ -224,7 +226,7 @@ export default function App() {
             <span className="hint">Datos locales · sin cuentas · sin telemetría</span>
           </div>
           <div className="topbar-actions">
-            <span className="hint">{new Date().toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+            <span className="hint">{new Date().toLocaleDateString(lang === 'en' ? 'en' : 'es', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
             <button className="btn-icon" aria-label="Ajustes" onClick={() => setSettingsOpen(true)}>
               <Icon name="settings" size={17} />
             </button>
@@ -280,7 +282,7 @@ export default function App() {
           <div className="modal" style={{ width: 'min(620px, 100%)' }}>
             <div className="modal-header">
               <div>
-                <div className="modal-title" id="settings-title">Ajustes y bóveda</div>
+                <div className="modal-title" id="settings-title">{t('settings', lang)}</div>
                 <div className="card-sub">Estado local de Better Tracker. Sin cuentas ni telemetría; actualizaciones opcionales.</div>
               </div>
               <button className="btn-icon" aria-label="Cerrar ajustes" onClick={() => setSettingsOpen(false)}>
@@ -315,6 +317,13 @@ export default function App() {
               <div className="settings-row">
                 <span className="muted">Eventos</span>
                 <span className="value">{events.length}</span>
+              </div>
+              <div className="settings-row">
+                <span className="muted">{t('language', lang)}</span>
+                <select className="select" value={lang} onChange={e => setLang(e.target.value as any)}>
+                  <option value="es">Español</option>
+                  <option value="en">English</option>
+                </select>
               </div>
               <div className="settings-row">
                 <span className="muted">Formato instalado</span>

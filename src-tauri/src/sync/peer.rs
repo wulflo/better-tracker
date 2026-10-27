@@ -55,6 +55,12 @@ pub struct PeersStore {
   pub peers: BTreeMap<String, Peer>,
 }
 
+impl Default for PeersStore {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl PeersStore {
   pub fn new() -> Self {
     Self {

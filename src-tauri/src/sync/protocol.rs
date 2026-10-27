@@ -1,5 +1,5 @@
 use crate::sync::framing::{MAX_BATCH_EVENTS, MAX_BATCH_BYTES};
-use crate::sync::store_types::{DomainEvent, EventMetadata};
+use crate::sync::store_types::DomainEvent;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use std::collections::BTreeMap;
@@ -147,13 +147,13 @@ pub fn batch_events(
   batches
 }
 
-fn make_batch(domain: &str, mut events: Vec<DomainEvent>, bytes: usize) -> EventBatch {
+fn make_batch(domain: &str, mut events: Vec<DomainEvent>, _bytes: usize) -> EventBatch {
   let payload = serde_json::to_vec(&events).unwrap_or_default();
   let mut hasher = sha2::Sha256::new();
   hasher.update(&payload);
   let digest = hasher.finalize();
   let batch_sha256 = digest.iter().map(|b| format!("{b:02x}")).collect();
-  events.sort_by(|a, b| a.metadata.hlc.cmp(&b.metadata.hlc));
+  events.sort_by_key(|e| e.metadata.hlc);
   EventBatch {
     domain: domain.to_string(),
     events,
@@ -191,6 +191,7 @@ pub fn validate_incoming_event(
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::sync::store_types::EventMetadata;
 
   #[test]
   fn summary_and_diff_detects_divergence() {

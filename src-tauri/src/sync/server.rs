@@ -165,7 +165,7 @@ async fn serve_authenticated(
   identity: &Identity,
   peer_der: &[u8],
   peers: Arc<Mutex<PeersStore>>,
-  peers_path: &PathBuf,
+  peers_path: &std::path::Path,
   root: &str,
 ) -> Result<SyncReport, String> {
   let fingerprint = fingerprint_from_der(peer_der);
@@ -247,16 +247,13 @@ async fn serve_authenticated(
     }
   }
 
-  let mut sent_bye = false;
   loop {
     let frame = match tokio::time::timeout(std::time::Duration::from_secs(2), read_frame_async(stream)).await {
       Ok(Ok(f)) => f,
       Ok(Err(e)) => return Err(format!("Error leyendo del cliente: {e}")),
       Err(_) => {
-        if !sent_bye {
-          let _ = write_json(stream, FrameType::Bye, &serde_json::json!({})).await;
-          sent_bye = true;
-        }
+        // Timeout: enviar Bye y terminar
+        let _ = write_json(stream, FrameType::Bye, &serde_json::json!({})).await;
         break;
       }
     };
@@ -320,10 +317,7 @@ async fn serve_authenticated(
         }
       }
       FrameType::Bye => {
-        if !sent_bye {
-          let _ = write_json(stream, FrameType::Bye, &serde_json::json!({})).await;
-          sent_bye = true;
-        }
+        let _ = write_json(stream, FrameType::Bye, &serde_json::json!({})).await;
         break;
       }
       FrameType::KeepAlive | FrameType::BatchAck => {}
