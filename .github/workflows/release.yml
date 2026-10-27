@@ -294,7 +294,7 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ needs.version.outputs.tag }}"
-          shopt -s nullglob
+          shopt -s nullglob globstar
           files=(src-tauri/gen/android/app/build/outputs/apk/**/*.apk)
           if [ ${#files[@]} -eq 0 ]; then
             echo "::error::No APK artifacts found"
