@@ -234,6 +234,21 @@ jobs:
         run: npm ci
       - name: Sync version
         run: node scripts/sync-version.mjs
+      - name: Initialize Android project
+        run: npm run tauri android init -- --ci
+      - name: Patch Android signing config
+        run: |
+          python3 - <<'PY'
+          p='src-tauri/gen/android/app/build.gradle.kts'
+          s=open(p).read()
+          if 'ANDROID_KEYSTORE_PATH' not in s:
+              s=s.replace('    buildTypes {\n        getByName("debug") {',
+                          '    val keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")\n    if (keystorePath != null) {\n        signingConfigs {\n            create("release") {\n                storeFile = file(keystorePath)\n                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")\n                keyAlias = System.getenv("ANDROID_KEY_ALIAS")\n                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")\n            }\n        }\n    }\n    buildTypes {\n        getByName("debug") {',1)
+              s=s.replace('        getByName("release") {\n            optimization {',
+                          '        getByName("release") {\n            if (keystorePath != null) {\n                signingConfig = signingConfigs.getByName("release")\n            }\n            optimization {',1)
+              open(p,'w').write(s)
+          print('patched')
+          PY
       - name: Configure Android signing (optional)
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
