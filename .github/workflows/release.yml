@@ -202,8 +202,59 @@ jobs:
           fi
           gh release upload "$TAG" "${files[@]}" --clobber
 
+  build-android:
+    needs: [version, draft]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+      - name: Install deps
+        run: npm ci
+      - name: Sync version
+        run: node scripts/sync-version.mjs
+      - name: Build Android APK
+        run: npm run tauri android build -- --apk --ci
+      - name: Upload APK
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.version.outputs.tag }}"
+          shopt -s nullglob
+          files=(src-tauri/gen/android/app/build/outputs/apk/**/*.apk)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No APK artifacts found"
+            find src-tauri/gen/android -name "*.apk" || true
+            exit 1
+          fi
+          gh release upload "$TAG" "${files[@]}" --clobber
+
+
   publish:
-    needs: [version, build]
+    needs: [version, build, build-android]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
