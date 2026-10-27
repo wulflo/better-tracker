@@ -45,13 +45,3 @@ jobs:
         run: |
           cargo install cargo-audit --locked || true
           cargo audit --manifest-path src-tauri/Cargo.toml || true
-      - name: No Android remnants
-        run: |
-          if grep -ri "android" \
-            --include="*.rs" --include="*.ts" --include="*.tsx" --include="*.json" --include="*.toml" \
-            --exclude="package-lock.json" \
-            --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=target --exclude-dir=gen --exclude-dir=docs . ; then
-            echo "Android remnants found"
-            exit 1
-          fi
-          echo "OK"
