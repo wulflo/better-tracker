@@ -19,6 +19,7 @@ import { Icon, LogoMark } from './components/Icons';
 import { useLanguage, t } from './i18n';
 import UpdatePanel from './components/UpdatePanel';
 import SyncPanel from './components/SyncPanel';
+import BarcodeScanner from './components/BarcodeScanner';
 
 type View = 'panel' | 'training' | 'history' | 'body';
 type ToastTone = 'success' | 'error' | 'info';
@@ -44,6 +45,8 @@ export default function App() {
   const [events, setEvents] = useState<VaultEvent[]>([]);
   const [view, setView] = useState<View>('panel');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [barcodeOpen, setBarcodeOpen] = useState(false);
+  const [scannedCode, setScannedCode] = useState('');
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null);
   const toastTimer = useRef<number | null>(null);
   const { lang, setLang } = useLanguage();
@@ -329,6 +332,16 @@ export default function App() {
                 <span className="muted">Formato instalado</span>
                 <span className="value mono">{info?.install_format ?? '—'}</span>
               </div>
+              <div className="settings-row">
+                <span className="muted">Código de barras</span>
+                <button className="btn btn-ghost btn-sm" onClick={() => setBarcodeOpen(true)}>Escanear</button>
+                {scannedCode && <span className="value mono">{scannedCode}</span>}
+              </div>
+              {barcodeOpen && (
+                <div style={{ marginTop: 8 }}>
+                  <BarcodeScanner onResult={(code) => { setScannedCode(code); setBarcodeOpen(false); notify(`Código: ${code}`, 'info'); }} />
+                </div>
+              )}
               <UpdatePanel installFormat={info?.install_format} notify={notify} />
               <div style={{ marginTop: 12 }}>
                 <div className="modal-title" style={{ fontSize: 14, marginBottom: 6 }}>Sincronización P2P (LAN)</div>

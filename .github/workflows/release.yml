@@ -244,6 +244,17 @@ jobs:
         run: node scripts/sync-version.mjs
       - name: Initialize Android project
         run: npm run tauri android init -- --ci
+      - name: Patch Android manifest (camera)
+        run: |
+          python3 - <<'PY'
+          p='src-tauri/gen/android/app/src/main/AndroidManifest.xml'
+          s=open(p).read()
+          if 'android.permission.CAMERA' not in s:
+              s=s.replace('<uses-permission android:name="android.permission.INTERNET" />',
+                          '<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />',1)
+              open(p,'w').write(s)
+          print('patched')
+          PY
       - name: Patch Android signing config
         run: |
           python3 - <<'PY'
