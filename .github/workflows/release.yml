@@ -226,9 +226,14 @@ jobs:
           export ANDROID_HOME=/usr/local/lib/android/sdk
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
           yes | sdkmanager --licenses || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125" || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" || true
+          NDK_DIR=$(ls -d $ANDROID_HOME/ndk/* 2>/dev/null | head -n1)
+          if [ -z "$NDK_DIR" ]; then
+            sdkmanager "ndk;27.0.12077973" || true
+            NDK_DIR=$(ls -d $ANDROID_HOME/ndk/* 2>/dev/null | head -n1)
+          fi
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
+          echo "NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
