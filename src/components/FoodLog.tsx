@@ -6,19 +6,25 @@ import {
   calcFood,
   categoryLabel,
   defaultQuantity,
+  findFoodByBarcode,
   foodUnits,
   mealTotals,
+  normalizeBarcode,
+  resizeFoodLogItem,
   searchFoods,
   unitLabel,
 } from '../foodDb';
+import { lookupBarcode } from '../vault';
 import Select from './Select';
 import { NumberInput } from './Fields';
 import { Icon } from './Icons';
+import BarcodeScanner from './BarcodeScanner';
 
 interface Props {
   foods: Food[];
   items: FoodLogItem[];
   onAdd: (item: FoodLogItem) => void;
+  onUpdate: (item: FoodLogItem) => void;
   onRemove: (id: string) => void;
   onClear: () => void;
   onCreateFood: (food: Food) => Promise<void>;
@@ -32,7 +38,7 @@ function preferredUnit(food: Food): string {
   return 'g';
 }
 
-export default function FoodLog({ foods, items, onAdd, onRemove, onClear, onCreateFood }: Props) {
+export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onClear, onCreateFood }: Props) {
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState(foods[0]?.id ?? '');
   const [quantity, setQuantity] = useState(100);
@@ -41,6 +47,14 @@ export default function FoodLog({ foods, items, onAdd, onRemove, onClear, onCrea
   const [customOpen, setCustomOpen] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editQuantity, setEditQuantity] = useState(1);
+  const [editUnit, setEditUnit] = useState('g');
+  const [editMeal, setEditMeal] = useState<MealSlot>('desayuno');
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanBusy, setScanBusy] = useState(false);
+  const [scanNotice, setScanNotice] = useState<string | null>(null);
+  const [scannedFood, setScannedFood] = useState<Food | null>(null);
   const [custom, setCustom] = useState({
     name: '',
     category: 'otro' as FoodCategory,
@@ -50,30 +64,37 @@ export default function FoodLog({ foods, items, onAdd, onRemove, onClear, onCrea
     fat: 0,
     fiber: 0,
     unitGrams: 0,
+    barcode: '',
   });
 
-  const selected = foods.find((food) => food.id === selectedId) ?? null;
+  const selected = foods.find((food) => food.id === selectedId)
+    ?? (scannedFood?.id === selectedId ? scannedFood : null);
   const units = selected ? foodUnits(selected) : ['g'];
   const preview = selected ? calcFood(selected, quantity, unit) : null;
   const totals = mealTotals(items);
   const results = useMemo(() => searchFoods(foods, query, 8), [foods, query]);
 
+  const foodFor = (item: FoodLogItem): Food | undefined =>
+    foods.find((food) => food.id === item.foodId)
+    ?? (scannedFood?.id === item.foodId ? scannedFood : undefined);
+
   useEffect(() => {
     if (foods.some((food) => food.id === selectedId)) return;
+    if (scannedFood && scannedFood.id === selectedId) return;
     const first = foods[0];
     if (first) {
       setSelectedId(first.id);
       setUnit(preferredUnit(first));
       setQuantity(defaultQuantity(preferredUnit(first)));
     }
-  }, [foods, selectedId]);
+  }, [foods, selectedId, scannedFood]);
 
   const chooseFood = (food: Food) => {
     setSelectedId(food.id);
     const nextUnit = preferredUnit(food);
     setUnit(nextUnit);
     setQuantity(defaultQuantity(nextUnit));
-    setQuery('');
+    setQuery(food.name);
   };
 
   const changeUnit = (nextUnit: string) => {
@@ -100,6 +121,59 @@ export default function FoodLog({ foods, items, onAdd, onRemove, onClear, onCrea
     });
   };
 
+  const startEdit = (item: FoodLogItem) => {
+    setEditingId(item.id);
+    setEditQuantity(item.quantity);
+    setEditUnit(item.unit);
+    setEditMeal(item.meal);
+  };
+
+  const saveEdit = (item: FoodLogItem) => {
+    onUpdate(resizeFoodLogItem(item, foodFor(item), editQuantity, editUnit, editMeal));
+    setEditingId(null);
+  };
+
+  const handleBarcode = async (raw: string) => {
+    const code = normalizeBarcode(raw);
+    setScannerOpen(false);
+    if (!code) {
+      setError('El lector no devolvió un código válido.');
+      return;
+    }
+    setError('');
+
+    const local = findFoodByBarcode(foods, code);
+    if (local) {
+      chooseFood(local);
+      setScanNotice(`Producto ya guardado: ${local.name} (${code}).`);
+      return;
+    }
+
+    setScanBusy(true);
+    setScanNotice(`Buscando el código ${code} en Open Food Facts…`);
+    try {
+      const product = await lookupBarcode(code);
+      if (product) {
+        setScannedFood(product);
+        await onCreateFood(product);
+        chooseFood(product);
+        setScanNotice(`Producto encontrado y guardado en tu base: ${product.name}.`);
+      } else {
+        setCustom((value) => ({ ...value, barcode: code }));
+        setCustomOpen(true);
+        setScanNotice(
+          `El código ${code} no está en Open Food Facts o no tiene macros. Revisa la etiqueta y guárdalo manualmente: el código quedará asociado.`,
+        );
+      }
+    } catch (e) {
+      setCustom((value) => ({ ...value, barcode: code }));
+      setCustomOpen(true);
+      setScanNotice(`No se pudo consultar el producto (${String(e)}). Puedes guardarlo manualmente con este código.`);
+    } finally {
+      setScanBusy(false);
+    }
+  };
+
   const createCustom = async () => {
     setError('');
     if (!custom.name.trim()) {
@@ -108,6 +182,11 @@ export default function FoodLog({ foods, items, onAdd, onRemove, onClear, onCrea
     }
     if (custom.kcal < 0 || custom.protein < 0 || custom.carbs < 0 || custom.fat < 0 || custom.fiber < 0) {
       setError('Los valores no pueden ser negativos.');
+      return;
+    }
+    const barcode = normalizeBarcode(custom.barcode);
+    if (barcode && findFoodByBarcode(foods, barcode)) {
+      setError('Ya existe un alimento con ese código de barras.');
       return;
     }
     setSaving(true);
@@ -125,8 +204,14 @@ export default function FoodLog({ foods, items, onAdd, onRemove, onClear, onCrea
         },
         units: custom.unitGrams > 0 ? { unidad: custom.unitGrams } : {},
         custom: true,
+        barcode: barcode || undefined,
+        source: 'manual',
       };
       await onCreateFood(food);
+      setScannedFood(food);
+      setSelectedId(food.id);
+      setUnit(preferredUnit(food));
+      setQuantity(defaultQuantity(preferredUnit(food)));
       setCustom({
         name: '',
         category: 'otro',
@@ -136,6 +221,7 @@ export default function FoodLog({ foods, items, onAdd, onRemove, onClear, onCrea
         fat: 0,
         fiber: 0,
         unitGrams: 0,
+        barcode: '',
       });
       setCustomOpen(false);
       setQuery(food.name);
@@ -150,13 +236,26 @@ export default function FoodLog({ foods, items, onAdd, onRemove, onClear, onCrea
     <div className="food-log">
       <div className="food-search">
         <span className="field-label">Buscar alimento</span>
-        <input
-          className="input"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder={`${foods.length} alimentos: pollo, arroz, plátano...`}
-          aria-label="Buscar alimento"
-        />
+        <div className="food-search-row">
+          <input
+            className="input"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={`${foods.length} alimentos: pollo, arroz, plátano...`}
+            aria-label="Buscar alimento"
+          />
+          <button
+            type="button"
+            className="btn btn-tonal btn-sm food-scan-button"
+            onClick={() => {
+              setScanNotice(null);
+              setScannerOpen(true);
+            }}
+            disabled={scanBusy}
+          >
+            <Icon name="scan" size={15} /> {scanBusy ? 'Buscando…' : 'Escanear código'}
+          </button>
+        </div>
         <div className="food-results" role="listbox" aria-label="Resultados de alimentos">
           {results.length === 0 ? (
             <div className="food-result-empty">
@@ -173,12 +272,19 @@ export default function FoodLog({ foods, items, onAdd, onRemove, onClear, onCrea
                 <span>
                   <strong>{food.name}</strong>
                   <span className="small muted"> · {categoryLabel(food.category)}</span>
+                  {food.barcode && <span className="small muted mono"> · {food.barcode}</span>}
                 </span>
                 <span className="mono small">{food.per100.kcal} kcal/100 g</span>
               </button>
             ))
           )}
         </div>
+        {scanNotice && (
+          <div className="notice notice-info food-scan-notice">
+            <Icon name="scan" size={16} />
+            <span>{scanNotice}</span>
+          </div>
+        )}
       </div>
 
       {selected && preview && (
@@ -189,6 +295,7 @@ export default function FoodLog({ foods, items, onAdd, onRemove, onClear, onCrea
               <div className="small muted">
                 {selected.per100.kcal} kcal · {selected.per100.protein} g proteína · {selected.per100.carbs} g carbohidratos ·{' '}
                 {selected.per100.fat} g grasas por 100 g
+                {selected.barcode ? ` · código ${selected.barcode}` : ''}
               </div>
             </div>
             <span className="badge badge-primary">{categoryLabel(selected.category)}</span>
@@ -252,28 +359,94 @@ export default function FoodLog({ foods, items, onAdd, onRemove, onClear, onCrea
               return (
                 <div key={slot.id} className="meal-group">
                   <div className="meal-heading">{slot.label}</div>
-                  {group.map((item) => (
-                    <div key={item.id} className="food-item">
-                      <div className="food-item-main">
-                        <strong>{item.name}</strong>
-                        <span className="small muted">
-                          {item.quantity} {unitLabel(item.unit)} · {item.grams} g
-                        </span>
+                  {group.map((item) => {
+                    if (item.id === editingId) {
+                      const itemFood = foodFor(item);
+                      const itemUnits = itemFood ? foodUnits(itemFood) : ['g'];
+                      const unitOptions = itemUnits.includes(item.unit) ? itemUnits : [item.unit, ...itemUnits];
+                      const editPreview = itemFood ? calcFood(itemFood, editQuantity, editUnit) : null;
+                      return (
+                        <div key={item.id} className="food-item food-item-edit">
+                          <div className="food-item-main">
+                            <strong>{item.name}</strong>
+                            <span className="small muted">
+                              {editPreview ? `${editPreview.grams} g · ${editPreview.kcal} kcal` : 'Sin datos del alimento'}
+                            </span>
+                          </div>
+                          <div className="food-edit-grid">
+                            <label className="field">
+                              <span className="field-label">Comida</span>
+                              <Select
+                                value={editMeal}
+                                onChange={(value) => setEditMeal(value as MealSlot)}
+                                options={MEAL_SLOTS.map((option) => ({ value: option.id, label: option.label }))}
+                              />
+                            </label>
+                            <label className="field">
+                              <span className="field-label">Cantidad</span>
+                              <NumberInput
+                                value={editQuantity}
+                                onChange={setEditQuantity}
+                                min={0}
+                                step={editUnit === 'g' || editUnit === 'ml' ? 10 : 0.5}
+                              />
+                            </label>
+                            <label className="field">
+                              <span className="field-label">Medida</span>
+                              <Select
+                                value={editUnit}
+                                onChange={(value) => {
+                                  setEditUnit(value);
+                                  setEditQuantity(defaultQuantity(value));
+                                }}
+                                options={unitOptions.map((option) => ({ value: option, label: unitLabel(option) }))}
+                              />
+                            </label>
+                          </div>
+                          <div className="food-edit-actions">
+                            <button type="button" className="btn btn-primary btn-sm" onClick={() => saveEdit(item)}>
+                              <Icon name="check" size={14} /> Guardar
+                            </button>
+                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditingId(null)}>
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={item.id} className="food-item">
+                        <div className="food-item-main">
+                          <strong>{item.name}</strong>
+                          <span className="small muted">
+                            {item.quantity} {unitLabel(item.unit)} · {item.grams} g
+                          </span>
+                        </div>
+                        <div className="food-item-macros">
+                          <strong>{item.kcal} kcal</strong>
+                          <span>P {item.protein} · C {item.carbs} · G {item.fat}</span>
+                        </div>
+                        <div className="food-item-actions">
+                          <button
+                            type="button"
+                            className="icon-button"
+                            aria-label={`Editar ${item.name}`}
+                            onClick={() => startEdit(item)}
+                          >
+                            <Icon name="edit" size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-button icon-button-danger"
+                            aria-label={`Quitar ${item.name}`}
+                            onClick={() => onRemove(item.id)}
+                          >
+                            <Icon name="trash" size={15} />
+                          </button>
+                        </div>
                       </div>
-                      <div className="food-item-macros">
-                        <strong>{item.kcal} kcal</strong>
-                        <span>P {item.protein} · C {item.carbs} · G {item.fat}</span>
-                      </div>
-                      <button
-                        type="button"
-                        className="icon-button"
-                        aria-label={`Quitar ${item.name}`}
-                        onClick={() => onRemove(item.id)}
-                      >
-                        <Icon name="trash" size={15} />
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               );
             })}
@@ -339,6 +512,16 @@ export default function FoodLog({ foods, items, onAdd, onRemove, onClear, onCrea
                 <span className="field-label">Peso de 1 unidad (g, opcional)</span>
                 <NumberInput value={custom.unitGrams} onChange={(value) => setCustom({ ...custom, unitGrams: value })} min={0} step={1} />
               </label>
+              <label className="field">
+                <span className="field-label">Código de barras (opcional)</span>
+                <input
+                  className="input"
+                  value={custom.barcode}
+                  onChange={(event) => setCustom({ ...custom, barcode: event.target.value })}
+                  placeholder="Ej. 8412345678905"
+                  inputMode="numeric"
+                />
+              </label>
             </div>
             {error && <div className="notice notice-error"><Icon name="alert" size={16} /><span>{error}</span></div>}
             <div className="row between">
@@ -350,6 +533,28 @@ export default function FoodLog({ foods, items, onAdd, onRemove, onClear, onCrea
           </div>
         )}
       </div>
+
+      {scannerOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Escanear código de barras">
+          <div className="modal" style={{ width: 'min(520px, 100%)' }}>
+            <div className="modal-header">
+              <div>
+                <div className="modal-title">Escanear producto</div>
+                <div className="card-sub">EAN/UPC del envase. Si no está en Open Food Facts, podrás crearlo manualmente.</div>
+              </div>
+              <button className="btn-icon" aria-label="Cerrar escáner" onClick={() => setScannerOpen(false)}>
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <BarcodeScanner
+                onResult={(code) => void handleBarcode(code)}
+                onClose={() => setScannerOpen(false)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

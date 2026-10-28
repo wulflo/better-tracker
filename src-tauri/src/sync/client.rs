@@ -20,6 +20,10 @@ use tokio::net::TcpStream;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const SYNC_TIMEOUT: Duration = Duration::from_secs(300);
+/// Tiempo máximo de inactividad esperando al peer. Antes eran 2 s, insuficiente
+/// en Android/LAN con lotes grandes o cámaras lentas: el cliente cerraba antes
+/// de recibir los eventos y el resumen decía "sincronizado" sin datos nuevos.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(10);
 const FUTURE_TOLERANCE_MS: u64 = 24 * 60 * 60 * 1000;
 
 pub async fn sync_peer(
@@ -115,7 +119,23 @@ pub async fn sync_peer(
     let mut domains = BTreeSet::new();
     let now = now_ms();
 
-    // Enviar lista de IDs que YA tenemos por dominio (sincronización por delta)
+    // El peer envía una IdList por cada dominio de ESTA unión. Conocer el
+    // número exacto nos permite cerrar la conexión en cuanto terminamos, sin
+    // esperar el timeout de inactividad. Si el peer es una versión antigua que
+    // omite listas vacías, el timeout sigue actuando como red de seguridad.
+    let expected_id_lists = remote_summary
+      .summaries
+      .iter()
+      .map(|s| s.domain.clone())
+      .chain(diff.keys().cloned())
+      .collect::<BTreeSet<_>>()
+      .len();
+    let mut received_id_lists = 0usize;
+
+    // Enviar lista de IDs que YA tenemos por dominio (sincronización por delta).
+    // Se envía SIEMPRE, incluso vacía: un dispositivo nuevo no tiene eventos y
+    // antes no mandaba nada, así que el otro extremo nunca sabía qué enviarle
+    // (el bug de "dice sincronizado pero no recibe nada").
     let mut domains_to_consider: Vec<String> = local_all.keys().cloned().collect();
     for d in diff.keys() {
       if !domains_to_consider.contains(d) {
@@ -127,22 +147,29 @@ pub async fn sync_peer(
     for domain in &domains_to_consider {
       let events = local_all.get(domain).cloned().unwrap_or_default();
       let ids: Vec<String> = events.iter().map(|e| e.id.clone()).collect();
-      if !ids.is_empty() {
-        write_json(
-          &mut stream,
-          FrameType::IdList,
-          &IdListPayload {
-            domain: domain.clone(),
-            ids,
-          },
-        )
-        .await?;
-      }
+      write_json(
+        &mut stream,
+        FrameType::IdList,
+        &IdListPayload {
+          domain: domain.clone(),
+          ids,
+        },
+      )
+      .await?;
+    }
+
+    // Sin dominios en ninguno de los dos lados no hay nada que reconciliar:
+    // cerramos sin esperar.
+    let mut id_lists_done = expected_id_lists == 0;
+    let mut bye_sent = false;
+    if id_lists_done {
+      let _ = write_json(&mut stream, FrameType::Bye, &serde_json::json!({})).await;
+      bye_sent = true;
     }
 
     // Procesar IdList del servidor y enviar SOLO los eventos que le falten
     loop {
-      let frame = match tokio::time::timeout(std::time::Duration::from_secs(2), read_frame_async(&mut stream)).await {
+      let frame = match tokio::time::timeout(IDLE_TIMEOUT, read_frame_async(&mut stream)).await {
         Ok(Ok(f)) => f,
         Ok(Err(e)) => return Err(format!("Error leyendo del peer: {e}")),
         Err(_) => {
@@ -153,6 +180,7 @@ pub async fn sync_peer(
       };
       match frame.r#type {
         FrameType::IdList => {
+          received_id_lists += 1;
           let list: IdListPayload = serde_json::from_slice(&frame.payload)
             .map_err(|e| format!("IdList inválido: {e}"))?;
           if list.domain.is_empty() {
@@ -181,6 +209,13 @@ pub async fn sync_peer(
               domains.insert(batch.domain.clone());
             }
           }
+          if !id_lists_done && received_id_lists >= expected_id_lists {
+            id_lists_done = true;
+            // Todos los eventos de respuesta ya se escribieron en orden antes
+            // que este Bye. El peer hará lo mismo y ambos cerramos.
+            let _ = write_json(&mut stream, FrameType::Bye, &serde_json::json!({})).await;
+            bye_sent = true;
+          }
         }
         FrameType::Events => {
           let payload: EventsPayload = serde_json::from_slice(&frame.payload)
@@ -205,7 +240,12 @@ pub async fn sync_peer(
           }
         }
         FrameType::Bye => {
-          let _ = write_json(&mut stream, FrameType::Bye, &serde_json::json!({})).await;
+          // Respondemos siempre al primer Bye para que el otro extremo no se
+          // quede esperando el timeout. La respuesta no se contesta: por eso
+          // solo se envía si todavía no habíamos mandado el nuestro.
+          if !bye_sent {
+            let _ = write_json(&mut stream, FrameType::Bye, &serde_json::json!({})).await;
+          }
           break;
         }
         FrameType::KeepAlive | FrameType::Summary | FrameType::BatchAck => {}

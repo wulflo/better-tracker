@@ -37,6 +37,19 @@ export interface Food {
   /** Gramos que pesa una unidad de cada medida (g/ml se manejan aparte). */
   units: Record<string, number>;
   custom?: boolean;
+  /** EAN-8/EAN-13/UPC-A/UPC-E que identifica el producto en el envase. */
+  barcode?: string;
+  /** Origen de los datos: openfoodfacts, manual, etc. */
+  source?: string;
+  /** Contenido del envase según el fabricante (ej. "500 g"). */
+  quantityLabel?: string | null;
+  /** Tamaño de la ración indicada por el fabricante (ej. "30 g"). */
+  servingLabel?: string | null;
+}
+
+export interface BarcodeProduct extends Food {
+  barcode: string;
+  source: string;
 }
 
 export interface FoodLogItem {

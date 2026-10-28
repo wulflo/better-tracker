@@ -23,6 +23,9 @@ use tokio_rustls::TlsAcceptor;
 
 const FUTURE_TOLERANCE_MS: u64 = 24 * 60 * 60 * 1000;
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(300);
+/// Antes 2 s. En Android/LAN un lote grande o un dispositivo lento podía
+/// agotar el tiempo y cerrar la conexión antes de enviar los eventos.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct SyncServerHandle {
   shutdown: watch::Sender<bool>,
@@ -143,6 +146,11 @@ async fn handle_connection(
     }
   };
 
+  // Volcar los eventos más recientes de la bóveda al store de sync antes de
+  // reconciliar. Si la UI guardó datos desde la última conexión, el peer debe
+  // verlos en esta sesión.
+  let _ = crate::sync::bridge::export_vault_to_store(&app, &root);
+
   match serve_authenticated(
     &mut stream,
     &identity,
@@ -154,6 +162,10 @@ async fn handle_connection(
   .await
   {
     Ok(report) => {
+      // El servidor también debe incorporar a su bóveda lo que acaba de
+      // recibir. Antes solo lo hacía el cliente que iniciaba el sync, así que
+      // el dispositivo receptor veía "sincronizado" pero su UI no cambiaba.
+      let _ = crate::sync::bridge::import_store_to_vault(&app, &root);
       let _ = app.emit("sync-updated", &report);
     }
     Err(e) => send_error(&mut stream, e).await,
@@ -222,7 +234,21 @@ async fn serve_authenticated(
   let mut sent = 0usize;
   let mut domains = std::collections::BTreeSet::new();
 
-  // Enviar lista de IDs que YA tenemos por dominio
+  // El cliente envía una IdList por cada dominio de esta unión. Saber el
+  // número exacto permite cerrar en cuanto terminamos; si es una versión
+  // antigua que omite listas vacías, el timeout sigue protegiendo.
+  let expected_id_lists = client_summary
+    .summaries
+    .iter()
+    .map(|summary| summary.domain.clone())
+    .chain(diff.keys().cloned())
+    .collect::<std::collections::BTreeSet<_>>()
+    .len();
+  let mut received_id_lists = 0usize;
+
+  // Enviar lista de IDs que YA tenemos por dominio. Se envía siempre, aunque
+  // esté vacía: el cliente necesita saber que no tenemos nada para pedirnos
+  // eventos, y nosotros necesitamos su lista vacía para enviarle todo.
   let mut domains_to_consider: Vec<String> = local_all.keys().cloned().collect();
   for d in diff.keys() {
     if !domains_to_consider.contains(d) {
@@ -234,21 +260,26 @@ async fn serve_authenticated(
   for domain in &domains_to_consider {
     let events = local_all.get(domain).cloned().unwrap_or_default();
     let ids: Vec<String> = events.iter().map(|e| e.id.clone()).collect();
-    if !ids.is_empty() {
-      write_json(
-        stream,
-        FrameType::IdList,
-        &IdListPayload {
-          domain: domain.clone(),
-          ids,
-        },
-      )
-      .await?;
-    }
+    write_json(
+      stream,
+      FrameType::IdList,
+      &IdListPayload {
+        domain: domain.clone(),
+        ids,
+      },
+    )
+    .await?;
+  }
+
+  let mut id_lists_done = expected_id_lists == 0;
+  let mut bye_sent = false;
+  if id_lists_done {
+    let _ = write_json(stream, FrameType::Bye, &serde_json::json!({})).await;
+    bye_sent = true;
   }
 
   loop {
-    let frame = match tokio::time::timeout(std::time::Duration::from_secs(2), read_frame_async(stream)).await {
+    let frame = match tokio::time::timeout(IDLE_TIMEOUT, read_frame_async(stream)).await {
       Ok(Ok(f)) => f,
       Ok(Err(e)) => return Err(format!("Error leyendo del cliente: {e}")),
       Err(_) => {
@@ -259,6 +290,7 @@ async fn serve_authenticated(
     };
     match frame.r#type {
       FrameType::IdList => {
+        received_id_lists += 1;
         let list: IdListPayload = serde_json::from_slice(&frame.payload)
           .map_err(|e| format!("IdList inválido: {e}"))?;
         if list.domain.is_empty() {
@@ -286,6 +318,11 @@ async fn serve_authenticated(
             sent += batch.events.len();
             domains.insert(batch.domain.clone());
           }
+        }
+        if !id_lists_done && received_id_lists >= expected_id_lists {
+          id_lists_done = true;
+          let _ = write_json(stream, FrameType::Bye, &serde_json::json!({})).await;
+          bye_sent = true;
         }
       }
       FrameType::Events => {
@@ -317,7 +354,9 @@ async fn serve_authenticated(
         }
       }
       FrameType::Bye => {
-        let _ = write_json(stream, FrameType::Bye, &serde_json::json!({})).await;
+        if !bye_sent {
+          let _ = write_json(stream, FrameType::Bye, &serde_json::json!({})).await;
+        }
         break;
       }
       FrameType::KeepAlive | FrameType::BatchAck => {}
@@ -550,6 +589,95 @@ mod sync_tests {
     assert_eq!(client_orders.len(), 2);
     assert!(server_orders.iter().any(|e| e.id == "client-order"));
     assert!(client_orders.iter().any(|e| e.id == "server-order"));
+
+    let _ = std::fs::remove_dir_all(root_server);
+    let _ = std::fs::remove_dir_all(root_client);
+  }
+
+  /**
+   * Regresión del bug "el dispositivo nuevo dice sincronizado pero no recibe
+   * nada": el cliente no tiene eventos, así que su resumen viene vacío. Antes
+   * se omitía la IdList vacía y el servidor nunca enviaba sus eventos.
+   */
+  #[tokio::test]
+  async fn empty_client_receives_all_server_events() {
+    let server_identity = Identity::generate("Servidor").unwrap();
+    let client_identity = Identity::generate("Cliente nuevo").unwrap();
+    let root_server = temp_root("empty-server");
+    let root_client = temp_root("empty-client");
+
+    let client_peer = Peer::new(
+      client_identity.device_id.clone(),
+      "Cliente nuevo".into(),
+      client_identity.fingerprint(),
+    )
+    .with_cert(cert_der_to_pem(&client_identity.cert_der));
+    let mut server_peers = PeersStore::new();
+    server_peers.add_or_update(client_peer);
+    let server_peers = Arc::new(Mutex::new(server_peers));
+    let peers_path = PathBuf::from(&root_server).join("peers.json");
+
+    let client_server_peer = Peer::new(
+      server_identity.device_id.clone(),
+      "Servidor".into(),
+      server_identity.fingerprint(),
+    )
+    .with_cert(cert_der_to_pem(&server_identity.cert_der));
+
+    let server_config = Arc::new(
+      tls::server_config(&server_identity, Arc::clone(&server_peers)).unwrap(),
+    );
+    let acceptor = TlsAcceptor::from(server_config);
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let server = tokio::spawn({
+      let root = root_server.clone();
+      let peers = Arc::clone(&server_peers);
+      let identity = server_identity.clone();
+      async move {
+        let (tcp, _) = listener.accept().await.unwrap();
+        let mut stream = acceptor.accept(tcp).await.unwrap();
+        let peer_der = stream
+          .get_ref()
+          .1
+          .peer_certificates()
+          .unwrap()
+          .first()
+          .unwrap()
+          .as_ref()
+          .to_vec();
+        serve_authenticated(&mut stream, &identity, &peer_der, peers, &peers_path, &root)
+          .await
+          .unwrap()
+      }
+    });
+
+    append_missing(
+      &root_server,
+      "orders",
+      &[event("server-order", &server_identity.device_id, 10)],
+    )
+    .unwrap();
+
+    let report = crate::sync::client::sync_peer(
+      &client_identity,
+      &root_client,
+      &client_server_peer,
+      addr,
+    )
+    .await
+    .unwrap();
+    assert_eq!(report.received, 1);
+    assert_eq!(report.sent, 0);
+
+    let server_report = server.await.unwrap();
+    assert_eq!(server_report.sent, 1);
+    assert_eq!(server_report.received, 0);
+
+    let client_events = load_all(&root_client).unwrap();
+    assert_eq!(client_events["orders"].len(), 1);
+    assert_eq!(client_events["orders"][0].id, "server-order");
 
     let _ = std::fs::remove_dir_all(root_server);
     let _ = std::fs::remove_dir_all(root_client);

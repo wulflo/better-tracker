@@ -83,7 +83,18 @@ function detect(p) {
       if (list.includes('AndroidManifest.xml')) {
         format = 'apk';
         platform = 'android';
-        arch = 'aarch64';
+        // Un APK universal lleva varias ABIs; uno por ABI lleva una sola.
+        const abis = new Set();
+        for (const line of list.split(/\r?\n/)) {
+          const abi = line.match(/lib\/([^/]+)\//)?.[1];
+          if (abi) abis.add(abi);
+        }
+        if (abis.size === 1) {
+          const abi = [...abis][0];
+          arch = abi === 'arm64-v8a' ? 'aarch64' : abi === 'armeabi-v7a' ? 'armv7' : abi;
+        } else {
+          arch = 'universal';
+        }
         return { platform, arch, format };
       }
     } catch {}

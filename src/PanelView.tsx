@@ -17,6 +17,7 @@ import {
   bodyComposition,
   computeMacros,
   computeSatiety,
+  computeWaterGuidance,
   fmtDuration,
   goalModeFromEvents,
   latestMeasurement,
@@ -28,7 +29,7 @@ import {
   trainingAlerts,
   trainingSummary,
 } from './metrics';
-import { FOODS, mealTotals, reduceCustomFoods } from './foodDb';
+import { FOODS, mealGrams, mealTotals, reduceCustomFoods } from './foodDb';
 import { clearMealDraft, loadMealDraft, saveMealDraft } from './meals';
 import { ZONE_MAP } from './zones';
 import Select from './components/Select';
@@ -108,14 +109,23 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
     weight: currentWeight || lastMeas?.weight || 0,
   };
   const macros = computeMacros(baseMeasures, exerciseSummary.weekMinutes, goalMode);
-  const satiety = computeSatiety(nutri, macros);
-  const waterTarget = macros?.waterMl ?? 2000;
-  const waterCurrent = Math.max(0, Math.round(Number(nutri.water) || 0));
-  const waterLeft = Math.max(0, waterTarget - waterCurrent);
-  const waterPct = waterTarget > 0 ? Math.min(100, Math.round((waterCurrent / waterTarget) * 100)) : 0;
   const comp = bodyComposition(baseMeasures);
   const bmi = comp.bmi;
   const fatAvg = comp.avg;
+  const draftGrams = mealGrams(mealItems);
+  const satiety = computeSatiety(nutri, macros, {
+    grams: draftGrams || undefined,
+    bodyFat: fatAvg,
+    leanMass: comp.leanMass,
+    weightKg: baseMeasures.weight,
+    weeklyMinutes: exerciseSummary.weekMinutes,
+  });
+  const waterCurrent = Math.max(0, Math.round(Number(nutri.water) || 0));
+  const waterGuidance = computeWaterGuidance(baseMeasures, exerciseSummary.weekMinutes, waterCurrent);
+  const waterTarget = waterGuidance.targetMl;
+  const waterSafeMax = waterGuidance.safeMaxMl;
+  const waterPct = waterTarget > 0 ? Math.round((waterCurrent / waterTarget) * 100) : 0;
+  const waterOver = waterGuidance.status === 'excess' || waterGuidance.status === 'danger';
 
   const changeMeas = <K extends keyof MeasurementEntry>(key: K, value: MeasurementEntry[K]) => {
     setMeasForm((f) => ({ ...f, [key]: value }));
@@ -173,6 +183,11 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
     setMealItems((items) => [...items, item]);
   };
 
+  const updateMeal = (updated: FoodLogItem) => {
+    dirtyNutrition.current = true;
+    setMealItems((items) => items.map((item) => (item.id === updated.id ? updated : item)));
+  };
+
   const removeMeal = (id: string) => {
     const next = mealItems.filter((item) => item.id !== id);
     dirtyNutrition.current = true;
@@ -214,7 +229,12 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
       const base = savedToday ?? emptyNutrition(day);
       await appendEvent(newEvent(deviceId, 'nutrition.logged', { ...base, date: day, water: next }));
       await onRefresh();
-      if (current < waterTarget && next >= waterTarget) {
+      if (next > waterSafeMax && current <= waterSafeMax) {
+        notify(
+          `Has superado tu límite seguro de agua (${(waterSafeMax / 1000).toFixed(1)} L). No fuerces más bebida hoy.`,
+          'error',
+        );
+      } else if (current < waterTarget && next >= waterTarget) {
         notify('Objetivo de agua alcanzado.', 'success');
       }
     } catch (e) {
@@ -356,33 +376,32 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
       </div>
 
       <div className="grid grid-2">
-        <section className="card water-banner span-2" aria-label="Control de agua">
+        <section
+          className={`card water-banner span-2 ${waterOver ? 'water-banner-over' : ''}`}
+          aria-label="Control de agua"
+          aria-live="polite"
+        >
           <div className="water-banner-body">
             <div className="water-banner-top">
               <div className="water-banner-icon"><Icon name="water" size={24} /></div>
               <div className="water-banner-copy">
                 <div className="water-banner-title">Agua de hoy</div>
-                <div className="water-banner-sub">
-                  {waterLeft > 0
-                    ? `Te quedan ${(waterLeft / 1000).toFixed(2)} L para llegar al objetivo.`
-                    : waterCurrent > waterTarget
-                      ? `Objetivo superado por ${((waterCurrent - waterTarget) / 1000).toFixed(2)} L.`
-                      : 'Objetivo cubierto.'}{' '}
-                  Se guarda al momento en el log de hoy.
-                </div>
+                <div className="water-banner-sub">{waterGuidance.message}</div>
               </div>
               <div className="water-banner-value">
                 <strong>{(waterCurrent / 1000).toFixed(2)} L</strong>
-                <span>de {(waterTarget / 1000).toFixed(1)} L</span>
+                <span>objetivo {(waterTarget / 1000).toFixed(1)} L</span>
               </div>
-              <span className={`badge ${waterPct >= 100 ? 'badge-success' : 'badge-primary'}`}>{waterPct}%</span>
+              <span className={`badge ${waterOver ? 'badge-error' : waterPct >= 100 ? 'badge-success' : 'badge-primary'}`}>
+                {waterOver ? 'Exceso' : `${waterPct}%`}
+              </span>
             </div>
             <ProgressBar
               label="Progreso de hidratación"
-              valueLabel={`${waterCurrent} / ${waterTarget} ml`}
+              valueLabel={`${waterCurrent} ml · seguro hasta ${waterSafeMax} ml`}
               value={waterCurrent}
-              max={waterTarget}
-              color="var(--info)"
+              max={Math.max(waterTarget, waterSafeMax)}
+              color={waterOver ? 'var(--error)' : 'var(--info)'}
             />
             <div className="water-banner-actions">
               {[250, 500, 1000].map((amount) => (
@@ -404,7 +423,31 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
               >
                 −250 ml
               </button>
-              {!macros && <span className="hint">Objetivo orientativo de 2 L. Añade tu peso para personalizarlo.</span>}
+              {waterOver && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm water-undo"
+                  disabled={waterBusy || waterCurrent === 0}
+                  onClick={() => void logWater(-500)}
+                >
+                  Corregir −500 ml
+                </button>
+              )}
+            </div>
+            <div className={`notice ${waterOver ? 'notice-error' : waterGuidance.tone === 'warn' ? 'notice-warn' : 'notice-info'}`}>
+              <Icon name={waterOver ? 'alert' : 'info'} size={16} />
+              <div>
+                <strong>
+                  Rango seguro: {(waterTarget / 1000).toFixed(1)}–{(waterSafeMax / 1000).toFixed(1)} L/día
+                  {' · '}no superar {(waterGuidance.hardMaxMl / 1000).toFixed(1)} L
+                </strong>
+                <div className="small">{waterGuidance.detail}</div>
+                <div className="small muted">
+                  Calculado con {waterGuidance.leanMassKg !== null ? `${waterGuidance.leanMassKg.toFixed(1)} kg de masa magra` : 'tu peso'}
+                  {waterGuidance.fatMassKg !== null ? ` y ${waterGuidance.fatMassKg.toFixed(1)} kg de grasa` : ''}
+                  {' · '}{waterGuidance.exerciseAddMl} ml extra por entrenamiento. Se guarda al momento en el log de hoy.
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -517,8 +560,12 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
                 <div className="notice notice-info">
                   <Icon name="water" size={17} />
                   <div>
-                    <strong>Agua objetivo: {(macros.waterMl / 1000).toFixed(1)} L/día</strong>
-                    <div className="small">35 ml/kg + 500 ml por hora media de entrenamiento. Fibra objetivo: {macros.fiber} g/día.</div>
+                    <strong>Agua objetivo: {(waterTarget / 1000).toFixed(1)} L/día</strong>
+                    <div className="small">
+                      Ajustada a masa magra ({waterGuidance.leanMassKg !== null ? `${waterGuidance.leanMassKg.toFixed(1)} kg` : 'estimada'})
+                      + 500 ml por hora media de entrenamiento. Rango seguro hasta {(waterSafeMax / 1000).toFixed(1)} L.
+                      Fibra objetivo: {macros.fiber} g/día.
+                    </div>
                   </div>
                 </div>
                 {macros.missing.length > 0 && (
@@ -538,7 +585,7 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
         <section className="card span-2">
           <div className="card-header">
             <div>
-              <div className="card-title"><Icon name="bowl" /> Ingesta y saciedad dual</div>
+              <div className="card-title"><Icon name="bowl" /> Ingesta y saciedad</div>
               <div className="card-sub">Añade alimentos del día, calcula calorías y macros automáticamente y guarda un único log diario. El borrador se borra al terminar el día.</div>
             </div>
             <span className={`badge ${savedToday ? 'badge-success' : 'badge-muted'}`}>
@@ -550,6 +597,7 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
               foods={foods}
               items={mealItems}
               onAdd={addMeal}
+              onUpdate={updateMeal}
               onRemove={removeMeal}
               onClear={clearMeals}
               onCreateFood={createFood}
@@ -593,7 +641,7 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
               <button className="btn btn-primary" onClick={saveNutrition} disabled={!hasNutrition}>
                 <Icon name="check" size={15} /> {savedToday ? 'Actualizar ingesta de hoy' : 'Guardar ingesta de hoy'}
               </button>
-              {macros && <span className="hint">Objetivo: {macros.kcal} kcal · {macros.protein} g proteína · {(macros.waterMl / 1000).toFixed(1)} L</span>}
+              {macros && <span className="hint">Objetivo: {macros.kcal} kcal · {macros.protein} g proteína · {(waterTarget / 1000).toFixed(1)} L de agua</span>}
             </div>
 
             {!macros ? (
@@ -601,19 +649,59 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
             ) : !hasNutrition ? (
               <div className="notice notice-info">
                 <Icon name="info" size={16} />
-                <span>Añade comidas o agua para ver las dos vías de saciedad.</span>
+                <span>Añade comidas o agua para estimar la saciedad con proteína, fibra, volumen, densidad energética e hidratación.</span>
               </div>
             ) : satiety && (
               <div className="stack">
-                <ProgressBar label="Presión gástrica" valueLabel={`${Math.round(satiety.pressure)}%`} value={satiety.pressure} color="var(--info)" />
-                <ProgressBar label="Señal bioquímica" valueLabel={`${Math.round(satiety.biochem)}%`} value={satiety.biochem} color="var(--tertiary)" />
-                <div className={`notice ${satiety.tone === 'good' ? 'notice-success' : satiety.tone === 'bad' ? 'notice-error' : 'notice-warn'}`}>
-                  <Icon name={satiety.tone === 'good' ? 'check' : 'alert'} size={17} />
+                <ProgressBar
+                  label="Índice de saciedad"
+                  valueLabel={`${satiety.score}%`}
+                  value={satiety.score}
+                  color={satiety.tone === 'good' ? 'var(--success)' : satiety.tone === 'bad' ? 'var(--error)' : 'var(--tertiary)'}
+                />
+                <div className="satiety-drivers">
+                  {satiety.drivers.map((driver) => (
+                    <ProgressBar
+                      key={driver.id}
+                      label={`${driver.label} · ${driver.weight}%`}
+                      valueLabel={`${driver.value}%`}
+                      value={driver.value}
+                      color={driver.value >= 70 ? 'var(--success)' : driver.value < 45 ? 'var(--error)' : 'var(--info)'}
+                    />
+                  ))}
+                </div>
+                <div className="chips">
+                  <span className="chip active">{satiety.mealGrams} g de comida</span>
+                  {satiety.energyDensity !== null && (
+                    <span className="chip active">{satiety.energyDensity.toFixed(2)} kcal/g</span>
+                  )}
+                  <span className="chip">Distensión {satiety.fullness}%</span>
+                  <span className="chip">Señal hormonal {satiety.hormonal}%</span>
+                  <span className="chip">Hidratación {satiety.hydration}%</span>
+                </div>
+                <div className={`notice ${satiety.tone === 'good' ? 'notice-success' : satiety.tone === 'bad' ? 'notice-error' : satiety.tone === 'warn' ? 'notice-warn' : 'notice-info'}`}>
+                  <Icon name={satiety.tone === 'good' ? 'check' : satiety.tone === 'info' ? 'info' : 'alert'} size={17} />
                   <div>
                     <strong>{satiety.diagnosis}</strong>
                     <div className="small">{satiety.tip}</div>
                   </div>
                 </div>
+                <details className="details">
+                  <summary>Cómo se calcula la saciedad</summary>
+                  <div className="stack-sm" style={{ marginTop: 10 }}>
+                    {satiety.drivers.map((driver) => (
+                      <div key={driver.id} className="satiety-driver-detail">
+                        <strong>{driver.label}</strong>
+                        <span className="small muted"> {driver.detail}</span>
+                      </div>
+                    ))}
+                    <p className="hint">
+                      El índice pondera proteína (30 %), peso/volumen (25 %), fibra (20 %), agua (10 %),
+                      densidad energética (10 %) y grasa (5 %). Se ajusta por masa magra, % de grasa y
+                      minutos de entrenamiento semanales. No es una medida clínica de hambre.
+                    </p>
+                  </div>
+                </details>
               </div>
             )}
           </div>

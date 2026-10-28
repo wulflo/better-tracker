@@ -95,6 +95,26 @@ const PATHS: Record<string, React.ReactNode> = {
     </>
   ),
   close: <path d="M5 5l14 14M19 5L5 19" />,
+  edit: (
+    <>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </>
+  ),
+  scan: (
+    <>
+      <path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3" />
+      <path d="M7 8v8M10 7v10M13 8v8M17 7v10" />
+    </>
+  ),
+  play: <path d="M8 5l11 7-11 7z" />,
+  pause: <path d="M9 5v14M15 5v14" />,
+  refresh: (
+    <>
+      <path d="M20 11a8 8 0 1 0-2.3 5.7" />
+      <path d="M20 4v7h-7" />
+    </>
+  ),
   chevron: <path d="M9 6l6 6-6 6" />,
   spark: (
     <>

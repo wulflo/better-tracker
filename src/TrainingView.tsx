@@ -38,6 +38,7 @@ import {
 } from './zones';
 import Select from './components/Select';
 import { NumberInput, Field, EmptyState, Stat } from './components/Fields';
+import RestTimer, { primeTimerAlarm, timerAlarm } from './components/RestTimer';
 import { Icon } from './components/Icons';
 import { BarChart, BodyHeatmap, CalendarHeatmap, LineChart, ProgressBar } from './components/Charts';
 
@@ -603,6 +604,9 @@ function SessionTab({
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [restLeft, setRestLeft] = useState(0);
+  const [restPaused, setRestPaused] = useState(false);
+  const restWasActive = useRef(false);
+  const restSuppressAlarm = useRef(false);
   const [addEx, setAddEx] = useState('');
   const restRef = useRef<number | null>(null);
 
@@ -613,10 +617,19 @@ function SessionTab({
   }, [startedAt]);
 
   useEffect(() => {
-    if (restLeft <= 0) return;
+    if (restLeft <= 0 || restPaused) return;
     const id = window.setTimeout(() => setRestLeft((v) => Math.max(0, v - 1)), 1000);
     return () => window.clearTimeout(id);
-  }, [restLeft]);
+  }, [restLeft, restPaused]);
+
+  useEffect(() => {
+    if (restLeft === 0 && restWasActive.current && !restSuppressAlarm.current) {
+      timerAlarm();
+      notify('Descanso terminado. A por la siguiente serie.', 'success');
+    }
+    restSuppressAlarm.current = false;
+    restWasActive.current = restLeft > 0;
+  }, [restLeft, notify]);
 
   const exerciseOptions = exercises.map((e) => ({
     value: e.id,
@@ -640,6 +653,22 @@ function SessionTab({
     }
     setStartedAt(Date.now());
     setElapsed(0);
+    primeTimerAlarm();
+    stopRest();
+  };
+
+  const startRest = (seconds: number) => {
+    primeTimerAlarm();
+    restSuppressAlarm.current = false;
+    restWasActive.current = true;
+    setRestPaused(false);
+    setRestLeft(Math.max(1, Math.round(seconds)));
+  };
+
+  const stopRest = () => {
+    restSuppressAlarm.current = true;
+    restWasActive.current = false;
+    setRestPaused(false);
     setRestLeft(0);
   };
 
@@ -726,7 +755,7 @@ function SessionTab({
     setStartedAt(null);
     setEntries([]);
     setElapsed(0);
-    setRestLeft(0);
+    stopRest();
     await onRefresh();
     notify(
       prs.length
@@ -740,7 +769,7 @@ function SessionTab({
     setStartedAt(null);
     setEntries([]);
     setElapsed(0);
-    setRestLeft(0);
+    stopRest();
   };
 
   const recent = useMemo(() => {
@@ -795,6 +824,18 @@ function SessionTab({
             )}
           </div>
         </section>
+
+        <section className="card span-2">
+          <div className="card-header">
+            <div>
+              <div className="card-title"><Icon name="clock" /> Temporizador de descanso</div>
+              <div className="card-sub">Cuenta atrás con aviso sonoro y vibración, sin depender de la sesión en vivo.</div>
+            </div>
+          </div>
+          <div className="card-body">
+            <RestTimer notify={notify} />
+          </div>
+        </section>
       </div>
     );
   }
@@ -811,7 +852,19 @@ function SessionTab({
           </div>
           <div className="row wrap">
             <span className="badge badge-primary">{fmtDuration(elapsed)}</span>
-            {restLeft > 0 && <span className="badge badge-warning">Descanso {fmtDuration(restLeft)}</span>}
+            {restLeft > 0 && (
+              <>
+                <span className="badge badge-warning">
+                  Descanso {fmtDuration(restLeft)}{restPaused ? ' · en pausa' : ''}
+                </span>
+                <button className="btn btn-ghost btn-sm" onClick={() => setRestPaused((value) => !value)}>
+                  <Icon name={restPaused ? 'play' : 'pause'} size={14} /> {restPaused ? 'Reanudar' : 'Pausar'}
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={stopRest}>
+                  <Icon name="close" size={14} /> Quitar descanso
+                </button>
+              </>
+            )}
             <button className="btn btn-ghost btn-sm" onClick={discard}><Icon name="close" size={14} /> Descartar</button>
           </div>
         </div>
@@ -847,7 +900,7 @@ function SessionTab({
                       <label className="field" style={{ width: 80 }}><span className="field-label">Reps</span><NumberInput value={s.reps} onChange={(v) => updateSet(ei, si, 'reps', v)} min={0} max={200} /></label>
                       <label className="field" style={{ width: 88 }}><span className="field-label">Peso kg</span><NumberInput value={s.weight} onChange={(v) => updateSet(ei, si, 'weight', v)} min={0} max={600} step={0.5} /></label>
                       <label className="field" style={{ width: 76 }}><span className="field-label">RPE</span><NumberInput value={s.rpe ?? 0} onChange={(v) => updateSet(ei, si, 'rpe', v)} min={1} max={10} /></label>
-                      <button className="btn btn-ghost btn-sm" onClick={() => setRestLeft(entry.rest || 90)}><Icon name="clock" size={13} /> {entry.rest || 90}s</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => startRest(entry.rest || 90)}><Icon name="clock" size={13} /> {entry.rest || 90}s</button>
                       <button className="btn-icon" aria-label="Quitar serie" onClick={() => removeSet(ei, si)}><Icon name="close" size={13} /></button>
                       {s.weight > 0 && s.reps > 0 && (
                         <span className="badge badge-muted">1RM ≈ {Math.round(estimate1RM(s.weight, s.reps).epley ?? 0)} kg</span>

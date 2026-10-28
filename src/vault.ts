@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import pkg from '../package.json';
-import type { AppInfo, VaultEvent } from './types';
+import type { AppInfo, BarcodeProduct, FoodCategory, VaultEvent } from './types';
 
 export type { VaultEvent };
 
@@ -79,6 +79,83 @@ export async function getAppInfo(): Promise<AppInfo> {
     };
   }
   return invoke<AppInfo>('get_app_info');
+}
+
+/**
+ * Busca un producto por EAN/UPC. En la app nativa usa Rust (reqwest) y en el
+ * modo navegador consulta Open Food Facts directamente para poder probar el
+ * flujo sin compilar.
+ */
+export async function lookupBarcode(code: string): Promise<BarcodeProduct | null> {
+  const barcode = code.replace(/\D/g, '');
+  if (barcode.length < 6 || barcode.length > 14) {
+    throw new Error('El código debe tener entre 6 y 14 dígitos (EAN/UPC).');
+  }
+  if (isTauri()) {
+    return invoke<BarcodeProduct | null>('lookup_barcode', { code: barcode });
+  }
+  return lookupBarcodeWeb(barcode);
+}
+
+function categoryFromTags(tags: string[]): FoodCategory {
+  const has = (needle: string) => tags.some((tag) => tag.includes(needle));
+  if (has('beverage') || has('drink') || has('water') || has('juice') || has('soda')) return 'bebida';
+  if (has('dairy') || has('milk') || has('cheese') || has('yogurt')) return 'lacteo';
+  if (has('meat') || has('poultry') || has('ham') || has('sausage')) return 'carne';
+  if (has('fish') || has('seafood')) return 'pescado';
+  if (has('egg')) return 'huevo';
+  if (has('fruit')) return 'fruta';
+  if (has('vegetable') || has('salad')) return 'verdura';
+  if (has('legume') || has('bean')) return 'legumbre';
+  if (has('bread') || has('cereal') || has('pasta') || has('rice')) return 'cereal';
+  if (has('nut') || has('seed')) return 'fruto_seco';
+  if (has('oil') || has('fat') || has('butter')) return 'grasa';
+  if (has('sauce') || has('condiment') || has('spice')) return 'condimento';
+  if (has('sweet') || has('snack') || has('chocolate') || has('dessert')) return 'dulce';
+  if (has('supplement') || has('protein')) return 'suplemento';
+  return 'procesado';
+}
+
+async function lookupBarcodeWeb(barcode: string): Promise<BarcodeProduct | null> {
+  const fields = 'product_name,product_name_es,generic_name,brands,nutriments,categories_tags,quantity,serving_size';
+  const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json?fields=${fields}`);
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Open Food Facts respondió con estado ${response.status}.`);
+  const payload = await response.json();
+  if (payload?.status === 0 || !payload?.product) return null;
+  const product = payload.product as Record<string, any>;
+  const name = String(product.product_name_es || product.product_name || product.generic_name || '').trim();
+  if (!name) return null;
+  const brand = String(product.brands || '').trim();
+  const nutriments = product.nutriments ?? {};
+  const num = (key: string) => {
+    const value = Number(nutriments[key]);
+    return Number.isFinite(value) && value >= 0 ? value : 0;
+  };
+  const kcal = num('energy-kcal_100g') || num('energy_100g') / 4.184;
+  const per100 = {
+    kcal: Math.round(kcal * 10) / 10,
+    protein: Math.round(num('proteins_100g') * 10) / 10,
+    carbs: Math.round(num('carbohydrates_100g') * 10) / 10,
+    fat: Math.round(num('fat_100g') * 10) / 10,
+    fiber: Math.round(num('fiber_100g') * 10) / 10,
+  };
+  if (per100.kcal <= 0 && per100.protein <= 0 && per100.carbs <= 0 && per100.fat <= 0) return null;
+  const tags = Array.isArray(product.categories_tags)
+    ? product.categories_tags.map((tag: unknown) => String(tag).toLowerCase())
+    : [];
+  return {
+    id: `off-${barcode}`,
+    name: brand && !name.toLowerCase().includes(brand.toLowerCase()) ? `${name} (${brand})` : name,
+    category: categoryFromTags(tags),
+    per100,
+    units: {},
+    custom: true,
+    barcode,
+    source: 'openfoodfacts',
+    quantityLabel: product.quantity ? String(product.quantity) : null,
+    servingLabel: product.serving_size ? String(product.serving_size) : null,
+  };
 }
 
 export function newEvent(deviceId: string, kind: string, payload: any): VaultEvent {

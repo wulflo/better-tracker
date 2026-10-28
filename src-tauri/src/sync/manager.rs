@@ -5,8 +5,6 @@ use crate::sync::pairing::{
   connect_pairing, PendingPairing, PairingRegistry, PAIRING_PORT, PAIRING_TTL_MS, SYNC_PORT,
 };
 use crate::sync::peer::{Peer, PeersStore};
-use crate::sync::store_types::{DomainEvent, EventMetadata};
-use crate::vault;
 use crate::sync::server::{
   start_pairing_server, start_sync_server, PairingServerHandle, SyncServerHandle,
 };
@@ -70,6 +68,7 @@ impl SyncManager {
   }
 
   fn new_with_root(app: Option<AppHandle>, root: String) -> Self {
+    let app = app.or_else(crate::app_handle);
     let peers_path = PathBuf::from(&root).join("sync").join("peers.json");
     let peers = PeersStore::load(&peers_path).unwrap_or_else(|_| PeersStore::new());
     Self {
@@ -261,6 +260,32 @@ impl SyncManager {
     Ok(self.info_with_identity(identity))
   }
 
+  /**
+   * Arranca el servidor sin intervención del usuario cuando ya hay peers
+   * emparejados. Sin esto, el otro dispositivo podía emparejarse y sincronizar
+   * una vez, pero el receptor no escuchaba al reiniciar la app: el emisor veía
+   * "sincronizado" y el receptor no recibía nada.
+   */
+  pub async fn start_if_configured(&self) -> Result<bool, String> {
+    if self.is_running() {
+      return Ok(true);
+    }
+    if self.list_peers().is_empty() {
+      return Ok(false);
+    }
+    if self.app.is_none() {
+      return Ok(false);
+    }
+    let name = self
+      .identity_info()
+      .map(|info| info.name)
+      .unwrap_or_else(|| "Este equipo".to_string());
+    #[cfg(target_os = "android")]
+    crate::android_fs::multicast_acquire();
+    self.start(&name).await?;
+    Ok(true)
+  }
+
   fn info_with_identity(&self, identity: Identity) -> SyncLocalInfo {
     let mut info = self.local_info();
     let fingerprint = identity.fingerprint();
@@ -445,66 +470,21 @@ impl SyncManager {
   }
 
   /** Exporta los eventos de la bóveda a la carpeta de sync (append-only por id). */
-  pub fn export_vault_to_store(&self) -> Result<(), String> {
+  pub fn export_vault_to_store(&self) -> Result<usize, String> {
     let app = match &self.app {
-      Some(a) => a,
-      None => return Ok(()),
+      Some(app) => app,
+      None => return Ok(0),
     };
-    let events = match vault::read_events(app) {
-      Ok(e) => e,
-      Err(_) => return Ok(()),
-    };
-    if events.is_empty() {
-      return Ok(());
-    }
-    let domain_events: Vec<DomainEvent> = events
-      .into_iter()
-      .map(|e| DomainEvent {
-        id: e.id,
-        type_: e.kind,
-        payload: e.payload,
-        metadata: EventMetadata {
-          hlc: parse_ts(&e.timestamp),
-          device_id: e.device_id,
-          timestamp: parse_ts(&e.timestamp),
-          version: 1,
-        },
-      })
-      .collect();
-    crate::sync::store::append_missing(&self.root, "events", &domain_events)?;
-    Ok(())
+    crate::sync::bridge::export_vault_to_store(app, &self.root)
   }
 
   /** Importa a la bóveda los eventos nuevos que llegaron por sync. */
   pub fn import_store_to_vault(&self) -> Result<usize, String> {
     let app = match &self.app {
-      Some(a) => a,
+      Some(app) => app,
       None => return Ok(0),
     };
-    let domain_events = crate::sync::store::load_domain(&self.root, "events")?;
-    if domain_events.is_empty() {
-      return Ok(0);
-    }
-    let existing = vault::read_events(app).unwrap_or_default();
-    let existing_ids: std::collections::BTreeSet<String> =
-      existing.into_iter().map(|e| e.id).collect();
-    let mut added = 0usize;
-    for de in domain_events {
-      if existing_ids.contains(&de.id) {
-        continue;
-      }
-      let ev = vault::Event {
-        id: de.id,
-        device_id: de.metadata.device_id.clone(),
-        timestamp: format_ts(de.metadata.timestamp),
-        kind: de.type_,
-        payload: de.payload,
-      };
-      if vault::append_event(app, &ev).is_ok() {
-        added += 1;
-      }
-    }
-    Ok(added)
+    crate::sync::bridge::import_store_to_vault(app, &self.root)
   }
 
   pub async fn sync_peer(
@@ -560,19 +540,4 @@ pub async fn run_background_sync(root: String) -> Result<SyncBatchResult, String
     }
     Ok(SyncBatchResult { reports, errors })
   }
-}
-
-fn parse_ts(s: &str) -> u64 {
-  chrono::DateTime::parse_from_rfc3339(s)
-    .map(|dt| dt.timestamp_millis() as u64)
-    .unwrap_or(0)
-}
-
-fn format_ts(ms: u64) -> String {
-  if ms == 0 {
-    return chrono::Utc::now().to_rfc3339();
-  }
-  chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms as i64)
-    .map(|dt| dt.to_rfc3339())
-    .unwrap_or_else(|| chrono::Utc::now().to_rfc3339())
 }

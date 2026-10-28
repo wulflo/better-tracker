@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bodyComposition,
   bodyProgressSeries,
+  computeMacros,
+  computeSatiety,
+  computeWaterGuidance,
   daysBetween,
   goalModeFromEvents,
   latestMeasurement,
@@ -12,7 +16,22 @@ import {
   todayISO,
   visibleTrainingEvents,
 } from './metrics';
-import type { Exercise, VaultEvent } from './types';
+import type { BodyMeasures, Exercise, VaultEvent } from './types';
+
+const BODY: BodyMeasures = {
+  sex: 'male',
+  age: 30,
+  weight: 80,
+  height: 180,
+  neck: 38,
+  chest: 102,
+  waist: 85,
+  hip: 96,
+  arm: 33,
+  thigh: 56,
+  calf: 38,
+  wrist: 17,
+};
 
 function event(kind: string, payload: Record<string, unknown>, timestamp = '2026-01-01T00:00:00.000Z'): VaultEvent {
   return {
@@ -121,5 +140,53 @@ describe('metrics', () => {
     ]);
     expect(latest?.weight).toBe(80);
     expect(latest?.waist).toBe(0);
+  });
+
+  it('personalizes water limits with lean mass and training', () => {
+    const comp = bodyComposition(BODY);
+    expect(comp.leanMass).not.toBeNull();
+
+    const rest = computeWaterGuidance(BODY, 0, 0);
+    const trained = computeWaterGuidance(BODY, 420, 0);
+    expect(rest.targetMl).toBeGreaterThan(2000);
+    expect(trained.targetMl).toBeGreaterThan(rest.targetMl);
+    expect(trained.safeMaxMl).toBeGreaterThan(trained.targetMl);
+    expect(trained.hardMaxMl).toBeGreaterThan(trained.safeMaxMl);
+
+    const within = computeWaterGuidance(BODY, 0, rest.targetMl);
+    expect(within.status).toBe('ok');
+    expect(within.tone).toBe('success');
+
+    const excessive = computeWaterGuidance(BODY, 0, rest.safeMaxMl + 250);
+    expect(excessive.status).toBe('excess');
+    expect(excessive.tone).toBe('danger');
+
+    const dangerous = computeWaterGuidance(BODY, 0, rest.hardMaxMl + 500);
+    expect(dangerous.status).toBe('danger');
+    expect(dangerous.message).toMatch(/sobrehidratación/i);
+  });
+
+  it('scores satiety from protein, fiber, volume, water and energy density', () => {
+    const macros = computeMacros(BODY, 300, 'maintain');
+    expect(macros).not.toBeNull();
+    const comp = bodyComposition(BODY);
+
+    const poor = computeSatiety(
+      { date: '2026-01-01', kcal: 1800, protein: 45, carbs: 240, fat: 70, fiber: 5, water: 400 },
+      macros,
+      { grams: 500, weightKg: BODY.weight, bodyFat: comp.avg, leanMass: comp.leanMass, weeklyMinutes: 300 },
+    );
+    const good = computeSatiety(
+      { date: '2026-01-01', kcal: 2100, protein: 145, carbs: 230, fat: 65, fiber: 32, water: 2600 },
+      macros,
+      { grams: 1600, weightKg: BODY.weight, bodyFat: comp.avg, leanMass: comp.leanMass, weeklyMinutes: 300 },
+    );
+
+    expect(poor).not.toBeNull();
+    expect(good).not.toBeNull();
+    expect(good!.score).toBeGreaterThan(poor!.score);
+    expect(good!.energyDensity).toBeLessThan(poor!.energyDensity as number);
+    expect(good!.drivers).toHaveLength(6);
+    expect(good!.diagnosis).toMatch(/saciedad/i);
   });
 });

@@ -56,6 +56,11 @@ solo como registro histórico y no se usa más:
 
 - Cert SHA-256 legado (histórico): `76:FA:C8:DF:B2:64:E3:84:98:2A:5E:74:42:F3:8C:BF:78:05:CE:A2:FF:4E:6C:87:55:2B:49:A5:C8:6F:CD:5B`
 
+> **Android:** cambiar la clave de firma rompe la continuidad de actualización.
+> La primera release firmada con la clave nueva (`0.8.7`) debe instalarse
+> desinstalando antes la versión firmada con la clave legado. Las releases
+> posteriores ya se actualizan encima con normalidad.
+
 ## GitHub Secrets
 
 | Secreto | Uso |

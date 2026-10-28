@@ -19,7 +19,6 @@ import { Icon, LogoMark } from './components/Icons';
 import { useLanguage, t } from './i18n';
 import UpdatePanel from './components/UpdatePanel';
 import SyncPanel from './components/SyncPanel';
-import BarcodeScanner from './components/BarcodeScanner';
 
 type View = 'panel' | 'training' | 'history' | 'body';
 type ToastTone = 'success' | 'error' | 'info';
@@ -45,8 +44,6 @@ export default function App() {
   const [events, setEvents] = useState<VaultEvent[]>([]);
   const [view, setView] = useState<View>('panel');
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [barcodeOpen, setBarcodeOpen] = useState(false);
-  const [scannedCode, setScannedCode] = useState('');
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null);
   const toastTimer = useRef<number | null>(null);
   const { lang, setLang } = useLanguage();
@@ -80,6 +77,30 @@ export default function App() {
     window.addEventListener('better-tracker:refresh', onRefresh);
     return () => window.removeEventListener('better-tracker:refresh', onRefresh);
   }, [refresh]);
+
+  // El receptor del sync también debe refrescar la UI: antes los eventos
+  // llegaban al store pero la pantalla seguía mostrando datos viejos.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let active = true;
+    let unlisten: (() => void) | null = null;
+    import('@tauri-apps/api/event')
+      .then(({ listen }) => listen<{ received?: number }>('sync-updated', (event) => {
+        if (!active) return;
+        void refresh();
+        const received = Number(event.payload?.received) || 0;
+        if (received > 0) notify(`${received} dato(s) recibidos por sincronización.`, 'success');
+      }))
+      .then((stop) => {
+        if (active) unlisten = stop;
+        else stop();
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [refresh, notify]);
 
   useEffect(() => {
     const onRejection = (e: PromiseRejectionEvent) => {
@@ -280,6 +301,30 @@ export default function App() {
         </div>
       </main>
 
+      <nav className="bottom-nav" aria-label="Navegación principal móvil">
+        {NAV.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={`bottom-nav-item ${view === item.id ? 'active' : ''}`}
+            aria-current={view === item.id ? 'page' : undefined}
+            onClick={() => setView(item.id)}
+          >
+            <Icon name={item.icon} size={20} />
+            <span>{item.label}</span>
+          </button>
+        ))}
+        <button
+          type="button"
+          className="bottom-nav-item"
+          aria-label="Ajustes"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <Icon name="settings" size={20} />
+          <span>{t('settings', lang)}</span>
+        </button>
+      </nav>
+
       {settingsOpen && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="settings-title">
           <div className="modal" style={{ width: 'min(620px, 100%)' }}>
@@ -334,14 +379,8 @@ export default function App() {
               </div>
               <div className="settings-row">
                 <span className="muted">Código de barras</span>
-                <button className="btn btn-ghost btn-sm" onClick={() => setBarcodeOpen(true)}>Escanear</button>
-                {scannedCode && <span className="value mono">{scannedCode}</span>}
+                <span className="value small">Escanea desde Panel → Ingesta → Escanear código</span>
               </div>
-              {barcodeOpen && (
-                <div style={{ marginTop: 8 }}>
-                  <BarcodeScanner onResult={(code) => { setScannedCode(code); setBarcodeOpen(false); notify(`Código: ${code}`, 'info'); }} />
-                </div>
-              )}
               <UpdatePanel installFormat={info?.install_format} notify={notify} />
               <div style={{ marginTop: 12 }}>
                 <div className="modal-title" style={{ fontSize: 14, marginBottom: 6 }}>Sincronización P2P (LAN)</div>

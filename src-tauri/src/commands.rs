@@ -1,5 +1,6 @@
 use tauri::AppHandle;
 use tauri::Manager;
+#[cfg(not(target_os = "android"))]
 use tauri_plugin_dialog::DialogExt;
 use crate::vault;
 use crate::version;

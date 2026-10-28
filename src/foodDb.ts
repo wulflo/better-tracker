@@ -698,6 +698,82 @@ export function calcFood(
   };
 }
 
+/** Peso total (g/ml) de los alimentos registrados. */
+export function mealGrams(items: FoodLogItem[]): number {
+  return Math.round(
+    items.reduce((total, item) => total + (Number.isFinite(item.grams) ? item.grams : 0), 0),
+  );
+}
+
+/**
+ * Recalcula un alimento ya añadido cuando el usuario cambia cantidad, medida o
+ * comida. Si el alimento original no está en la base (p. ej. un producto
+ * escaneado que se borró), escalamos por gramos para no perder los macros.
+ */
+export function resizeFoodLogItem(
+  item: FoodLogItem,
+  food: Food | undefined,
+  quantity: number,
+  unit: string,
+  meal: MealSlot = item.meal,
+): FoodLogItem {
+  const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 0;
+  if (food) {
+    const preview = calcFood(food, safeQuantity, unit);
+    return { ...item, meal, quantity: safeQuantity, unit, ...preview };
+  }
+  const oldUnitGrams = item.quantity > 0 ? item.grams / item.quantity : 0;
+  const grams = unit === 'g' || unit === 'ml'
+    ? safeQuantity
+    : safeQuantity * (oldUnitGrams || 0);
+  const factor = item.grams > 0 ? grams / item.grams : 0;
+  const scale = (value: number) => Math.round(value * factor * 10) / 10;
+  return {
+    ...item,
+    meal,
+    quantity: safeQuantity,
+    unit,
+    grams: Math.round(grams * 10) / 10,
+    kcal: Math.round(item.kcal * factor),
+    protein: scale(item.protein),
+    carbs: scale(item.carbs),
+    fat: scale(item.fat),
+    fiber: scale(item.fiber),
+  };
+}
+
+export function normalizeBarcode(code: string): string {
+  return String(code ?? '').replace(/\D/g, '');
+}
+
+function barcodeVariants(code: string): string[] {
+  const clean = normalizeBarcode(code);
+  if (!clean) return [];
+  return [...new Set([
+    clean,
+    clean.replace(/^0+/, ''),
+    clean.padStart(12, '0'),
+    clean.padStart(13, '0'),
+  ])].filter(Boolean);
+}
+
+/**
+ * Busca un alimento por EAN/UPC. Open Food Facts devuelve EAN-13; los lectores
+ * de UPC-A suelen entregar 12 dígitos, así que comparamos variantes con y sin
+ * ceros a la izquierda.
+ */
+export function findFoodByBarcode(foods: Food[], code: string): Food | null {
+  const variants = barcodeVariants(code);
+  if (!variants.length) return null;
+  return (
+    foods.find((food) => {
+      if (!food.barcode) return false;
+      const stored = barcodeVariants(food.barcode);
+      return stored.some((variant) => variants.includes(variant));
+    }) ?? null
+  );
+}
+
 export function mealTotals(items: FoodLogItem[]): {
   kcal: number;
   protein: number;
@@ -735,7 +811,7 @@ export function searchFoods(foods: Food[], query: string, limit = 10): Food[] {
   const tokens = q.split(/\s+/).filter(Boolean);
   return foods
     .filter((food) => {
-      const haystack = normalize(`${food.name} ${food.category}`);
+      const haystack = normalize(`${food.name} ${food.category} ${food.barcode ?? ''}`);
       return tokens.every((token) => haystack.includes(token));
     })
     .slice(0, limit);
@@ -766,6 +842,12 @@ export function reduceCustomFoods(events: VaultEvent[]): Food[] {
       },
       units: { ...DEFAULT_UNITS[category], ...(raw.units ?? {}) },
       custom: true,
+      barcode: typeof raw.barcode === 'string' && normalizeBarcode(raw.barcode)
+        ? normalizeBarcode(raw.barcode)
+        : undefined,
+      source: typeof raw.source === 'string' ? raw.source : undefined,
+      quantityLabel: typeof raw.quantityLabel === 'string' ? raw.quantityLabel : null,
+      servingLabel: typeof raw.servingLabel === 'string' ? raw.servingLabel : null,
     });
   }
   return [...map.values()];

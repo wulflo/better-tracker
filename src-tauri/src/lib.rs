@@ -1,3 +1,4 @@
+use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
 use tauri::Manager;
@@ -5,6 +6,7 @@ use tauri::Manager;
 pub mod commands;
 #[cfg(target_os = "android")]
 pub mod android_fs;
+pub mod barcode;
 pub mod event_store;
 pub mod manifest;
 pub mod sync;
@@ -16,6 +18,14 @@ use sync::manager::{IdentityInfo, SyncBatchResult, SyncLocalInfo, SyncManager};
 use sync::pairing::PendingPairing;
 use sync::peer::Peer;
 use tauri::AppHandle;
+
+/// Manejador global de la app. Lo necesita el sync headless que arranca desde
+/// Android (JNI) para poder leer/escribir la bóveda, que es propiedad de la UI.
+static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+
+pub fn app_handle() -> Option<AppHandle> {
+    APP_HANDLE.get().cloned()
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -30,9 +40,29 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     }
 
+    #[cfg(target_os = "android")]
+    {
+        builder = builder.plugin(tauri_plugin_barcode_scanner::init());
+    }
+
     builder
         .setup(|app| {
+            // El motor de sync headless (JNI en Android) necesita el AppHandle
+            // global para poder leer/escribir la bóveda, que pertenece a la UI.
+            let _ = APP_HANDLE.set(app.handle().clone());
             app.manage(SyncManager::new(app.handle().clone()));
+
+            // Si ya hay peers emparejados, el receptor debe escuchar desde el
+            // arranque. Antes solo escuchaba tras pulsar "Iniciar servidor", así
+            // que el emisor creía haber sincronizado y el receptor no recibía nada.
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let manager = handle.state::<SyncManager>();
+                if let Err(error) = manager.start_if_configured().await {
+                    eprintln!("[sync] no se pudo iniciar el servidor: {error}");
+                }
+            });
+
             let app_handle = app.handle().clone();
             thread::spawn(move || {
                 thread::sleep(Duration::from_secs(10));
@@ -88,6 +118,8 @@ pub fn run() {
             sync_discover,
             generate_qr_svg,
             battery_status,
+            // barcode
+            barcode::lookup_barcode,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -200,11 +232,15 @@ async fn sync_pair_connect(
 }
 
 #[tauri::command]
-fn sync_pair_confirm(
+async fn sync_pair_confirm(
     state: tauri::State<'_, SyncManager>,
     device_id: String,
 ) -> Result<Peer, String> {
-    state.confirm_pairing(&device_id)
+    let peer = state.confirm_pairing(&device_id)?;
+    // Al confirmar el emparejamiento el receptor debe quedar escuchando para
+    // que el primer sync (y los siguientes) encuentren un servidor activo.
+    let _ = state.start_if_configured().await;
+    Ok(peer)
 }
 
 #[tauri::command]

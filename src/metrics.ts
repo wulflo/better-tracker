@@ -493,64 +493,341 @@ export function computeMacros(
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* Agua: objetivo personalizado y límites de seguridad                */
+/* ------------------------------------------------------------------ */
+
+export type WaterStatus = 'none' | 'low' | 'below' | 'ok' | 'excess' | 'danger';
+
+export interface WaterGuidance {
+  targetMl: number;
+  /** Límite superior razonable para tu composición y entrenamiento. */
+  safeMaxMl: number;
+  /** Por encima de este valor el riesgo de sobrehidratación es real. */
+  hardMaxMl: number;
+  status: WaterStatus;
+  tone: 'info' | 'success' | 'warn' | 'danger';
+  message: string;
+  detail: string;
+  leanMassKg: number | null;
+  fatMassKg: number | null;
+  exerciseAddMl: number;
+  pctOfTarget: number;
+  pctOfSafeMax: number;
+}
+
+/**
+ * Estima el objetivo de agua y los límites de seguridad.
+ *
+ * El tejido magro contiene ~73 % de agua y el graso ~20 %, así que las
+ * necesidades hídricas se ajustan mejor a la masa magra que al peso total.
+ * Añadimos la reposición por entrenamiento (≈500 ml por hora media) y usamos
+ * la capacidad renal de excreción (≈0,7–1,0 L/h) como referencia de seguridad:
+ * superar de forma sostenida ese ritmo puede diluir el sodio plasmático.
+ *
+ * No es consejo médico: es una orientación para detectar excesos evidentes.
+ */
+export function computeWaterGuidance(
+  m: BodyMeasures,
+  weeklyMinutes: number,
+  intakeMl: number,
+): WaterGuidance {
+  const intake = Math.max(0, Number(intakeMl) || 0);
+  const weight = m.weight > 0 ? m.weight : 0;
+  const comp = bodyComposition(m);
+  const lean = comp.leanMass !== null && comp.leanMass > 0 ? comp.leanMass : weight * 0.8;
+  const fat = Math.max(0, weight - lean);
+  const exerciseAddMl = Math.round((Math.max(0, weeklyMinutes) / 7 / 60) * 500);
+
+  // Con datos incompletos usamos una referencia de 70 kg (56 kg magros / 14 kg grasa).
+  const effectiveLean = lean > 0 ? lean : 56;
+  const effectiveFat = weight > 0 ? fat : 14;
+
+  const targetMl = Math.round(effectiveLean * 40 + effectiveFat * 15 + exerciseAddMl);
+  const safeMaxMl = Math.round(effectiveLean * 55 + effectiveFat * 20 + exerciseAddMl * 1.5);
+  const hardMaxMl = Math.round(
+    Math.max(safeMaxMl + 1200, effectiveLean * 80 + effectiveFat * 30),
+  );
+
+  const pctOfTarget = targetMl > 0 ? Math.round((intake / targetMl) * 100) : 0;
+  const pctOfSafeMax = safeMaxMl > 0 ? Math.round((intake / safeMaxMl) * 100) : 0;
+
+  let status: WaterStatus = 'ok';
+  let tone: WaterGuidance['tone'] = 'success';
+  let message = `Dentro de tu rango seguro (${(safeMaxMl / 1000).toFixed(1)} L).`;
+  let detail = `Objetivo personalizado: ${(targetMl / 1000).toFixed(1)} L/día según masa magra (${effectiveLean.toFixed(1)} kg) y entrenamiento (${exerciseAddMl} ml extra).`;
+
+  if (intake <= 0) {
+    status = 'none';
+    tone = 'info';
+    message = 'Aún no has registrado agua hoy.';
+    detail = `Tu objetivo es ${(targetMl / 1000).toFixed(1)} L. Reparte a lo largo del día en lugar de beber todo de golpe.`;
+  } else if (intake < targetMl * 0.75) {
+    status = 'low';
+    tone = 'warn';
+    message = `Vas bajo de hidratación: te faltan ${((targetMl - intake) / 1000).toFixed(2)} L para el objetivo.`;
+    detail = 'Bebe en pequeños sorbos; la sed intensa y la orina oscura indican que ya vas tarde.';
+  } else if (intake < targetMl) {
+    status = 'below';
+    tone = 'info';
+    message = `Te quedan ${((targetMl - intake) / 1000).toFixed(2)} L para llegar a tu objetivo.`;
+    detail = detail;
+  } else if (intake <= safeMaxMl) {
+    status = 'ok';
+    tone = 'success';
+    message = `Dentro de tu rango seguro (${(safeMaxMl / 1000).toFixed(1)} L).`;
+    detail = detail;
+  } else if (intake <= hardMaxMl) {
+    status = 'excess';
+    tone = 'danger';
+    message = `Por encima de tu límite seguro por ${((intake - safeMaxMl) / 1000).toFixed(2)} L.`;
+    detail = `Con tu masa magra y entrenamiento, no conviene pasar de ${(safeMaxMl / 1000).toFixed(1)} L al día. El riñón excreta ≈0,7–1,0 L/h; beber más rápido diluye el sodio. Reparte el agua y no fuerces.`;
+  } else {
+    status = 'danger';
+    tone = 'danger';
+    message = `Riesgo de sobrehidratación: ${(intake / 1000).toFixed(2)} L registrados.`;
+    detail = `Superas el umbral de seguridad (${(hardMaxMl / 1000).toFixed(1)} L) para tu peso y composición. Para de beber, evita ejercicio intenso y busca atención médica si hay náuseas, confusión o dolor de cabeza.`;
+  }
+
+  return {
+    targetMl,
+    safeMaxMl,
+    hardMaxMl,
+    status,
+    tone,
+    message,
+    detail,
+    leanMassKg: comp.leanMass,
+    fatMassKg: comp.fatMass,
+    exerciseAddMl,
+    pctOfTarget,
+    pctOfSafeMax,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Saciedad: modelo multivariable basado en evidencia                  */
+/* ------------------------------------------------------------------ */
+
+export interface SatietyDriver {
+  id: string;
+  label: string;
+  /** Puntuación del factor, 0–100. */
+  value: number;
+  /** Peso relativo dentro del índice. */
+  weight: number;
+  detail: string;
+}
+
+export interface SatietyContext {
+  /** Gramos totales de comida registrados en el día. */
+  grams?: number;
+  bodyFat?: number | null;
+  leanMass?: number | null;
+  weightKg?: number;
+  weeklyMinutes?: number;
+}
+
 export interface SatietyResult {
-  pressure: number;
-  biochem: number;
-  combined: number;
+  /** Índice global de saciedad 0–100. */
+  score: number;
+  fullness: number;
+  hormonal: number;
+  hydration: number;
+  energyDensity: number | null;
+  mealGrams: number;
+  drivers: SatietyDriver[];
   diagnosis: string;
   tip: string;
   tone: 'good' | 'warn' | 'bad' | 'info';
+  /** Alias heredados para no romper consumidores antiguos. */
+  pressure: number;
+  biochem: number;
+  combined: number;
 }
 
+/**
+ * Modelo de saciedad con los factores que mejor predicen el apetito:
+ *
+ * - Proteína: el macro más saciante (GLP-1, PYY, CCK). Objetivo diario según
+ *   peso y objetivo calórico.
+ * - Fibra: aumenta el volumen/viscosidad y retrasa el vaciado gástrico.
+ * - Peso/volumen del alimento: la distensión gástrica es una señal mecánica
+ *   potente; 1–1,5 kg de comida al día es una referencia práctica.
+ * - Densidad energética: a igual caloría, los alimentos con menos kcal/g
+ *   sacian más (baja densidad → mayor peso y volumen).
+ * - Agua: contribuye al volumen y a la hidratación; un déficit leve aumenta
+ *   la sensación de hambre.
+ * - Grasa: retrasa el vaciado gástrico, pero su efecto saciante por caloría es
+ *   menor que el de la proteína.
+ * - Composición corporal y entrenamiento: ajustan las necesidades; un % de
+ *   grasa muy bajo o una carga alta de entrenamiento aumentan la drive.
+ */
 export function computeSatiety(
   n: NutritionEntry | null,
   macros: MacroResult | null,
+  context: SatietyContext = {},
 ): SatietyResult | null {
   if (!n || !macros) return null;
-  const fiberTarget = Math.max(25, macros.fiber);
+
+  const grams = Math.max(0, Number(context.grams) || 0);
+  const weightKg = context.weightKg && context.weightKg > 0 ? context.weightKg : 0;
+  const bodyFat = context.bodyFat ?? null;
+  const leanMass = context.leanMass ?? null;
+  const weeklyMinutes = Math.max(0, context.weeklyMinutes ?? 0);
+
+  // El tejido magro y el entrenamiento elevan la demanda; el % de grasa muy
+  // bajo eleva la señal de hambre (adaptación energética).
+  const bodyDemand = leanMass && weightKg > 0
+    ? clamp(0.9 + (leanMass / weightKg - 0.75) * 0.4, 0.85, 1.15)
+    : 1;
+  const trainingDemand = clamp(1 + weeklyMinutes / 1200, 1, 1.2);
+  const lowFatDrive = bodyFat !== null && bodyFat < 12 ? 1.08 : 1;
+  const demand = bodyDemand * trainingDemand * lowFatDrive;
+
+  const volumeTarget = 1200 * (weightKg > 0 ? clamp(weightKg / 75, 0.7, 1.5) : 1);
   const proteinTarget = Math.max(1, macros.protein);
+  const fiberTarget = Math.max(25, macros.fiber);
   const fatTarget = Math.max(1, macros.fat);
-  const waterTarget = Math.max(1, macros.waterMl / 1000);
+  const waterTarget = Math.max(1, macros.waterMl);
 
-  const pressure = clamp(
-    50 * (n.fiber / fiberTarget) +
-      30 * (n.water / 1000 / waterTarget) +
-      20 * (n.protein / proteinTarget),
+  const volumeScore = clamp((grams / volumeTarget) * 100, 0, 100);
+  const proteinScore = clamp((n.protein / proteinTarget) * 100, 0, 100);
+  const fiberScore = clamp((n.fiber / fiberTarget) * 100, 0, 100);
+  const hydrationScore = clamp((n.water / waterTarget) * 100, 0, 100);
+  const fatScore = clamp((n.fat / fatTarget) * 100, 0, 100);
+  const energyDensity = grams > 0 ? n.kcal / grams : null;
+  const densityScore = energyDensity === null
+    ? 50
+    : clamp(((2.5 - energyDensity) / 1.5) * 100, 0, 100);
+
+  // La saciedad percibida se normaliza por la demanda: con más entrenamiento o
+  // menos grasa corporal hace falta más señal para sentirse igual de lleno.
+  const normalize = (value: number) => clamp(value / demand, 0, 100);
+
+  const volume = normalize(volumeScore);
+  const protein = normalize(proteinScore);
+  const fiber = normalize(fiberScore);
+  const hydration = normalize(hydrationScore);
+  const fat = normalize(fatScore);
+  const density = normalize(densityScore);
+
+  const fullness = clamp(volume * 0.7 + hydration * 0.2 + fiber * 0.1, 0, 100);
+  const hormonal = clamp(protein * 0.55 + fiber * 0.3 + fat * 0.15, 0, 100);
+  const score = clamp(
+    volume * 0.25 +
+      protein * 0.3 +
+      fiber * 0.2 +
+      hydration * 0.1 +
+      fat * 0.05 +
+      density * 0.1,
     0,
     100,
   );
-  const biochem = clamp(
-    45 * (n.protein / proteinTarget) +
-      35 * (n.fiber / fiberTarget) +
-      20 * (n.fat / fatTarget),
-    0,
-    100,
-  );
-  const combined = (pressure + biochem) / 2;
 
-  let diagnosis = 'Señal mixta';
-  let tip = 'Reparte proteína, fibra y agua a lo largo del día para cubrir ambas vías.';
+  const drivers: SatietyDriver[] = [
+    {
+      id: 'protein',
+      label: 'Proteína',
+      value: Math.round(protein),
+      weight: 30,
+      detail: `${Math.round(n.protein)} g de ${proteinTarget} g objetivo diario. Es el macro más saciante.`,
+    },
+    {
+      id: 'volume',
+      label: 'Peso y volumen',
+      value: Math.round(volume),
+      weight: 25,
+      detail: `${Math.round(grams)} g de comida; referencia ${Math.round(volumeTarget)} g/día. La distensión gástrica es una señal mecánica directa.`,
+    },
+    {
+      id: 'fiber',
+      label: 'Fibra',
+      value: Math.round(fiber),
+      weight: 20,
+      detail: `${Math.round(n.fiber * 10) / 10} g de ${fiberTarget} g objetivo. Retrasa el vaciado gástrico y modula GLP-1/PYY.`,
+    },
+    {
+      id: 'water',
+      label: 'Agua',
+      value: Math.round(hydration),
+      weight: 10,
+      detail: `${Math.round(n.water)} ml de ${Math.round(waterTarget)} ml. La deshidratación leve se confunde con hambre.`,
+    },
+    {
+      id: 'density',
+      label: 'Densidad energética',
+      value: Math.round(density),
+      weight: 10,
+      detail: energyDensity === null
+        ? 'Sin gramos registrados: no se puede estimar kcal/g.'
+        : `${energyDensity.toFixed(2)} kcal/g. Por debajo de ~1,5 kcal/g se sacia más por caloría.`,
+    },
+    {
+      id: 'fat',
+      label: 'Grasa',
+      value: Math.round(fat),
+      weight: 5,
+      detail: `${Math.round(n.fat)} g de ${fatTarget} g. Sacia por enlentecer el vaciado gástrico, pero aporta mucha energía.`,
+    },
+  ];
+
+  let diagnosis = 'Saciedad moderada';
+  let tip = 'Combina proteína, fibra, volumen y agua en cada comida para cubrir las señales mecánicas y hormonales.';
   let tone: SatietyResult['tone'] = 'info';
 
-  if (pressure < 45 && biochem >= 55) {
-    diagnosis = 'Presión baja, bioquímica alta';
-    tip = 'La señal química está bien, pero falta volumen: añade fibra, agua y vegetales para distender el estómago.';
-    tone = 'warn';
-  } else if (pressure >= 55 && biochem < 45) {
-    diagnosis = 'Presión alta, bioquímica baja';
-    tip = 'Mucho volumen y poca señal química: sube proteína de calidad y grasas saludables para activar GLP-1/PYY.';
-    tone = 'warn';
-  } else if (pressure < 45 && biochem < 45) {
-    diagnosis = 'Ambas vías bajas';
-    tip = 'Hambre probable: combina proteína, fibra y agua en la próxima comida.';
-    tone = 'bad';
-  } else if (pressure >= 55 && biochem >= 55) {
-    diagnosis = 'Saciedad dual equilibrada';
-    tip = 'Presión gástrica y señal bioquímica cubiertas. Buen control del apetito.';
+  if (score >= 70) {
+    diagnosis = 'Saciedad alta';
+    tip = 'Las señales de volumen, proteína y fibra están bien cubiertas. Mantén este patrón y vigila la densidad energética.';
     tone = 'good';
+  } else if (score < 30) {
+    diagnosis = 'Hambre probable';
+    tip = 'Añade una fuente de proteína (25–40 g), fibra (8–12 g) y 300–500 g de alimentos con agua y volumen.';
+    tone = 'bad';
+  } else if (energyDensity !== null && energyDensity > 2.2) {
+    diagnosis = 'Densidad energética alta';
+    tip = 'La comida concentra muchas calorías en poco peso: añade verduras, fruta, legumbres o sopa para ganar volumen sin exceso de energía.';
+    tone = 'warn';
+  } else if (proteinScore < 65 && volumeScore < 65) {
+    diagnosis = 'Poca proteína y poco volumen';
+    tip = 'Sube proteína de calidad y el peso de la comida (verduras, fruta, legumbres) para activar saciedad mecánica y hormonal.';
+    tone = 'warn';
+  } else if (fiberScore < 60) {
+    diagnosis = 'Falta fibra';
+    tip = 'Añade 8–12 g de fibra por comida: legumbres, avena, fruta con piel, verduras o semillas.';
+    tone = 'warn';
+  } else if (proteinScore < 65) {
+    diagnosis = 'Proteína insuficiente';
+    tip = 'Reparte la proteína entre comidas (0,3–0,4 g/kg por comida) para sostener GLP-1/PYY y preservar masa magra.';
+    tone = 'warn';
+  } else if (hydrationScore < 60) {
+    diagnosis = 'Hidratación baja';
+    tip = 'Bebe agua junto a las comidas; la sed y el hambre comparten señales y la deshidratación reduce la saciedad.';
+    tone = 'warn';
+  } else if (volumeScore < 60) {
+    diagnosis = 'Falta volumen';
+    tip = 'La distensión gástrica es una de las señales más potentes: añade alimentos ricos en agua y fibra para llegar a 300–500 g por comida.';
+    tone = 'warn';
+  } else if (score >= 55) {
+    diagnosis = 'Saciedad aceptable';
+    tip = 'Buen equilibrio general. Si aparece hambre pronto, sube ligeramente proteína y volumen en la próxima comida.';
   }
 
-  return { pressure, biochem, combined, diagnosis, tip, tone };
+  return {
+    score: Math.round(score),
+    fullness: Math.round(fullness),
+    hormonal: Math.round(hormonal),
+    hydration: Math.round(hydration),
+    energyDensity,
+    mealGrams: Math.round(grams),
+    drivers,
+    diagnosis,
+    tip,
+    tone,
+    pressure: Math.round(fullness),
+    biochem: Math.round(hormonal),
+    combined: Math.round(score),
+  };
 }
 
 export interface BodyFatMethod {

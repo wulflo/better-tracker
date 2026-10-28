@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/v2/capability",
+  "identifier": "mobile",
+  "description": "Permisos móviles: cámara, escáner de códigos de barras y red para la API de productos.",
+  "platforms": ["android", "iOS"],
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "process:default",
+    "barcode-scanner:default"
+  ]
+}

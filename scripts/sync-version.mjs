@@ -15,6 +15,19 @@ if (!/^\d+\.\d+\.\d+$/.test(version)) {
   fail(`VERSION must be strict SemVer X.Y.Z, got "${version}"`);
 }
 
+/**
+ * Android versionCode debe ser monótono entre releases. SemVer X.Y.Z no lo es
+ * (0.10.0 < 0.9.0 en orden lexicográfico), así que lo derivamos con una base
+ * fija: major * 1_000_000 + minor * 1_000 + patch.
+ */
+const [major, minor, patch] = version.split('.').map(Number);
+const versionCode = major * 1_000_000 + minor * 1_000 + patch;
+
+if (process.argv.includes('--print-version-code')) {
+  process.stdout.write(`${versionCode}\n`);
+  process.exit(0);
+}
+
 // --- package.json ---
 const pkgPath = join(ROOT, 'package.json');
 let pkg = readFileSync(pkgPath, 'utf8');
@@ -61,7 +74,59 @@ try {
   console.warn('package-lock.json not found; skipping (run npm install to generate).');
 }
 
-// --- Verification: fail if any file does not match VERSION ---
+// --- Android generated files (only if `tauri android init` already ran) ---
+// `src-tauri/gen/` está en .gitignore, pero CI lo genera antes de compilar. Si
+// no sincronizamos estos archivos, el APK sale con el versionName/versionCode
+// de la última vez que se ejecutó `tauri android init` (fue el bug de 0.8.7).
+function syncFileIfPresent(path, transform) {
+  try {
+    const before = readFileSync(path, 'utf8');
+    const after = transform(before);
+    if (after !== before) writeFileSync(path, after);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const androidPropsPath = join(ROOT, 'src-tauri', 'gen', 'android', 'app', 'tauri.properties');
+const androidPropsOk = syncFileIfPresent(androidPropsPath, (text) => {
+  let next = text;
+  next = /tauri\.android\.versionName\s*=.*/.test(next)
+    ? next.replace(/tauri\.android\.versionName\s*=.*/, `tauri.android.versionName=${version}`)
+    : `${next.trimEnd()}\ntauri.android.versionName=${version}`;
+  next = /tauri\.android\.versionCode\s*=.*/.test(next)
+    ? next.replace(/tauri\.android\.versionCode\s*=.*/, `tauri.android.versionCode=${versionCode}`)
+    : `${next.trimEnd()}\ntauri.android.versionCode=${versionCode}`;
+  return next.endsWith('\n') ? next : `${next}\n`;
+});
+
+// Tauri copia la configuración completa a los assets de Android. También lleva
+// la versión y se queda obsoleta si no se reescribe.
+const androidConfPath = join(
+  ROOT,
+  'src-tauri',
+  'gen',
+  'android',
+  'app',
+  'src',
+  'main',
+  'assets',
+  'tauri.conf.json',
+);
+const androidConfOk = syncFileIfPresent(androidConfPath, (text) =>
+  text.replace(/"version"\s*:\s*"[^"]*"/, `"version": "${version}"`),
+);
+
+if (androidPropsOk) {
+  console.log(`OK: Android tauri.properties = ${version} (versionCode ${versionCode})`);
+} else {
+  console.log('Android tauri.properties no existe todavía (se sincroniza tras tauri android init).');
+}
+if (androidConfOk) {
+  console.log(`OK: Android assets/tauri.conf.json = ${version}`);
+}
+
 function extractJsonVersion(text) {
   const m = text.match(/"version"\s*:\s*"([^"]*)"/);
   return m ? m[1] : null;
@@ -88,6 +153,19 @@ try {
   checks.push(['package-lock.json', pl.version]);
   checks.push(['package-lock.json (root)', pl.packages?.['']?.version]);
 } catch {}
+if (androidPropsOk) {
+  const props = readFileSync(androidPropsPath, 'utf8');
+  const name = props.match(/tauri\.android\.versionName\s*=\s*(.*)/)?.[1]?.trim();
+  const code = Number(props.match(/tauri\.android\.versionCode\s*=\s*(.*)/)?.[1]?.trim());
+  checks.push(['Android tauri.properties versionName', name]);
+  checks.push(['Android tauri.properties versionCode', code === versionCode ? version : String(code)]);
+}
+if (androidConfOk) {
+  checks.push([
+    'Android assets/tauri.conf.json',
+    extractJsonVersion(readFileSync(androidConfPath, 'utf8')),
+  ]);
+}
 
 let ok = true;
 for (const [name, v] of checks) {

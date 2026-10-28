@@ -240,20 +240,40 @@ jobs:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
       - name: Install deps
         run: npm ci
-      - name: Sync version
-        run: node scripts/sync-version.mjs
       - name: Initialize Android project
         run: npm run tauri android init -- --ci
+      # `tauri android init` escribe el icono genérico de Tauri. Generamos los
+      # mipmaps desde el logo propio y los copiamos al proyecto ya inicializado.
+      - name: Generate Android launcher icons
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/bt-icons"
+          npx tauri icon src-tauri/icons/android-icon-manifest.json -o "$RUNNER_TEMP/bt-icons"
+          SRC="$RUNNER_TEMP/bt-icons/android"
+          test -f "$SRC/mipmap-xxxhdpi/ic_launcher.png"
+          test -f "$SRC/mipmap-xxxhdpi/ic_launcher_background.png"
+          test -f "$SRC/mipmap-anydpi-v26/ic_launcher.xml"
+          cp -R "$SRC/." src-tauri/gen/android/app/src/main/res/
+          echo "Android launcher icons: logo propio aplicado" >> "$GITHUB_STEP_SUMMARY"
       - name: Patch Android manifest (camera)
         run: |
           python3 - <<'PY'
           p='src-tauri/gen/android/app/src/main/AndroidManifest.xml'
           s=open(p).read()
           if 'android.permission.CAMERA' not in s:
-              s=s.replace('<uses-permission android:name="android.permission.INTERNET" />',
-                          '<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />',1)
+              marker='<uses-permission android:name="android.permission.INTERNET" />'
+              if marker not in s:
+                  raise SystemExit('No se encontró el marcador INTERNET en AndroidManifest.xml')
+              s=s.replace(
+                  marker,
+                  marker+'\n    <uses-permission android:name="android.permission.CAMERA" />'
+                  '\n    <uses-feature android:name="android.hardware.camera" android:required="false" />',
+                  1,
+              )
               open(p,'w').write(s)
-          print('patched')
+          if 'android.permission.CAMERA' not in open(p).read():
+              raise SystemExit('No se pudo añadir el permiso CAMERA al manifest')
+          print('manifest: cámara OK')
           PY
       - name: Patch Android signing config
         run: |
@@ -261,32 +281,121 @@ jobs:
           p='src-tauri/gen/android/app/build.gradle.kts'
           s=open(p).read()
           if 'ANDROID_KEYSTORE_PATH' not in s:
-              s=s.replace('    buildTypes {\n        getByName("debug") {',
-                          '    val keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")\n    if (keystorePath != null) {\n        signingConfigs {\n            create("release") {\n                storeFile = file(keystorePath)\n                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")\n                keyAlias = System.getenv("ANDROID_KEY_ALIAS")\n                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")\n            }\n        }\n    }\n    buildTypes {\n        getByName("debug") {',1)
-              s=s.replace('        getByName("release") {\n            optimization {',
-                          '        getByName("release") {\n            if (keystorePath != null) {\n                signingConfig = signingConfigs.getByName("release")\n            }\n            optimization {',1)
+              anchor='    buildTypes {\n        getByName("debug") {'
+              if anchor not in s:
+                  raise SystemExit('No se encontró el bloque buildTypes en build.gradle.kts')
+              signing=(
+                  '    val keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")\n'
+                  '    if (keystorePath != null) {\n'
+                  '        signingConfigs {\n'
+                  '            create("release") {\n'
+                  '                storeFile = file(keystorePath)\n'
+                  '                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")\n'
+                  '                keyAlias = System.getenv("ANDROID_KEY_ALIAS")\n'
+                  '                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")\n'
+                  '            }\n'
+                  '        }\n'
+                  '    }\n'
+              )
+              s=s.replace(anchor, signing+anchor, 1)
+              release_anchor='        getByName("release") {\n            optimization {'
+              if release_anchor not in s:
+                  raise SystemExit('No se encontró el bloque release en build.gradle.kts')
+              s=s.replace(
+                  release_anchor,
+                  '        getByName("release") {\n            if (keystorePath != null) {\n                signingConfig = signingConfigs.getByName("release")\n            }\n            optimization {',
+                  1,
+              )
               open(p,'w').write(s)
-          print('patched')
+          if 'ANDROID_KEYSTORE_PATH' not in open(p).read():
+              raise SystemExit('No se pudo añadir la firma de release a build.gradle.kts')
+          print('gradle: firma release OK')
           PY
-      - name: Configure Android signing (optional)
+      # `tauri android init` genera src-tauri/gen/ con la versión que tenía el
+      # proyecto la última vez. Debe sincronizarse DESPUÉS del init, no antes.
+      - name: Sync Android version
+        run: |
+          set -euo pipefail
+          node scripts/sync-version.mjs
+          VER="${{ needs.version.outputs.version }}"
+          CODE=$(node scripts/sync-version.mjs --print-version-code)
+          PROPS=src-tauri/gen/android/app/tauri.properties
+          test -f "$PROPS"
+          grep -qx "tauri.android.versionName=$VER" "$PROPS"
+          grep -qx "tauri.android.versionCode=$CODE" "$PROPS"
+          echo "Android version $VER ($CODE)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Configure and verify Android signing
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
-            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > src-tauri/gen/android/app/release.keystore
-            echo "ANDROID_KEYSTORE_PATH=$GITHUB_WORKSPACE/src-tauri/gen/android/app/release.keystore" >> $GITHUB_ENV
-            echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> $GITHUB_ENV
-            echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> $GITHUB_ENV
-            echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> $GITHUB_ENV
-            echo "Android signing configured."
-          else
-            echo "No Android keystore configured; building unsigned."
-          fi
+          set -euo pipefail
+          missing=0
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Falta el secreto $name. Un APK sin firmar no se puede publicar."
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+
+          KEYSTORE="$RUNNER_TEMP/better-tracker-release.keystore"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE"
+          chmod 600 "$KEYSTORE"
+          export ANDROID_KEYSTORE_PATH="$KEYSTORE"
+          # verify-signing.sh acepta las variables ANDROID_* y comprueba alias,
+          # contraseñas y la huella SHA-256 esperada.
+          bash scripts/verify-signing.sh
+          {
+            echo "ANDROID_KEYSTORE_PATH=$KEYSTORE"
+            echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
+            echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS"
+            echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
       - name: Build Android APK
         run: npm run tauri android build -- --apk --ci
+      - name: Verify signed APK
+        run: |
+          set -euo pipefail
+          VER="${{ needs.version.outputs.version }}"
+          CODE=$(node scripts/sync-version.mjs --print-version-code)
+          EXPECTED_SHA256="37:39:6F:10:EC:9B:18:67:8B:FA:02:6D:D6:31:EC:DC:56:D7:1A:06:BB:BF:69:63:E0:41:A7:9E:F7:80:C3:B0"
+          shopt -s nullglob
+          mapfile -t APKS < <(find src-tauri/gen/android/app/build/outputs/apk -path '*/release/*.apk' -print | sort)
+          if [ ${#APKS[@]} -eq 0 ]; then
+            echo "::error::No hay APK release. Los APK debug no se publican."
+            find src-tauri/gen/android -name '*.apk' || true
+            exit 1
+          fi
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner -type f | sort -V | tail -1)
+          AAPT=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name aapt -type f | sort -V | tail -1)
+          test -x "$APKSIGNER"
+          test -x "$AAPT"
+          EXPECTED_NORM=$(printf '%s' "$EXPECTED_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          for apk in "${APKS[@]}"; do
+            echo "Verificando $apk"
+            "$APKSIGNER" verify --verbose --print-certs "$apk" > "$apk.certs.txt"
+            CERT_NORM=$(grep -i 'certificate SHA-256 digest:' "$apk.certs.txt" | head -1 | sed 's/.*digest:[[:space:]]*//' | tr -d ':' | tr '[:upper:]' '[:lower:]')
+            if [ "$CERT_NORM" != "$EXPECTED_NORM" ]; then
+              echo "::error::El APK no está firmado con el certificado de release esperado ($apk)."
+              exit 1
+            fi
+            BADGING=$("$AAPT" dump badging "$apk")
+            if ! grep -q "versionCode='$CODE'" <<<"$BADGING"; then
+              echo "::error::versionCode incorrecto en $apk (esperado $CODE)."
+              exit 1
+            fi
+            if ! grep -q "versionName='$VER'" <<<"$BADGING"; then
+              echo "::error::versionName incorrecto en $apk (esperado $VER)."
+              exit 1
+            fi
+            if ! grep -q "package: name='com.bettertracker.desktop'" <<<"$BADGING"; then
+              echo "::error::Paquete inesperado en $apk (se esperaba com.bettertracker.desktop)."
+              exit 1
+            fi
+          done
       - name: Upload APK
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -294,13 +403,18 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ needs.version.outputs.tag }}"
-          shopt -s nullglob globstar
-          files=(src-tauri/gen/android/app/build/outputs/apk/**/*.apk)
+          shopt -s nullglob
+          mapfile -t files < <(find src-tauri/gen/android/app/build/outputs/apk -path '*/release/*.apk' -print | sort)
           if [ ${#files[@]} -eq 0 ]; then
-            echo "::error::No APK artifacts found"
-            find src-tauri/gen/android -name "*.apk" || true
+            echo "::error::No release APK artifacts found"
             exit 1
           fi
+          # Nunca publicamos APK debug ni los -unsigned.
+          for f in "${files[@]}"; do
+            case "$f" in
+              *debug*|*unsigned*) echo "::error::Artefacto no publicable: $f"; exit 1 ;;
+            esac
+          done
           gh release upload "$TAG" "${files[@]}" --clobber
 
 

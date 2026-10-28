@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '../vault';
 import { Icon } from './Icons';
+import BarcodeScanner from './BarcodeScanner';
 
 type Peer = { device_id: string; name: string; address?: string | null };
 type Discovered = { name?: string; address?: string; device_id?: string; port?: number };
@@ -17,9 +18,10 @@ export default function SyncPanel({ notify }: { notify: (m: string, t?: any) => 
   const [qrSvg, setQrSvg] = useState<string | null>(null);
   const [qrPayload, setQrPayload] = useState('');
   const [listening, setListening] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   if (!isTauri()) {
-    return <div className="notice notice-warn"><Icon name="info" size={16} /><span>Sincronización disponible solo en la app de escritorio.</span></div>;
+    return <div className="notice notice-warn"><Icon name="info" size={16} /><span>La sincronización P2P necesita la app instalada; en el modo navegador no hay acceso a la red local ni a la bóveda compartida.</span></div>;
   }
 
   const call = async (fn: () => Promise<any>, ok?: string) => {
@@ -34,17 +36,24 @@ export default function SyncPanel({ notify }: { notify: (m: string, t?: any) => 
   };
 
   const start = async () => {
-    const r = await call(() => invoke<any>('sync_start', { name }));
-    if (r) setInfo(r);
+    const r = await call(() => invoke<any>('sync_start', { name }), 'Servidor de sincronización iniciado.');
+    if (r) { setInfo(r); await refreshPeers(); }
   };
   const listen = async () => {
     const r = await call(() => invoke<any>('sync_pair_listen_start', { name }));
-    if (r) { setListening(true); notify('Escuchando emparejamiento...', 'info'); }
+    if (r) { setInfo(r.info); setListening(true); notify('Escuchando emparejamiento...', 'info'); }
   };
-  const connect = async () => {
-    const r = await call(() => invoke<any>('sync_pair_connect', { name, address }));
+  const connectTo = async (target: string) => {
+    const trimmed = target.trim();
+    if (!trimmed) {
+      notify('Escribe la dirección IP del otro dispositivo.', 'error');
+      return;
+    }
+    setAddress(trimmed);
+    const r = await call(() => invoke<any>('sync_pair_connect', { name, address: trimmed }));
     if (r) { setPending(r); setSas(r.sas); }
   };
+  const connect = () => connectTo(address);
   const confirm = async (deviceId: string) => {
     const r = await call(() => invoke<any>('sync_pair_confirm', { deviceId }));
     if (r) { notify('Emparejado.', 'success'); setPending(null); refreshPeers(); }
@@ -53,13 +62,38 @@ export default function SyncPanel({ notify }: { notify: (m: string, t?: any) => 
     const r = await call(() => invoke<Peer[]>('sync_list_peers'));
     if (r) setPeers(r);
   };
+  const reportSummary = (reports: any[], errors: string[]) => {
+    const sent = reports.reduce((sum, report) => sum + (Number(report.sent) || 0), 0);
+    const received = reports.reduce((sum, report) => sum + (Number(report.received) || 0), 0);
+    if (errors.length) {
+      notify(`Sincronización con errores: ${errors.join(' | ')}`, 'error');
+      return false;
+    }
+    if (!reports.length) {
+      notify('No hubo dispositivos que sincronizar.', 'info');
+      return false;
+    }
+    notify(`Sincronizado: ${sent} evento(s) enviados y ${received} recibidos en ${reports.length} dispositivo(s).`, 'success');
+    return true;
+  };
+
   const syncAll = async () => {
-    const r = await call(() => invoke<any>('sync_now', { deviceId: null, address: null }));
-    if (r) { notify(`Sincronización: ${JSON.stringify(r)}`, 'info'); window.dispatchEvent(new Event('better-tracker:refresh')); }
+    try {
+      const r = await invoke<any>('sync_now', { deviceId: null, address: null });
+      reportSummary(r?.reports ?? [], r?.errors ?? []);
+      window.dispatchEvent(new Event('better-tracker:refresh'));
+    } catch (e) {
+      notify(`No se pudo sincronizar: ${String(e)}`, 'error');
+    }
   };
   const syncPeer = async (deviceId: string, addr?: string | null) => {
-    const r = await call(() => invoke<any>('sync_now', { deviceId, address: addr ?? null }));
-    if (r) { notify(`Sincronizado con ${deviceId}`, 'success'); window.dispatchEvent(new Event('better-tracker:refresh')); }
+    try {
+      const r = await invoke<any>('sync_now', { deviceId, address: addr ?? null });
+      const ok = reportSummary(r?.reports ?? [], r?.errors ?? []);
+      if (ok) window.dispatchEvent(new Event('better-tracker:refresh'));
+    } catch (e) {
+      notify(`No se pudo sincronizar: ${String(e)}`, 'error');
+    }
   };
 
   const discover = async () => {
@@ -80,23 +114,37 @@ export default function SyncPanel({ notify }: { notify: (m: string, t?: any) => 
     }
   };
 
-  const pairFromQr = async () => {
-    try {
-      const url = new URL(qrPayload || address);
-      // support both full payload and plain address
-      const addr = url.searchParams.get('address') || qrPayload;
-      if (!addr) { notify('Payload inválido', 'error'); return; }
-      setAddress(addr);
-      const r = await call(() => invoke<any>('sync_pair_connect', { name, address: addr }));
-      if (r) { setPending(r); setSas(r.sas); }
-    } catch {
-      // treat as plain address
-      const r = await call(() => invoke<any>('sync_pair_connect', { name, address: qrPayload || address }));
-      if (r) { setPending(r); setSas(r.sas); }
+  const pairFromPayload = async (raw: string) => {
+    const payload = raw.trim();
+    if (!payload) {
+      notify('El QR no contiene una dirección de emparejamiento.', 'error');
+      return;
     }
+    let addr = payload;
+    try {
+      const url = new URL(payload);
+      addr = url.searchParams.get('address') || payload;
+    } catch {
+      // También aceptamos una dirección simple (IP:puerto) sin esquema.
+    }
+    addr = addr.trim();
+    if (!addr) {
+      notify('El QR no contiene una dirección válida.', 'error');
+      return;
+    }
+    setQrPayload(payload);
+    setAddress(addr);
+    const r = await call(() => invoke<any>('sync_pair_connect', { name, address: addr }));
+    if (r) { setPending(r); setSas(r.sas); }
   };
 
-  useEffect(() => { refreshPeers(); void discover(); }, []);
+  const pairFromQr = () => pairFromPayload(qrPayload || address);
+
+  useEffect(() => {
+    refreshPeers();
+    invoke<any>('sync_local_info', { name }).then(setInfo).catch(() => {});
+    void discover();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!listening) return;
     const id = window.setInterval(async () => {
@@ -109,6 +157,7 @@ export default function SyncPanel({ notify }: { notify: (m: string, t?: any) => 
   }, [listening]);
 
   return (
+    <>
     <div className="settings-block">
       <div className="settings-row"><span className="muted">Nombre del dispositivo</span>
         <input className="input" value={name} onChange={e => setName(e.target.value)} style={{ maxWidth: 220 }} />
@@ -145,7 +194,7 @@ export default function SyncPanel({ notify }: { notify: (m: string, t?: any) => 
           {discovered.map((d, i) => (
             <div key={i} className="settings-row">
               <span className="value">{d.name ?? 'Dispositivo'} <span className="mono hint">{d.address}</span></span>
-              <button className="btn btn-ghost btn-sm" onClick={() => { setAddress(d.address ?? ''); void connect(); }}>Emparejar</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => void connectTo(d.address ?? '')}>Emparejar</button>
             </div>
           ))}
         </div>
@@ -155,6 +204,9 @@ export default function SyncPanel({ notify }: { notify: (m: string, t?: any) => 
         <div className="muted" style={{ marginBottom: 4 }}>Emparejamiento por QR</div>
         <div className="row wrap" style={{ gap: 8 }}>
           <button className="btn btn-sm" onClick={showQr}>Mostrar mi QR</button>
+          <button className="btn btn-tonal btn-sm" onClick={() => setScannerOpen(true)}>
+            <Icon name="scan" size={14} /> Escanear QR
+          </button>
         </div>
         {qrSvg && (
           <div style={{ marginTop: 8 }} dangerouslySetInnerHTML={{ __html: qrSvg }} />
@@ -180,5 +232,32 @@ export default function SyncPanel({ notify }: { notify: (m: string, t?: any) => 
         ))}
       </div>
     </div>
+
+    {scannerOpen && (
+      <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Escanear QR de emparejamiento">
+        <div className="modal" style={{ width: 'min(520px, 100%)' }}>
+          <div className="modal-header">
+            <div>
+              <div className="modal-title">Escanear QR de emparejamiento</div>
+              <div className="card-sub">Abre la cámara y apunta al QR que muestra el otro dispositivo en «Mostrar mi QR».</div>
+            </div>
+            <button className="btn-icon" aria-label="Cerrar escáner" onClick={() => setScannerOpen(false)}>
+              <Icon name="close" size={16} />
+            </button>
+          </div>
+          <div className="modal-body">
+            <BarcodeScanner
+              kind="qr"
+              onResult={(payload) => {
+                setScannerOpen(false);
+                void pairFromPayload(payload);
+              }}
+              onClose={() => setScannerOpen(false)}
+            />
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
