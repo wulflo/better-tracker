@@ -311,8 +311,9 @@ jobs:
               raise SystemExit('No se pudo añadir la firma de release a build.gradle.kts')
           print('gradle: firma release OK')
           PY
-      # `tauri android init` genera src-tauri/gen/ con la versión que tenía el
-      # proyecto la última vez. Debe sincronizarse DESPUÉS del init, no antes.
+      # `tauri android init` no escribe tauri.properties: lo genera la CLI al
+      # compilar, leyendo tauri.conf.json. sync-version.mjs lo crea aquí para
+      # que el APK no herede la versión de un gen/ local antiguo.
       - name: Sync Android version
         run: |
           set -euo pipefail

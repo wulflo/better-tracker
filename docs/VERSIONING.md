@@ -19,7 +19,7 @@ git diff -- package.json package-lock.json src-tauri/tauri.conf.json \
   src-tauri/Cargo.toml src-tauri/Cargo.lock
 ```
 
-`scripts/sync-version.mjs` escribe la misma cadena en `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock` y verifica el resultado. CI ejecuta el script y falla si `git diff` detecta cambios, para que el release no se cree con versiones mezcladas.
+`scripts/sync-version.mjs` escribe la misma cadena en `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock` y, si `src-tauri/gen/android/` ya existe, en `src-tauri/gen/android/app/tauri.properties` (lo crea si falta: `tauri android init` no lo genera). Después verifica el resultado. CI ejecuta el script y falla si `git diff` detecta cambios, para que el release no se cree con versiones mezcladas.
 
 ## Proceso de release
 
