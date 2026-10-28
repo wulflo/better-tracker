@@ -2,6 +2,8 @@
 
 Nunca subas claves privadas, certificados `.p12`/`.pfx` ni contraseñas al repositorio. `.gitignore` bloquea `*.key`, `*.pem` y los archivos habituales de entorno, pero la comprobación importante es no hacer `git add` de esos archivos.
 
+Para el backup completo de los keystores (keystore, base64, alias, contraseñas y clave del updater) y su verificación, ver [`KEYSTORES.md`](./KEYSTORES.md).
+
 ## Updater (obligatorio)
 
 El release necesita estas dos GitHub Actions Secrets:
