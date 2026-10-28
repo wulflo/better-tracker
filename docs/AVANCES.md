@@ -16,6 +16,7 @@
 - Marcador `.backup-complete` para detectar y reemplazar copias interrumpidas.
 - Estado, copia manual, listado con fecha/dispositivo/tamaño y **Restaurar** en Ajustes.
 - Restauración no destructiva: importa solo los eventos que faltan en `omega/devices/restored-<copia>-<marca>/`; nunca sobrescribe ni borra eventos.
+- Manifiesto de integridad en `snapshot.json` (archivos y bytes): una copia sincronizada a medias se marca como **dañada**, y la copia del día se rehace sola si no cuadra.
 - El borrado de todas las copias es una acción de alto riesgo con confirmación y no se recrea hasta el día siguiente.
 
 ## Android

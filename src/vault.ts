@@ -56,6 +56,11 @@ export interface SnapshotInfo {
   device_label: string;
   files: number;
   bytes: number;
+  /** Archivos que debería tener según su manifiesto; `null` en copias antiguas. */
+  expected_files: number | null;
+  expected_bytes: number | null;
+  /** Marcada como completa pero con menos archivos de los que declara. */
+  damaged: boolean;
   complete: boolean;
   legacy: boolean;
   current_device: boolean;

@@ -175,7 +175,9 @@ export default function App() {
   // Si la bóveda se estrena o la copia de hoy se borró, el primer evento debe
   // programar la copia sin esperar al intervalo de 6 horas.
   const hasTodayCopy = backupStatus
-    ? backupStatus.copies.some((copy) => copy.current_device && copy.date === localDateKey())
+    ? backupStatus.copies.some(
+        (copy) => copy.current_device && copy.complete && copy.date === localDateKey(),
+      )
     : false;
   useEffect(() => {
     if (!vault || !isTauri() || events.length === 0) return;
@@ -613,11 +615,24 @@ export default function App() {
                               <span className="hint">{copy.device_label}</span>
                               {copy.current_device && <span className="badge badge-success">Este dispositivo</span>}
                               {copy.legacy && <span className="badge badge-muted">Formato antiguo</span>}
-                              {!copy.complete && <span className="badge badge-warning">Incompleta</span>}
+                              {copy.damaged && <span className="badge badge-warning">Dañada</span>}
+                              {!copy.complete && !copy.damaged && (
+                                <span className="badge badge-warning">Incompleta</span>
+                              )}
                             </div>
                             <div className="hint small">
                               {copy.files} archivos · {formatBytes(copy.bytes)} · <span className="mono">{copy.id}</span>
                             </div>
+                            {copy.damaged && (
+                              <div className="hint small">
+                                Contiene {copy.files}
+                                {copy.expected_files !== null ? ` de ${copy.expected_files}` : ''} archivos según su
+                                manifiesto. Restaurar usará solo lo que haya
+                                {copy.current_device && copy.date === localDateKey()
+                                  ? '; «Crear copia de hoy» la rehace completa.'
+                                  : '; si necesitas el resto, usa otra copia.'}
+                              </div>
+                            )}
                           </div>
                           {confirmRestore === copy.id ? (
                             <div className="snapshot-actions">

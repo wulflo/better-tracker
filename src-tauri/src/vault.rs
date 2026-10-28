@@ -581,6 +581,13 @@ pub struct SnapshotInfo {
     pub device_label: String,
     pub files: u64,
     pub bytes: u64,
+    /// Archivos que debería contener según `snapshot.json`. `None` en copias
+    /// creadas antes de 0.9.4, que no guardaban el manifiesto.
+    pub expected_files: Option<u64>,
+    pub expected_bytes: Option<u64>,
+    /// Hay marcador de copia completa pero el contenido no coincide con el
+    /// manifiesto: una sincronización a medias o un borrado externo.
+    pub damaged: bool,
     pub complete: bool,
     pub legacy: bool,
     pub current_device: bool,
@@ -617,6 +624,12 @@ struct SnapshotMeta {
     created_at: String,
     platform: String,
     app_version: String,
+    /// Nº de archivos de `omega` copiados. Ausente en copias antiguas.
+    #[serde(default)]
+    files: Option<u64>,
+    /// Bytes de esos archivos. Ausente en copias antiguas.
+    #[serde(default)]
+    bytes: Option<u64>,
 }
 
 fn empty_backup_status() -> BackupStatus {
@@ -658,13 +671,15 @@ fn device_label(device_id: &str) -> String {
     format!("{} · {}", platform_name(), short_id(device_id))
 }
 
-fn snapshot_meta(device_id: &str) -> SnapshotMeta {
+fn snapshot_meta(device_id: &str, files: u64, bytes: u64) -> SnapshotMeta {
     SnapshotMeta {
         device_id: device_id.to_string(),
         device_label: device_label(device_id),
         created_at: chrono::Local::now().to_rfc3339(),
         platform: platform_name().to_string(),
         app_version: env!("CARGO_PKG_VERSION").to_string(),
+        files: Some(files),
+        bytes: Some(bytes),
     }
 }
 
@@ -704,6 +719,9 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(u64, u64), String> {
     Ok((files, bytes))
 }
 
+/// Cuenta archivos y bytes de una copia **sin** su propia metadata
+/// (`snapshot.json` y `.backup-complete`): así el resultado se puede comparar
+/// con el manifiesto que describe el contenido de `omega`.
 fn count_dir(dir: &Path) -> Result<(u64, u64), String> {
     let mut files = 0u64;
     let mut bytes = 0u64;
@@ -715,7 +733,7 @@ fn count_dir(dir: &Path) -> Result<(u64, u64), String> {
 
     for entry in entries.flatten() {
         let name = entry.file_name();
-        if name == BACKUP_MARKER {
+        if name == BACKUP_MARKER || name == SNAPSHOT_META {
             continue;
         }
         let file_type = match entry.file_type() {
@@ -735,6 +753,32 @@ fn count_dir(dir: &Path) -> Result<(u64, u64), String> {
     Ok((files, bytes))
 }
 
+fn read_local_meta(dir: &Path) -> Option<SnapshotMeta> {
+    fs::read_to_string(dir.join(SNAPSHOT_META))
+        .ok()
+        .and_then(|text| serde_json::from_str::<SnapshotMeta>(&text).ok())
+}
+
+/// Compara el contenido real de una copia con el manifiesto de su
+/// `snapshot.json`. Las copias antiguas (sin manifiesto) se consideran válidas:
+/// no hay nada con lo que compararlas.
+fn manifest_matches(dir: &Path) -> Result<bool, String> {
+    let Some(meta) = read_local_meta(dir) else {
+        return Ok(true);
+    };
+    let Some(expected_files) = meta.files else {
+        return Ok(true);
+    };
+    let (files, bytes) = count_dir(dir)?;
+    if expected_files != files {
+        return Ok(false);
+    }
+    match meta.bytes {
+        Some(expected_bytes) => Ok(expected_bytes == bytes),
+        None => Ok(true),
+    }
+}
+
 fn local_snapshot_info(
     dir: &Path,
     id: String,
@@ -748,9 +792,7 @@ fn local_snapshot_info(
     if files == 0 {
         return Ok(None);
     }
-    let meta = fs::read_to_string(dir.join(SNAPSHOT_META))
-        .ok()
-        .and_then(|text| serde_json::from_str::<SnapshotMeta>(&text).ok());
+    let meta = read_local_meta(dir);
     let device_id = meta
         .as_ref()
         .map(|meta| meta.device_id.clone())
@@ -759,6 +801,10 @@ fn local_snapshot_info(
         .as_ref()
         .map(|meta| meta.device_label.clone())
         .unwrap_or_else(|| fallback_label.to_string());
+    let expected_files = meta.as_ref().and_then(|meta| meta.files);
+    let expected_bytes = meta.as_ref().and_then(|meta| meta.bytes);
+    let healthy = manifest_matches(dir)?;
+    let marker = dir.join(BACKUP_MARKER).is_file();
     Ok(Some(SnapshotInfo {
         id,
         date,
@@ -766,7 +812,10 @@ fn local_snapshot_info(
         device_label: label,
         files,
         bytes,
-        complete: dir.join(BACKUP_MARKER).is_file(),
+        expected_files,
+        expected_bytes,
+        damaged: marker && !healthy,
+        complete: marker && healthy,
         legacy,
         current_device: device_id == current_device,
     }))
@@ -979,8 +1028,11 @@ pub fn run_daily_backup(app: &AppHandle, force: bool) -> Result<BackupRunResult,
                 skipped = Some("La carpeta omega está vacía; no hay nada que copiar.".to_string());
             } else {
                 let day = root.join(BACKUP_DIR).join(&device).join(&date);
-                let complete = day.join(BACKUP_MARKER).is_file();
-                if complete {
+                // Una copia completa pero con menos archivos que los del
+                // manifiesto está dañada (sincronización a medias, borrado
+                // externo…): se rehace en vez de darla por buena.
+                let healthy = day.join(BACKUP_MARKER).is_file() && manifest_matches(&day)?;
+                if healthy {
                     skipped = Some("La copia de hoy ya existe.".to_string());
                 } else {
                     if day.exists() {
@@ -988,9 +1040,13 @@ pub fn run_daily_backup(app: &AppHandle, force: bool) -> Result<BackupRunResult,
                     }
                     fs::create_dir_all(&day)
                         .map_err(|e| format!("No se pudo crear la copia: {e}"))?;
-                    copy_dir_recursive(&omega, &day)?;
-                    let meta = serde_json::to_vec_pretty(&snapshot_meta(&device))
-                        .map_err(|e| format!("No se pudo describir la copia: {e}"))?;
+                    let (copied_files, copied_bytes) = copy_dir_recursive(&omega, &day)?;
+                    let meta = serde_json::to_vec_pretty(&snapshot_meta(
+                        &device,
+                        copied_files,
+                        copied_bytes,
+                    ))
+                    .map_err(|e| format!("No se pudo describir la copia: {e}"))?;
                     fs::write(day.join(SNAPSHOT_META), meta)
                         .map_err(|e| format!("No se pudo describir la copia: {e}"))?;
                     fs::write(day.join(BACKUP_MARKER), b"ok\n")
@@ -1307,7 +1363,12 @@ fn saf_collect_files(
         .map_err(|e| format!("No se pudo leer la carpeta SAF: {e}"))?
     {
         let name = entry.name();
-        if name.is_empty() || name == "." || name == ".." || name == BACKUP_MARKER {
+        if name.is_empty()
+            || name == "."
+            || name == ".."
+            || name == BACKUP_MARKER
+            || name == SNAPSHOT_META
+        {
             continue;
         }
         let relative = if prefix.is_empty() {
@@ -1364,6 +1425,26 @@ fn saf_read_snapshot_meta(app: &AppHandle, dir: &FsUri) -> Option<SnapshotMeta> 
     serde_json::from_str::<SnapshotMeta>(&text).ok()
 }
 
+/// Igual que `manifest_matches`, pero sobre SAF. Sin manifiesto no se puede
+/// verificar y la copia se da por válida.
+#[cfg(target_os = "android")]
+fn saf_manifest_matches(app: &AppHandle, dir: &FsUri) -> Result<bool, String> {
+    let Some(meta) = saf_read_snapshot_meta(app, dir) else {
+        return Ok(true);
+    };
+    let Some(expected_files) = meta.files else {
+        return Ok(true);
+    };
+    let (files, bytes) = saf_count_dir(app, dir)?;
+    if expected_files != files {
+        return Ok(false);
+    }
+    match meta.bytes {
+        Some(expected_bytes) => Ok(expected_bytes == bytes),
+        None => Ok(true),
+    }
+}
+
 #[cfg(target_os = "android")]
 fn saf_snapshot_info(
     app: &AppHandle,
@@ -1388,6 +1469,10 @@ fn saf_snapshot_info(
         .as_ref()
         .map(|meta| meta.device_label.clone())
         .unwrap_or_else(|| fallback_label.to_string());
+    let expected_files = meta.as_ref().and_then(|meta| meta.files);
+    let expected_bytes = meta.as_ref().and_then(|meta| meta.bytes);
+    let marker = saf_find_file(app, dir, BACKUP_MARKER)?.is_some();
+    let healthy = saf_manifest_matches(app, dir)?;
     Ok(Some(SnapshotInfo {
         id,
         date,
@@ -1395,7 +1480,10 @@ fn saf_snapshot_info(
         device_label: label,
         files,
         bytes,
-        complete: saf_find_file(app, dir, BACKUP_MARKER)?.is_some(),
+        expected_files,
+        expected_bytes,
+        damaged: marker && !healthy,
+        complete: marker && healthy,
         legacy,
         current_device: device_id == current_device,
     }))
@@ -1503,17 +1591,23 @@ fn run_saf_backup(
     };
 
     if let Some(day_dir) = &day_dir {
-        if saf_find_file(app, day_dir, BACKUP_MARKER)?.is_some() {
+        // Igual que en local: una copia marcada como completa pero con menos
+        // archivos que el manifiesto se rehace.
+        if saf_find_file(app, day_dir, BACKUP_MARKER)?.is_some()
+            && saf_manifest_matches(app, day_dir)?
+        {
             return Ok(Some("La copia de hoy ya existe.".to_string()));
         }
         saf_delete_tree(app, day_dir)?;
     }
 
+    let mut copied_bytes = 0u64;
     for (relative, file) in &files {
         let bytes = app
             .android_fs()
             .read(file)
             .map_err(|e| format!("No se pudo leer un archivo de omega: {e}"))?;
+        copied_bytes += bytes.len() as u64;
         let target = format!("{BACKUP_DIR}/{device}/{date}/{relative}");
         let created = app
             .android_fs()
@@ -1524,7 +1618,7 @@ fn run_saf_backup(
             .map_err(|e| format!("No se pudo escribir la copia: {e}"))?;
     }
 
-    let meta = serde_json::to_vec_pretty(&snapshot_meta(device))
+    let meta = serde_json::to_vec_pretty(&snapshot_meta(device, files.len() as u64, copied_bytes))
         .map_err(|e| format!("No se pudo describir la copia: {e}"))?;
     let meta_path = format!("{BACKUP_DIR}/{device}/{date}/{SNAPSHOT_META}");
     let meta_uri = app
@@ -1784,6 +1878,95 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert!(events.iter().any(|event| event.id == "current"));
         assert!(events.iter().any(|event| event.id == "only-in-snapshot"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn snapshot_with_manifest(root: &Path, files: &[(&str, &[u8])]) -> PathBuf {
+        let dir = root.join(BACKUP_DIR).join("device-a").join("2026-10-28");
+        fs::create_dir_all(&dir).unwrap();
+        for (name, content) in files {
+            let path = dir.join(name);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(path, content).unwrap();
+        }
+        let (count, bytes) = count_dir(&dir).unwrap();
+        let meta = serde_json::to_vec_pretty(&snapshot_meta("device-a", count, bytes)).unwrap();
+        fs::write(dir.join(SNAPSHOT_META), meta).unwrap();
+        fs::write(dir.join(BACKUP_MARKER), b"ok\n").unwrap();
+        dir
+    }
+
+    fn snapshot_info(dir: &Path) -> SnapshotInfo {
+        local_snapshot_info(
+            dir,
+            "device-a/2026-10-28".to_string(),
+            "2026-10-28".to_string(),
+            "device-a",
+            "Dispositivo",
+            false,
+            "device-a",
+        )
+        .unwrap()
+        .expect("la copia debe listarse")
+    }
+
+    #[test]
+    fn snapshot_counts_ignore_its_own_metadata() {
+        let root = temp_dir("count-meta");
+        let dir = snapshot_with_manifest(&root, &[("events/a.json", b"aaaa")]);
+
+        let (files, bytes) = count_dir(&dir).unwrap();
+        assert_eq!(files, 1, "snapshot.json y el marcador no son datos");
+        assert_eq!(bytes, 4);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn detects_snapshots_that_do_not_match_their_manifest() {
+        let root = temp_dir("integrity");
+        let dir = snapshot_with_manifest(
+            &root,
+            &[("events/a.json", b"aaaa"), ("events/b.json", b"bbbb")],
+        );
+
+        let healthy = snapshot_info(&dir);
+        assert!(healthy.complete && !healthy.damaged);
+        assert_eq!(healthy.expected_files, Some(2));
+        assert_eq!(healthy.expected_bytes, Some(8));
+
+        // Sincronización a medias: el marcador llegó pero falta un archivo.
+        fs::remove_file(dir.join("events/b.json")).unwrap();
+        let missing = snapshot_info(&dir);
+        assert!(!missing.complete, "una copia incompleta no es restaurable de fiar");
+        assert!(missing.damaged);
+        assert_eq!(missing.files, 1);
+        assert_eq!(missing.expected_files, Some(2));
+
+        // Un archivo extra tampoco cuadra.
+        fs::write(dir.join("events/b.json"), b"bbbb").unwrap();
+        fs::write(dir.join("events/c.json"), b"c").unwrap();
+        assert!(!manifest_matches(&dir).unwrap());
+        assert!(snapshot_info(&dir).damaged);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn snapshots_without_manifest_are_still_considered_valid() {
+        let root = temp_dir("no-manifest");
+        let dir = root.join(BACKUP_DIR).join("device-a").join("2026-10-28");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("events.jsonl"), b"{\"id\":\"1\"}\n").unwrap();
+        fs::write(dir.join(BACKUP_MARKER), b"ok\n").unwrap();
+
+        assert!(manifest_matches(&dir).unwrap());
+        let info = snapshot_info(&dir);
+        assert!(info.complete && !info.damaged);
+        assert_eq!(info.expected_files, None);
 
         let _ = fs::remove_dir_all(root);
     }

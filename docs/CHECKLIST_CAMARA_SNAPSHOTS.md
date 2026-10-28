@@ -62,6 +62,11 @@
 - [x] Documentar que FolderSync debe sincronizar la bóveda completa, incluyendo `Longlife`,
   y que nunca debe resolverse un conflicto borrando `devices/` ni `Longlife/`
   (ver `DECISIONES.md`, sección FolderSync).
+- [x] Manifiesto de integridad en `snapshot.json` (`files`/`bytes` del contenido): una copia
+  con marcador pero sin todos sus archivos se marca como **dañada**, y la copia del día se
+  rehace sola (también desde «Crear copia de hoy»). Las copias sin manifiesto se aceptan.
+- [x] Pruebas: `detects_snapshots_that_do_not_match_their_manifest`,
+  `snapshot_counts_ignore_its_own_metadata`, `snapshots_without_manifest_are_still_considered_valid`.
 
 ## 5. Iconos (escritorio y Android)
 
@@ -82,7 +87,7 @@
 
 - [x] `npm test` (22 pruebas)
 - [x] `npx tsc --noEmit`
-- [x] `cargo test --manifest-path src-tauri/Cargo.toml` (15 pruebas)
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml` (18 pruebas)
 - [x] `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings`
 - [x] `npm run build`
 - [x] Build local de Android con `npm run tauri android build -- --apk` (APK universal
