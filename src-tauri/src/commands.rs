@@ -3,9 +3,6 @@ use crate::version;
 use tauri::AppHandle;
 use tauri::Manager;
 
-#[cfg(target_os = "android")]
-use tauri_plugin_android_fs::AndroidFs as _;
-
 #[tauri::command]
 pub fn get_app_info() -> version::AppInfo {
     version::app_info()
@@ -72,7 +69,7 @@ pub async fn append_event(app: AppHandle, event: vault::Event) -> Result<(), Str
 pub fn save_android_apk(app: AppHandle) -> Result<String, String> {
     #[cfg(target_os = "android")]
     {
-        use tauri_plugin_android_fs::{AndroidFsExt, PublicGeneralPurposeDir, PublicStorage};
+        use tauri_plugin_android_fs::{AndroidFsExt, PublicGeneralPurposeDir};
 
         const TEMP_APK_FILE_NAME: &str = "BetterTracker-update.apk";
         const PUBLIC_SUBDIR: &str = "BetterTracker";
@@ -88,21 +85,25 @@ pub fn save_android_apk(app: AppHandle) -> Result<String, String> {
             .map_err(|error| format!("No se pudo abrir el APK descargado: {error}"))?;
 
         let relative_path = format!("{PUBLIC_SUBDIR}/{PUBLIC_APK_FILE_NAME}");
-        let primary = app
-            .android_fs()
-            .public_storage()
-            .write_with_contents_writer(
-                PublicGeneralPurposeDir::Download,
-                &relative_path,
-                Some(APK_MIME),
-                |destination| std::io::copy(&mut source, destination).map(|_| ()),
-            );
+        let primary = app.android_fs().public_storage().create_new_file(
+            None,
+            PublicGeneralPurposeDir::Download,
+            &relative_path,
+            Some(APK_MIME),
+        );
 
         let display_path = match primary {
             Ok(saved_path) => {
+                let mut destination = app
+                    .android_fs()
+                    .open_file_writable(&saved_path)
+                    .map_err(|error| format!("No se pudo escribir el APK en Descargas: {error}"))?;
+                std::io::copy(&mut source, &mut destination)
+                    .map_err(|error| format!("No se pudo escribir el APK en Descargas: {error}"))?;
+                drop(destination);
                 let file_name = app
                     .android_fs()
-                    .get_file_name(&saved_path)
+                    .get_name(&saved_path)
                     .unwrap_or_else(|_| PUBLIC_APK_FILE_NAME.to_string());
                 format!("Descargas/{PUBLIC_SUBDIR}/{file_name}")
             }
@@ -111,7 +112,13 @@ pub fn save_android_apk(app: AppHandle) -> Result<String, String> {
                 // selector SAF funciona en todas las versiones.
                 let chosen = app
                     .android_fs()
-                    .show_save_file_dialog(PUBLIC_APK_FILE_NAME, Some(APK_MIME))
+                    .picker()
+                    .save_file(
+                        None,
+                        PUBLIC_APK_FILE_NAME,
+                        Some(APK_MIME),
+                        false,
+                    )
                     .map_err(|error| {
                         format!(
                             "No se pudo guardar el APK en Descargas ({primary_error}) ni abrir el selector de archivos: {error}"
@@ -128,12 +135,13 @@ pub fn save_android_apk(app: AppHandle) -> Result<String, String> {
                     .map_err(|error| format!("No se pudo releer el APK descargado: {error}"))?;
                 let mut destination = app
                     .android_fs()
-                    .create_file(&chosen)
+                    .open_file_writable(&chosen)
                     .map_err(|error| format!("No se pudo crear el APK elegido: {error}"))?;
                 std::io::copy(&mut source, &mut destination)
                     .map_err(|error| format!("No se pudo escribir el APK elegido: {error}"))?;
+                drop(destination);
                 app.android_fs()
-                    .get_file_name(&chosen)
+                    .get_name(&chosen)
                     .unwrap_or_else(|_| PUBLIC_APK_FILE_NAME.to_string())
             }
         };

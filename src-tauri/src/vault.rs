@@ -16,7 +16,7 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
 #[cfg(target_os = "android")]
-use tauri_plugin_android_fs::AndroidFs as _;
+use tauri_plugin_android_fs::{AndroidFsExt, FsUri};
 
 pub const DATA_DIR: &str = "omega";
 const DEVICES_DIR: &str = "devices";
@@ -101,7 +101,7 @@ pub fn device_id(app: &AppHandle) -> String {
 
 #[cfg(target_os = "android")]
 struct SafLocation {
-    root: tauri_plugin_android_fs::DirPath,
+    root: FsUri,
 }
 
 enum VaultLocation {
@@ -110,26 +110,22 @@ enum VaultLocation {
     Saf(SafLocation),
 }
 
-/// Reconoce la representación serializada de `DirPath` que produce
-/// `tauri-plugin-android-fs` 2.x. También acepta una URI `content://` plana
-/// por compatibilidad.
+/// Reconoce la representación serializada de `FsUri` que produce
+/// `tauri-plugin-android-fs` 30.x (`{"uri":…,"documentTopTreeUri":…}`) y la de
+/// 2.x (`{"topTreeUri":…,"relativeTerms":[]}`), además de una URI `content://`
+/// plana por compatibilidad.
 #[cfg(target_os = "android")]
-fn saf_dir_path_from_root(
-    root_path: &str,
-) -> Result<Option<tauri_plugin_android_fs::DirPath>, String> {
+fn saf_uri_from_root(root_path: &str) -> Result<Option<FsUri>, String> {
     let trimmed = root_path.trim();
     if trimmed.is_empty() {
         return Ok(None);
     }
 
-    if trimmed.starts_with("content://") {
-        let value = serde_json::json!({
-            "topTreeUri": trimmed,
-            "relativeTerms": [],
-        });
-        let path = serde_json::from_value(value)
-            .map_err(|error| format!("La ruta SAF no es válida: {error}"))?;
-        return Ok(Some(path));
+    if trimmed.starts_with("content://") || trimmed.starts_with("file://") {
+        return Ok(Some(FsUri {
+            uri: trimmed.to_string(),
+            document_top_tree_uri: Some(trimmed.to_string()),
+        }));
     }
 
     if !trimmed.starts_with('{') {
@@ -139,22 +135,33 @@ fn saf_dir_path_from_root(
     let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
         return Ok(None);
     };
+
+    // Formato del plugin 30.x.
+    if let Some(uri) = value.get("uri").and_then(|value| value.as_str()) {
+        if !uri.starts_with("content://") && !uri.starts_with("file://") {
+            return Ok(None);
+        }
+        return Ok(Some(FsUri {
+            uri: uri.to_string(),
+            document_top_tree_uri: value
+                .get("documentTopTreeUri")
+                .and_then(|value| value.as_str())
+                .map(str::to_string),
+        }));
+    }
+
+    // Formato del plugin 2.x. La raíz elegida con el selector se guardaba con
+    // `relativeTerms` vacío, así que basta con su `topTreeUri`.
     let Some(top_tree_uri) = value.get("topTreeUri").and_then(|value| value.as_str()) else {
         return Ok(None);
     };
     if !top_tree_uri.starts_with("content://") {
         return Ok(None);
     }
-    let relative_terms = value
-        .get("relativeTerms")
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!([]));
-    let path = serde_json::from_value(serde_json::json!({
-        "topTreeUri": top_tree_uri,
-        "relativeTerms": relative_terms,
+    Ok(Some(FsUri {
+        uri: top_tree_uri.to_string(),
+        document_top_tree_uri: Some(top_tree_uri.to_string()),
     }))
-    .map_err(|error| format!("La ruta SAF no es válida: {error}"))?;
-    Ok(Some(path))
 }
 
 fn current_location(app: &AppHandle) -> Result<Option<VaultLocation>, String> {
@@ -169,7 +176,7 @@ fn current_location(app: &AppHandle) -> Result<Option<VaultLocation>, String> {
 
     #[cfg(target_os = "android")]
     {
-        if let Some(dir) = saf_dir_path_from_root(trimmed)? {
+        if let Some(dir) = saf_uri_from_root(trimmed)? {
             return Ok(Some(VaultLocation::Saf(SafLocation { root: dir })));
         }
     }
@@ -247,25 +254,24 @@ pub fn vault_info(app: &AppHandle) -> VaultInfo {
 pub async fn select_vault(app: AppHandle) -> Result<VaultSelection, String> {
     #[cfg(target_os = "android")]
     {
-        use tauri_plugin_android_fs::{AndroidFsExt, PersistableAccessMode};
-
-        let Some(dir_path) = app
-            .android_fs()
-            .show_open_dir_dialog()
+        let api = app.android_fs();
+        let Some(dir_uri) = api
+            .picker()
+            .pick_dir(None, false)
             .map_err(|error| format!("No se pudo abrir el selector de carpetas: {error}"))?
         else {
             return Err("cancelled".to_string());
         };
 
-        app.android_fs()
-            .grant_persistable_dir_access(&dir_path, PersistableAccessMode::ReadAndWrite)
+        api.picker()
+            .persist_uri_permission(&dir_uri)
             .map_err(|error| format!("No se pudo conservar el permiso de la carpeta: {error}"))?;
 
-        let serialized = tauri_plugin_android_fs::convert_dir_path_to_string(&dir_path)
+        let serialized = dir_uri
+            .to_json_string()
             .map_err(|error| format!("La ruta SAF no es válida: {error}"))?;
-        let label = app
-            .android_fs()
-            .get_dir_name(&dir_path)
+        let label = api
+            .get_name(&dir_uri)
             .unwrap_or_else(|_| "Bóveda Android".to_string());
 
         save_selection(&app, &serialized, &label)?;
@@ -809,42 +815,32 @@ pub fn delete_backups(app: &AppHandle) -> Result<BackupStatus, String> {
 #[cfg(target_os = "android")]
 fn append_saf_line(
     app: &AppHandle,
-    root: &tauri_plugin_android_fs::DirPath,
+    root: &FsUri,
     relative: &str,
     line: &str,
 ) -> Result<(), String> {
-    use tauri_plugin_android_fs::AndroidFsExt;
+    let api = app.android_fs();
 
     if let Some(file) = saf_lookup_file(app, root, relative)? {
-        let mut content = app
-            .android_fs()
+        let mut content = api
             .read_to_string(&file)
             .map_err(|e| format!("No se pudo leer el archivo de eventos: {e}"))?;
         content.push_str(line);
-        app.android_fs()
-            .write(&file, content.as_bytes())
+        api.write(&file, content.as_bytes())
             .map_err(|e| format!("No se pudo guardar el evento: {e}"))?;
         return Ok(());
     }
 
-    app.android_fs()
-        .new_file_with_contents(
-            root,
-            relative,
-            Some("application/x-ndjson"),
-            line.as_bytes(),
-        )
+    let file = api
+        .create_new_file(root, relative, Some("application/x-ndjson"))
         .map_err(|e| format!("No se pudo crear el archivo de eventos: {e}"))?;
+    api.write(&file, line.as_bytes())
+        .map_err(|e| format!("No se pudo guardar el evento: {e}"))?;
     Ok(())
 }
 
 #[cfg(target_os = "android")]
-fn read_saf_events(
-    app: &AppHandle,
-    root: &tauri_plugin_android_fs::DirPath,
-) -> Result<Vec<Event>, String> {
-    use tauri_plugin_android_fs::{AndroidFsExt, EntryPath};
-
+fn read_saf_events(app: &AppHandle, root: &FsUri) -> Result<Vec<Event>, String> {
     let mut events = Vec::new();
     let Some(omega) = saf_find_dir(app, root, DATA_DIR)? else {
         return Ok(events);
@@ -853,15 +849,15 @@ fn read_saf_events(
         return Ok(events);
     };
 
-    for (_, entry) in app
+    for entry in app
         .android_fs()
         .read_dir(&devices)
         .map_err(|e| format!("No se pudo leer la carpeta de dispositivos: {e}"))?
     {
-        let EntryPath::Dir(device_dir) = entry else {
+        if !entry.is_dir() {
             continue;
-        };
-        let Some(file) = saf_find_file(app, &device_dir, EVENTS_FILE)? else {
+        }
+        let Some(file) = saf_find_file(app, entry.uri(), EVENTS_FILE)? else {
             continue;
         };
         let content = app
@@ -882,55 +878,35 @@ fn read_saf_events(
 }
 
 #[cfg(target_os = "android")]
-fn saf_find_dir(
-    app: &AppHandle,
-    parent: &tauri_plugin_android_fs::DirPath,
-    name: &str,
-) -> Result<Option<tauri_plugin_android_fs::DirPath>, String> {
-    use tauri_plugin_android_fs::{AndroidFsExt, EntryPath};
-
-    for (entry_name, entry) in app
+fn saf_find_dir(app: &AppHandle, parent: &FsUri, name: &str) -> Result<Option<FsUri>, String> {
+    for entry in app
         .android_fs()
         .read_dir(parent)
         .map_err(|e| format!("No se pudo leer la carpeta SAF: {e}"))?
     {
-        if entry_name == name {
-            if let EntryPath::Dir(dir) = entry {
-                return Ok(Some(dir));
-            }
+        if entry.name() == name && entry.is_dir() {
+            return Ok(Some(entry.uri().clone()));
         }
     }
     Ok(None)
 }
 
 #[cfg(target_os = "android")]
-fn saf_find_file(
-    app: &AppHandle,
-    parent: &tauri_plugin_android_fs::DirPath,
-    name: &str,
-) -> Result<Option<tauri_plugin_android_fs::FilePath>, String> {
-    use tauri_plugin_android_fs::{AndroidFsExt, EntryPath};
-
-    for (entry_name, entry) in app
+fn saf_find_file(app: &AppHandle, parent: &FsUri, name: &str) -> Result<Option<FsUri>, String> {
+    for entry in app
         .android_fs()
         .read_dir(parent)
         .map_err(|e| format!("No se pudo leer la carpeta SAF: {e}"))?
     {
-        if entry_name == name {
-            if let EntryPath::File(file) = entry {
-                return Ok(Some(file));
-            }
+        if entry.name() == name && entry.is_file() {
+            return Ok(Some(entry.uri().clone()));
         }
     }
     Ok(None)
 }
 
 #[cfg(target_os = "android")]
-fn saf_lookup_file(
-    app: &AppHandle,
-    root: &tauri_plugin_android_fs::DirPath,
-    relative: &str,
-) -> Result<Option<tauri_plugin_android_fs::FilePath>, String> {
+fn saf_lookup_file(app: &AppHandle, root: &FsUri, relative: &str) -> Result<Option<FsUri>, String> {
     let parts: Vec<&str> = relative
         .trim()
         .trim_start_matches('/')
@@ -957,45 +933,40 @@ fn saf_lookup_file(
 #[cfg(target_os = "android")]
 fn saf_collect_files(
     app: &AppHandle,
-    dir: &tauri_plugin_android_fs::DirPath,
+    dir: &FsUri,
     prefix: &str,
     depth: usize,
-    out: &mut Vec<(String, tauri_plugin_android_fs::FilePath)>,
+    out: &mut Vec<(String, FsUri)>,
 ) -> Result<(), String> {
-    use tauri_plugin_android_fs::{AndroidFsExt, EntryPath};
-
     if depth > MAX_SAF_DEPTH {
         return Err("La carpeta SAF tiene demasiados niveles.".to_string());
     }
 
-    for (name, entry) in app
+    for entry in app
         .android_fs()
         .read_dir(dir)
         .map_err(|e| format!("No se pudo leer la carpeta SAF: {e}"))?
     {
+        let name = entry.name();
         if name.is_empty() || name == "." || name == ".." || name == BACKUP_MARKER {
             continue;
         }
         let relative = if prefix.is_empty() {
-            name
+            name.to_string()
         } else {
             format!("{prefix}/{name}")
         };
-        match entry {
-            EntryPath::File(file) => out.push((relative, file)),
-            EntryPath::Dir(child) => saf_collect_files(app, &child, &relative, depth + 1, out)?,
+        if entry.is_file() {
+            out.push((relative, entry.uri().clone()));
+        } else {
+            saf_collect_files(app, entry.uri(), &relative, depth + 1, out)?;
         }
     }
     Ok(())
 }
 
 #[cfg(target_os = "android")]
-fn saf_count_dir(
-    app: &AppHandle,
-    dir: &tauri_plugin_android_fs::DirPath,
-) -> Result<(u64, u64), String> {
-    use tauri_plugin_android_fs::AndroidFsExt;
-
+fn saf_count_dir(app: &AppHandle, dir: &FsUri) -> Result<(u64, u64), String> {
     let mut files = Vec::new();
     saf_collect_files(app, dir, "", 0, &mut files)?;
     let mut bytes = 0u64;
@@ -1010,53 +981,42 @@ fn saf_count_dir(
 }
 
 #[cfg(target_os = "android")]
-fn saf_delete_tree(app: &AppHandle, dir: &tauri_plugin_android_fs::DirPath) -> Result<(), String> {
-    use tauri_plugin_android_fs::{AndroidFsExt, EntryPath};
-
-    for (_, entry) in app
+fn saf_delete_tree(app: &AppHandle, dir: &FsUri) -> Result<(), String> {
+    for entry in app
         .android_fs()
         .read_dir(dir)
         .map_err(|e| format!("No se pudo leer la copia SAF: {e}"))?
     {
-        match entry {
-            EntryPath::File(file) => {
-                app.android_fs()
-                    .remove_file(&file)
-                    .map_err(|e| format!("No se pudo borrar un archivo de la copia: {e}"))?;
-            }
-            EntryPath::Dir(child) => saf_delete_tree(app, &child)?,
+        if entry.is_file() {
+            app.android_fs()
+                .remove_file(entry.uri())
+                .map_err(|e| format!("No se pudo borrar un archivo de la copia: {e}"))?;
+        } else {
+            saf_delete_tree(app, entry.uri())?;
         }
     }
     Ok(())
 }
 
 #[cfg(target_os = "android")]
-fn list_saf_backups(
-    app: &AppHandle,
-    root: &tauri_plugin_android_fs::DirPath,
-) -> Result<Vec<BackupDay>, String> {
-    use tauri_plugin_android_fs::{AndroidFsExt, EntryPath};
-
+fn list_saf_backups(app: &AppHandle, root: &FsUri) -> Result<Vec<BackupDay>, String> {
     let Some(backup_root) = saf_find_dir(app, root, BACKUP_DIR)? else {
         return Ok(Vec::new());
     };
 
     let mut copies = Vec::new();
-    for (name, entry) in app
+    for entry in app
         .android_fs()
         .read_dir(&backup_root)
         .map_err(|e| format!("No se pudo leer Longlife: {e}"))?
     {
-        if !is_date_name(&name) {
+        if !entry.is_dir() || !is_date_name(entry.name()) {
             continue;
         }
-        let EntryPath::Dir(day) = entry else {
-            continue;
-        };
-        let (files, bytes) = saf_count_dir(app, &day)?;
+        let (files, bytes) = saf_count_dir(app, entry.uri())?;
         if files > 0 {
             copies.push(BackupDay {
-                date: name,
+                date: entry.name().to_string(),
                 files,
                 bytes,
             });
@@ -1067,13 +1027,7 @@ fn list_saf_backups(
 }
 
 #[cfg(target_os = "android")]
-fn run_saf_backup(
-    app: &AppHandle,
-    root: &tauri_plugin_android_fs::DirPath,
-    date: &str,
-) -> Result<Option<String>, String> {
-    use tauri_plugin_android_fs::AndroidFsExt;
-
+fn run_saf_backup(app: &AppHandle, root: &FsUri, date: &str) -> Result<Option<String>, String> {
     let Some(omega) = saf_find_dir(app, root, DATA_DIR)? else {
         return Ok(Some(
             "La carpeta omega no existe; no hay nada que copiar.".to_string(),
@@ -1108,14 +1062,22 @@ fn run_saf_backup(
             .read(file)
             .map_err(|e| format!("No se pudo leer un archivo de omega: {e}"))?;
         let target = format!("{BACKUP_DIR}/{date}/{relative}");
+        let created = app
+            .android_fs()
+            .create_new_file(root, &target, Some(mime_for(relative)))
+            .map_err(|e| format!("No se pudo escribir la copia: {e}"))?;
         app.android_fs()
-            .new_file_with_contents(root, &target, Some(mime_for(relative)), &bytes)
+            .write(&created, &bytes)
             .map_err(|e| format!("No se pudo escribir la copia: {e}"))?;
     }
 
     let marker = format!("{BACKUP_DIR}/{date}/{BACKUP_MARKER}");
+    let marker_uri = app
+        .android_fs()
+        .create_new_file(root, &marker, Some("text/plain"))
+        .map_err(|e| format!("No se pudo cerrar la copia: {e}"))?;
     app.android_fs()
-        .new_file_with_contents(root, &marker, Some("text/plain"), b"ok\n")
+        .write(&marker_uri, b"ok\n")
         .map_err(|e| format!("No se pudo cerrar la copia: {e}"))?;
 
     prune_saf_backups(app, root)?;
@@ -1123,31 +1085,23 @@ fn run_saf_backup(
 }
 
 #[cfg(target_os = "android")]
-fn prune_saf_backups(
-    app: &AppHandle,
-    root: &tauri_plugin_android_fs::DirPath,
-) -> Result<(), String> {
-    use tauri_plugin_android_fs::{AndroidFsExt, EntryPath};
-
+fn prune_saf_backups(app: &AppHandle, root: &FsUri) -> Result<(), String> {
     let Some(backup_root) = saf_find_dir(app, root, BACKUP_DIR)? else {
         return Ok(());
     };
 
-    let mut days: Vec<(String, tauri_plugin_android_fs::DirPath)> = Vec::new();
-    for (name, entry) in app
+    let mut days: Vec<(String, FsUri)> = Vec::new();
+    for entry in app
         .android_fs()
         .read_dir(&backup_root)
         .map_err(|e| format!("No se pudo leer Longlife: {e}"))?
     {
-        if !is_date_name(&name) {
+        if !entry.is_dir() || !is_date_name(entry.name()) {
             continue;
         }
-        let EntryPath::Dir(day) = entry else {
-            continue;
-        };
-        let (files, _) = saf_count_dir(app, &day)?;
+        let (files, _) = saf_count_dir(app, entry.uri())?;
         if files > 0 {
-            days.push((name, day));
+            days.push((entry.name().to_string(), entry.uri().clone()));
         }
     }
     days.sort_by(|a, b| a.0.cmp(&b.0));
