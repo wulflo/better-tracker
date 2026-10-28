@@ -1,13 +1,29 @@
 {
   "$schema": "https://schema.tauri.app/v2/capability",
   "identifier": "mobile",
-  "description": "Permisos móviles: cámara, escáner de códigos de barras y red para la API de productos.",
-  "platforms": ["android", "iOS"],
+  "description": "Android: cámara/escáner, plataforma, actualización de la APK y escritura temporal del APK en la caché. Las peticiones HTTP quedan limitadas a las releases de este repositorio.",
+  "platforms": ["android"],
   "windows": ["main"],
   "permissions": [
     "core:default",
     "dialog:default",
-    "process:default",
-    "barcode-scanner:default"
+    "barcode-scanner:default",
+    "os:allow-platform",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://github.com/wulflo/better-tracker/releases/*"
+        }
+      ]
+    },
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [
+        {
+          "path": "$APPCACHE/BetterTracker-update.apk"
+        }
+      ]
+    }
   ]
 }

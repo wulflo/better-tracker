@@ -2,7 +2,7 @@
 
 Training, body composition, nutrition, and weekly load in a local-first desktop app.
 
-Current version: **0.9.1**.
+Current version: **0.9.2**.
 
 [Leer en español](README.es.md)
 
@@ -14,6 +14,7 @@ Better Tracker is built and published for Linux, Windows and Android.
 | --- | --- | --- |
 | Linux x86_64 | `.AppImage`, `.deb`, `.rpm` | AppImage only. `.deb` and `.rpm` are updated by installing the new package. |
 | Windows 10/11 x64 | NSIS `.exe` (per-user install), `.msi` | NSIS. |
+| Android (arm64) | Signed `.apk` | The app downloads and verifies the APK, saves it to `Downloads/BetterTracker`, and the user installs it manually. |
 
 On Linux the app uses GTK/WebKit and runs natively on Wayland. If a proprietary driver causes rendering issues, start it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
 
@@ -72,12 +73,14 @@ On Linux the app uses GTK/WebKit and runs natively on Wayland. If a proprietary 
 
 ## Data and privacy
 
-- No accounts, cloud dependency, or telemetry.
-- The vault is a folder you choose. Events are stored as append-only JSONL per device (`devices/<id>/events.jsonl`).
+- No accounts, cloud dependency, telemetry, or LAN/P2P synchronization.
+- The vault is a folder you choose. All app data lives in `<vault>/omega`, and events are stored as append-only JSONL per device (`omega/devices/<id>/events.jsonl`).
+- On Android the vault is selected with the system folder picker (SAF) and the read/write permission is kept across restarts.
+- The app creates one identical copy of `omega` per day in `<vault>/Longlife/<YYYY-MM-DD>` and keeps the 7 most recent copies. `Longlife` is never read automatically; to restore, move a copy's contents into `omega` yourself.
+- Settings includes a high-risk action to delete every `Longlife` backup. It asks for confirmation, cannot be undone, and the daily backup is not recreated until the next day.
 - There is no encryption. Photos and files are not stored; pasted content is limited to plain text.
-- The only network connection is the **manual** update check from Settings. It does not run in the background.
-- Updates are signed with minisign and verified before installation. Consent is explicit: check, download, install.
-- The vault can be synced with Syncthing, Nextcloud, Drive, or Samba. Avoid syncing temporary files.
+- The only network connections are the **manual** update check and the optional Open Food Facts barcode lookup. They do not run in the background.
+- Desktop updates are signed with minisign and verified before installation. Android downloads a release APK with a published SHA-256 hash, verifies it, and saves it to Downloads for manual installation.
 - Because the format is append-only JSONL, the data remains readable and portable without the app.
 
 ## Build
@@ -99,7 +102,7 @@ The version lives in `VERSION`. After changing it:
 node scripts/sync-version.mjs
 ```
 
-The release workflow builds Linux and Windows, signs the updater artifacts, generates `latest.json`, `release-manifest.json`, and `SHA256SUMS.txt`, and publishes the release. See [docs/VERSIONING.md](docs/VERSIONING.md) and [docs/RELEASE_SECRETS.md](docs/RELEASE_SECRETS.md).
+The release workflow builds Linux, Windows and Android, signs the updater artifacts and the APK, generates `latest.json` with the `android-aarch64` entry (URL, size, SHA-256), `release-manifest.json`, and `SHA256SUMS.txt`, and publishes the release. See [docs/VERSIONING.md](docs/VERSIONING.md) and [docs/RELEASE_SECRETS.md](docs/RELEASE_SECRETS.md).
 
 ## Verification
 

@@ -13,7 +13,7 @@ const TIMEOUT: Duration = Duration::from_secs(12);
  *
  * No descargamos una base de datos completa: se consulta bajo demanda y el
  * resultado se guarda como evento `food.saved` en la bóveda (lo hace el
- * frontend). Así el producto queda cacheado localmente y viaja por P2P.
+ * frontend). Así el producto queda cacheado en `omega` y disponible sin red.
  */
 #[tauri::command]
 pub async fn lookup_barcode(code: String) -> Result<Option<Value>, String> {

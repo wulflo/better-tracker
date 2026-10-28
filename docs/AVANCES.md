@@ -1,22 +1,31 @@
 # Avances recientes
 
-## Interfaz y marca
-- Logo actualizado a mancuernas moradas (`public/logo.png`, iconos Tauri y Android).
-- Soporte inicial de idioma inglés (selector en Ajustes, persistencia en `localStorage`).
+## Bóveda
+- Todos los datos viven en `<bóveda>/omega`; los eventos siguen siendo JSONL append-only por dispositivo en `omega/devices/<id>/events.jsonl`.
+- Migración automática en escritorio de `devices/` a `omega/devices/`.
+- Selección de carpeta en Android mediante SAF, con permiso persistente entre reinicios.
+- Eliminada por completo la sincronización LAN/P2P: no quedan módulos, comandos ni interfaz.
 
-## Datos nutricionales
-- Base de alimentos ampliada a 521 entradas (incluye base extendida proporcionada).
-- Sin marcas; valores por 100 g/ml.
-
-## Sincronización P2P
-- Sincronización append-only por id (sin sobrescrituras).
-- Autodescubrimiento LAN por UDP.
-- Emparejamiento por QR (generación SVG + pegado de payload).
-- Firma de APK Android mediante keystore en secrets (de unsigned a signed).
+## Copias de seguridad
+- Copia idéntica de `omega` al día en `<bóveda>/Longlife/<AAAA-MM-DD>`.
+- Retención de las 7 copias más recientes.
+- Marcador `.backup-complete` para detectar y reemplazar copias interrumpidas.
+- Estado, copia manual y borrado de todas las copias en Ajustes; el borrado es una acción de alto riesgo con confirmación y no se recrea hasta el día siguiente.
+- La app no usa `Longlife` como fuente de datos: solo enumera las copias para mostrarlas y borrarlas. Restaurar exige mover una copia a `omega`.
 
 ## Android
-- Soporte activo.
-- Build de APK firmado en CI cuando existen los secrets `ANDROID_KEYSTORE_*`.
+- Actualizaciones híbridas: `latest.json` incluye `android-aarch64` con URL, tamaño y SHA-256.
+- La APK se descarga con el plugin HTTP nativo, se verifica y se guarda en `Descargas/BetterTracker` mediante MediaStore. La instalación es manual.
+- Permiso de cámara con mensajes claros y detección nativa de Android mediante `plugin-os` antes de abrir el escáner.
+
+## Interfaz y marca
+- Logo actualizado a mancuernas moradas (`public/logo.png`, iconos Tauri y Android).
+- Soporte de idioma inglés (selector en Ajustes, persistencia en `localStorage`).
+
+## Datos nutricionales
+- Base de alimentos ampliada a 521 entradas.
+- Sin marcas; valores por 100 g/ml.
 
 ## Pendiente / posible
-- Reconocimiento de productos por código de barras: posible con ML Kit (Google) o ZXing, requiere permiso de cámara en Android y acceso desde WebView/Tauri.
+- Las copias Longlife no están cifradas.
+- En SAF, borrar copias deja carpetas vacías porque el plugin no expone borrado de directorios.

@@ -7,17 +7,16 @@ import {
   requestPermissions,
   scan,
 } from '@tauri-apps/plugin-barcode-scanner';
+import { platform } from '@tauri-apps/plugin-os';
 import { isTauri } from '../vault';
 
 interface Props {
   onResult: (code: string) => void;
   onClose?: () => void;
-  /** `product` acepta EAN/UPC/Code128; `qr` solo QR (emparejamiento). */
-  kind?: 'product' | 'qr';
 }
 
 /** Códigos de barras de producto, no solo QR. */
-const ZXING_PRODUCT_FORMATS = [
+const ZXING_FORMATS = [
   BarcodeFormat.EAN_13,
   BarcodeFormat.EAN_8,
   BarcodeFormat.UPC_A,
@@ -26,9 +25,7 @@ const ZXING_PRODUCT_FORMATS = [
   BarcodeFormat.QR_CODE,
 ];
 
-const ZXING_QR_FORMATS = [BarcodeFormat.QR_CODE];
-
-const NATIVE_PRODUCT_FORMATS = [
+const NATIVE_FORMATS = [
   Format.EAN13,
   Format.EAN8,
   Format.UPC_A,
@@ -37,22 +34,25 @@ const NATIVE_PRODUCT_FORMATS = [
   Format.QRCode,
 ];
 
-const NATIVE_QR_FORMATS = [Format.QRCode];
-
 function nativeMobile(): boolean {
   if (!isTauri() || typeof navigator === 'undefined') return false;
+  try {
+    const current = platform();
+    if (current === 'android' || current === 'ios') return true;
+  } catch {
+    // La comprobación por user agent queda como respaldo si el plugin OS no
+    // está disponible en una build antigua.
+  }
   return /android|iphone|ipad|ipod/i.test(navigator.userAgent);
 }
 
-export default function BarcodeScanner({ onResult, onClose, kind = 'product' }: Props) {
+export default function BarcodeScanner({ onResult, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const resultRef = useRef(onResult);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const mobile = nativeMobile();
-  const zxingFormats = kind === 'qr' ? ZXING_QR_FORMATS : ZXING_PRODUCT_FORMATS;
-  const nativeFormats = kind === 'qr' ? NATIVE_QR_FORMATS : NATIVE_PRODUCT_FORMATS;
 
   useEffect(() => {
     resultRef.current = onResult;
@@ -80,16 +80,27 @@ export default function BarcodeScanner({ onResult, onClose, kind = 'product' }: 
         }
         if (permission !== 'granted') {
           if (!cancelled) {
-            setError('Permiso de cámara denegado. Actívalo en los ajustes de la app para escanear códigos.');
+            setError(
+              permission === 'denied'
+                ? 'Permiso de cámara denegado. Actívalo en Ajustes de Android → Aplicaciones → Better Tracker → Permisos → Cámara y vuelve a intentarlo.'
+                : 'Android necesita permiso para usar la cámara. Acepta el aviso y vuelve a intentarlo.',
+            );
           }
           return;
         }
-        const result = await scan({ windowed: true, formats: nativeFormats });
+        const result = await scan({ windowed: true, formats: NATIVE_FORMATS });
         if (result?.content) emit(result.content);
       } catch (e) {
         const message = String(e);
-        if (!cancelled) {
-          setError(/cancel/i.test(message) ? 'Escaneo cancelado.' : `No se pudo abrir la cámara: ${message}`);
+        if (cancelled) return;
+        if (/cancel/i.test(message)) {
+          setError('Escaneo cancelado.');
+        } else if (/permission|denied|camera/i.test(message)) {
+          setError(
+            `No se pudo abrir la cámara: ${message}. Revisa el permiso de cámara en Ajustes de Android.`,
+          );
+        } else {
+          setError(`No se pudo abrir la cámara: ${message}`);
         }
       }
     };
@@ -98,7 +109,7 @@ export default function BarcodeScanner({ onResult, onClose, kind = 'product' }: 
       try {
         if (!videoRef.current) return;
         const hints = new Map();
-        hints.set(DecodeHintType.POSSIBLE_FORMATS, zxingFormats);
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, ZXING_FORMATS);
         hints.set(DecodeHintType.TRY_HARDER, true);
         const reader = new BrowserMultiFormatReader(hints);
         controls = await reader.decodeFromVideoDevice(undefined, videoRef.current, (result) => {
@@ -117,7 +128,7 @@ export default function BarcodeScanner({ onResult, onClose, kind = 'product' }: 
       cancelled = true;
       controls?.stop();
     };
-  }, [mobile, attempt, kind]);
+  }, [mobile, attempt]);
 
   return (
     <div className="barcode-scanner">
@@ -132,11 +143,7 @@ export default function BarcodeScanner({ onResult, onClose, kind = 'product' }: 
       )}
       {mobile && running === false && !error && (
         <div className="notice notice-info">
-          <span>
-            {kind === 'qr'
-              ? 'La cámara nativa está abierta. Apunta al QR de emparejamiento del otro dispositivo.'
-              : 'La cámara nativa está abierta. Apunta al código de barras del envase.'}
-          </span>
+          <span>La cámara nativa está abierta. Apunta al código de barras del envase.</span>
         </div>
       )}
       {error && (
@@ -149,9 +156,7 @@ export default function BarcodeScanner({ onResult, onClose, kind = 'product' }: 
       )}
       {!running && !error && !mobile && <span className="hint">Iniciando cámara…</span>}
       <div className="row between wrap" style={{ marginTop: 8 }}>
-        <span className="hint">
-          {kind === 'qr' ? 'Solo códigos QR de emparejamiento.' : 'EAN-13, EAN-8, UPC-A, UPC-E, Code 128 o QR.'}
-        </span>
+        <span className="hint">EAN-13, EAN-8, UPC-A, UPC-E, Code 128 o QR.</span>
         {onClose && (
           <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
             Cancelar

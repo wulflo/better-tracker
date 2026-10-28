@@ -65,6 +65,7 @@ pub fn detect_install_format() -> &'static str {
         Ok("nsis") => "nsis",
         Ok("exe") => "exe",
         Ok("apk") => "apk",
+        _ if cfg!(target_os = "android") => "apk",
         _ if cfg!(target_os = "windows") => "windows",
         _ if cfg!(target_os = "linux") => "linux",
         _ => "unknown",

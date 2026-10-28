@@ -2,18 +2,19 @@
 
 Entrenamiento, composición corporal, nutrición y carga semanal en una app de escritorio local-first.
 
-Versión actual: **0.9.1**.
+Versión actual: **0.9.2**.
 
 [Read in English](README.md)
 
 ## Plataformas
 
-Better Tracker se compila y publica únicamente para Linux y Windows.
+Better Tracker se compila y publica para Linux, Windows y Android.
 
 | Sistema | Artefactos | Actualización integrada |
 | --- | --- | --- |
 | Linux x86_64 | `.AppImage`, `.deb`, `.rpm` | Solo AppImage. `.deb` y `.rpm` se actualizan instalando el paquete nuevo. |
 | Windows 10/11 x64 | NSIS `.exe` (instalación por usuario), `.msi` | NSIS. |
+| Android (arm64) | `.apk` firmada | La app descarga y verifica la APK, la guarda en `Descargas/BetterTracker` y el usuario la instala manualmente. |
 
 En Linux la app usa GTK/WebKit y funciona en Wayland de forma nativa. Si un driver propietario provoca fallos de renderizado, iníciala con `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
 
@@ -72,12 +73,14 @@ En Linux la app usa GTK/WebKit y funciona en Wayland de forma nativa. Si un driv
 
 ## Datos y privacidad
 
-- No hay cuentas, dependencia de la nube ni telemetría.
-- La bóveda es una carpeta elegida por ti. Los eventos se guardan en JSONL append-only por dispositivo (`devices/<id>/events.jsonl`).
+- No hay cuentas, dependencia de la nube, telemetría ni sincronización LAN/P2P.
+- La bóveda es una carpeta elegida por ti. Todos los datos de la app viven en `<bóveda>/omega`, y los eventos se guardan en JSONL append-only por dispositivo (`omega/devices/<id>/events.jsonl`).
+- En Android la bóveda se elige con el selector de carpetas del sistema (SAF) y el permiso de lectura/escritura se conserva entre reinicios.
+- La app crea una copia idéntica de `omega` al día en `<bóveda>/Longlife/<AAAA-MM-DD>` y conserva las 7 más recientes. `Longlife` nunca se lee automáticamente; para restaurar, mueve el contenido de una copia a `omega` manualmente.
+- Los ajustes incluyen una acción de alto riesgo para borrar todas las copias de `Longlife`. Pide confirmación, no se puede deshacer y la copia diaria no se recrea hasta el día siguiente.
 - No hay cifrado. No se guardan fotos ni archivos: el pegado se limita a texto plano.
-- La única conexión de red es la comprobación **manual** de actualizaciones desde Ajustes. No se ejecuta en segundo plano.
-- Las actualizaciones se firman con minisign y se verifican antes de instalar. El consentimiento es explícito: buscar, descargar e instalar.
-- La bóveda se puede sincronizar con Syncthing, Nextcloud, Drive o Samba. Evita sincronizar archivos temporales.
+- Las únicas conexiones de red son la comprobación **manual** de actualizaciones y la consulta opcional a Open Food Facts al escanear un código. No se ejecutan en segundo plano.
+- En escritorio las actualizaciones se firman con minisign y se verifican antes de instalar. En Android se descarga la APK de la release, se verifica su SHA-256 publicado y se guarda en Descargas para instalarla manualmente.
 - Al ser JSONL append-only, los datos siguen siendo legibles y portables sin la app.
 
 ## Compilar
@@ -99,7 +102,7 @@ La versión vive en `VERSION`. Después de cambiarla:
 node scripts/sync-version.mjs
 ```
 
-El workflow de release compila Linux y Windows, firma los artefactos del updater, genera `latest.json`, `release-manifest.json` y `SHA256SUMS.txt`, y publica el release. Consulta [docs/VERSIONING.md](docs/VERSIONING.md) y [docs/RELEASE_SECRETS.md](docs/RELEASE_SECRETS.md).
+El workflow de release compila Linux, Windows y Android, firma los artefactos del updater y la APK, genera `latest.json` con la entrada `android-aarch64` (URL, tamaño y SHA-256), `release-manifest.json` y `SHA256SUMS.txt`, y publica el release. Consulta [docs/VERSIONING.md](docs/VERSIONING.md) y [docs/RELEASE_SECRETS.md](docs/RELEASE_SECRETS.md).
 
 ## Verificación
 

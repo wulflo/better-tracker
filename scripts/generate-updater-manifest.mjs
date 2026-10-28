@@ -2,9 +2,10 @@
 // Generates the static `latest.json` consumed by the Tauri updater plugin.
 //
 // Each platform/architecture reads a different entry from the same manifest.
-// Tauri verifies the minisign signature of the downloaded artifact before it
-// installs anything, so an unsigned or tampered asset is rejected.
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+// Desktop Tauri verifies the minisign signature before installing. Android
+// verifies the published SHA-256 and lets Android verify the APK signature.
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -95,7 +96,31 @@ for (const sig of files.filter((f) => f.endsWith('.sig'))) {
   }
 }
 
-const required = ['linux-x86_64', 'windows-x86_64'];
+// La APK no usa la firma minisign de Tauri: el cliente Android verifica el
+// SHA-256 publicado y luego el sistema comprueba la firma del APK al instalar.
+const apks = files.filter((file) => /\.apk$/i.test(file));
+if (apks.length) {
+  const apk =
+    apks.find((file) => /universal/i.test(basename(file))) ??
+    apks.find((file) => /arm64|aarch64/i.test(basename(file))) ??
+    apks[0];
+  const bytes = readFileSync(apk);
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  platforms['android-aarch64'] = {
+    // El updater de escritorio deserializa todas las entradas con un campo
+    // `signature` obligatorio, aunque no use la de Android. La APK no usa
+    // minisign: el cliente Android verifica el SHA-256 de aquí abajo.
+    signature: '',
+    url: assetUrl(apk),
+    size: statSync(apk).size,
+    sha256,
+  };
+  console.log(`  android-aarch64 <- ${basename(apk)} (${sha256.slice(0, 12)}…)`);
+} else {
+  console.warn('No APK found; android-aarch64 will be absent from latest.json.');
+}
+
+const required = ['linux-x86_64', 'windows-x86_64', 'android-aarch64'];
 const missing = required.filter((key) => !platforms[key]);
 if (missing.length) {
   console.error(`Missing updater artifacts for: ${missing.join(', ')}`);

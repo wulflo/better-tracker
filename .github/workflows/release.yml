@@ -396,6 +396,10 @@ jobs:
               echo "::error::Paquete inesperado en $apk (se esperaba com.bettertracker.desktop)."
               exit 1
             fi
+            if ! grep -q "uses-permission: name='android.permission.CAMERA'" <<<"$BADGING"; then
+              echo "::error::Falta el permiso CAMERA en $apk."
+              exit 1
+            fi
           done
       - name: Upload APK
         env:

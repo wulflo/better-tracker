@@ -36,18 +36,88 @@ function saveMockEvents(events: VaultEvent[]): void {
   localStorage.setItem(MOCK_EVENTS_KEY, JSON.stringify(events));
 }
 
+export interface VaultInfo {
+  path: string | null;
+  label: string | null;
+  data_dir: string | null;
+}
+
+export interface VaultSelection {
+  path: string;
+  label: string;
+}
+
+export interface BackupDay {
+  date: string;
+  files: number;
+  bytes: number;
+}
+
+export interface BackupStatus {
+  retention_days: number;
+  last_backup: string | null;
+  copies: BackupDay[];
+  total_bytes: number;
+}
+
+export interface BackupRunResult {
+  created: boolean;
+  skipped: string | null;
+  date: string | null;
+  status: BackupStatus;
+}
+
+export async function getVaultInfo(): Promise<VaultInfo> {
+  if (!isTauri()) {
+    const path = localStorage.getItem(MOCK_VAULT_KEY);
+    return { path, label: path, data_dir: path ? `${path}/omega` : null };
+  }
+  return invoke<VaultInfo>('get_vault_info');
+}
+
 export async function getVaultPath(): Promise<string | null> {
   if (!isTauri()) return localStorage.getItem(MOCK_VAULT_KEY);
   return invoke<string | null>('get_vault_path');
 }
 
-export async function selectVault(): Promise<string> {
+export async function selectVault(): Promise<VaultSelection> {
   if (!isTauri()) {
     const path = localStorage.getItem(MOCK_VAULT_KEY) || 'Bóveda local (modo navegador)';
     localStorage.setItem(MOCK_VAULT_KEY, path);
-    return path;
+    return { path, label: 'Bóveda local (modo navegador)' };
   }
-  return invoke<string>('select_vault');
+  return invoke<VaultSelection>('select_vault');
+}
+
+function emptyBackupStatus(): BackupStatus {
+  return {
+    retention_days: 7,
+    last_backup: null,
+    copies: [],
+    total_bytes: 0,
+  };
+}
+
+export async function getBackupStatus(): Promise<BackupStatus> {
+  if (!isTauri()) return emptyBackupStatus();
+  return invoke<BackupStatus>('vault_backup_status');
+}
+
+export async function runBackup(force = false): Promise<BackupRunResult> {
+  if (!isTauri()) {
+    return {
+      created: false,
+      skipped: 'Las copias Longlife solo están disponibles en la app nativa.',
+      date: null,
+      status: emptyBackupStatus(),
+    };
+  }
+  return invoke<BackupRunResult>('vault_run_backup', { force });
+}
+
+export async function deleteBackups(): Promise<BackupStatus> {
+  if (!isTauri()) return emptyBackupStatus();
+  return invoke<BackupStatus>('vault_delete_backups');
 }
 
 export async function getDeviceId(): Promise<string> {
