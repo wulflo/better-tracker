@@ -1,7 +1,7 @@
 # Decisiones técnicas
 
 ## Nombre e identidad
-Better Tracker. El nombre se define en `tauri.conf.json` (`productName`) y se usa en los nombres de archivo. El logo original se guarda como fuente en `src-tauri/icons/icon-source.png`; `tauri icon` genera `.ico` y los PNG usados por Linux y Windows. La misma imagen se usa en la interfaz (`public/logo.png`) y en el splash.
+Better Tracker. El nombre se define en `tauri.conf.json` (`productName`) y se usa en los nombres de archivo. El logo se guarda como master en `src-tauri/icons/app-icon.png` con el manifiesto `app-icon.json`; `npm run icons` regenera desde ahí los iconos de escritorio (`.ico`, `.icns`, PNG y Store) y los mipmaps de Android (legacy y adaptativos), incluidos los del proyecto generado en `src-tauri/gen/`. La marca sin fondo de la interfaz vive en `public/logo.png` y en el splash.
 
 ## Plataformas
 Escritorio y Android:
@@ -15,22 +15,40 @@ Cada plataforma de escritorio tiene su archivo de configuración (`tauri.linux.c
 Tauri 2 + React 18 + TypeScript + Vite. La lógica de archivos y comandos vive en Rust; el frontend usa IPC tipado y un mock de navegador solo para pruebas visuales.
 
 ## Almacenamiento
-Bóveda en una carpeta elegida por el usuario. Todos los datos de la app viven en `<bóveda>/omega`; los eventos son append-only en JSONL por dispositivo (`omega/devices/<id>/events.jsonl`). La reducción es determinista por timestamp; los borrados usan eventos de “limpieza” o lápidas. Sin cifrado activo, sin fotos y sin adjuntos.
+Bóveda en una carpeta elegida por el usuario. Todos los datos de la app viven en `<bóveda>/omega`; los eventos son append-only. Cada evento nuevo se escribe como archivo propio (`omega/devices/<id>/events/<event-id>.json`) con temporal + rename en escritorio y `create_new_file` en SAF. Los `events.jsonl` antiguos se siguen leyendo para no romper bóvedas existentes y todos los eventos se deduplican por `id` al leer. La reducción es determinista por timestamp; los borrados usan eventos de “limpieza” o lápidas. Sin cifrado activo, sin fotos y sin adjuntos.
 
-En Android la carpeta se elige con el selector SAF (`tauri-plugin-android-fs`), se concede permiso persistente de lectura/escritura y se guarda la ruta serializada en la configuración de la app. La app no usa `Longlife` como fuente de datos: solo enumera las copias para mostrar su estado y borrarlas.
+Escribir un archivo por evento evita que dos dispositivos (o FolderSync) reescriban el mismo JSONL y se pisen datos: un evento creado en Android nunca puede ser borrado por una versión antigua del archivo que tenga el PC.
+
+En Android la carpeta se elige con el selector SAF (`tauri-plugin-android-fs`), se concede permiso persistente de lectura/escritura y se guarda la ruta serializada en la configuración de la app. La app no usa `Longlife` como fuente de datos: solo lo enumera para mostrar el estado, restaurar o borrar copias.
 
 ### Copias Longlife
-- Una copia idéntica de `omega` por día en `<bóveda>/Longlife/<AAAA-MM-DD>`.
-- Se conservan las 7 copias más recientes; las antiguas se eliminan.
+- Una copia de `omega` por día y dispositivo en `<bóveda>/Longlife/<dispositivo>/<AAAA-MM-DD>`. Cada dispositivo escribe solo en su carpeta, así que dos móviles/PC nunca compiten por la misma copia diaria.
+- Las copias antiguas en `<bóveda>/Longlife/<AAAA-MM-DD>` se listan como legado y también se pueden restaurar.
+- Se conservan las 7 copias más recientes **de cada dispositivo**; las de otros dispositivos no se tocan.
+- `snapshot.json` dentro de cada copia guarda `device_id`, etiqueta, plataforma, fecha y versión de la app. Así el PC puede mostrar correctamente una copia creada en Android.
 - Un marcador `.backup-complete` dentro de la carpeta del día distingue una copia completa de una interrumpida. Si falta, la copia parcial se reemplaza.
 - La comprobación se ejecuta al arrancar, tras el primer evento y cada 6 horas; es idempotente.
+- **Restaurar no es destructivo**: se comparan los `id` de la copia con la bóveda actual y solo los eventos que faltan se escriben en `omega/devices/restored-<copia>-<marca>-<uuid8>/events.jsonl`. El sufijo aleatorio evita que dos restauraciones del mismo segundo compartan carpeta y se pisen. Nunca se modifica ni se borra un evento existente; al leer se deduplican por `id`.
 - El borrado de todas las copias está en Ajustes como acción de alto riesgo con confirmación. Tras borrarlas, el automatismo no vuelve a crear la copia de ese día; se reanuda al día siguiente. En SAF se borran los archivos recursivamente porque el plugin no expone borrado de directorios; pueden quedar carpetas vacías.
-- Para restaurar, el usuario mueve manualmente el contenido de un día a `omega`.
+- Si el número de eventos de una bóveda baja respecto al último valor visto (guardado en `localStorage` por ruta de bóveda), la app muestra un aviso y sugiere restaurar una copia.
+
+### FolderSync
+- La bóveda completa (incluida `Longlife`) puede sincronizarse entre Android y PC.
+- Los conflictos nunca deben resolverse borrando `omega/devices/` ni `Longlife/`: los eventos son inmutables y las copias por dispositivo no colisionan.
+- Recomendado: configurar FolderSync como copia incremental del móvil al PC (o desactivar la propagación de borrados). Un modo espejo puede borrar en el PC eventos que ya no existan en el origen, y una copia antigua del PC nunca debe sincronizarse sobre el móvil.
+- Si una sincronización antigua revierte la bóveda, la UI detecta la caída de eventos y la restauración recupera solo lo que falte.
 
 Los datos de versiones anteriores en `<bóveda>/devices` se migran una vez a `<bóveda>/omega/devices` al abrir la bóveda en escritorio.
 
 ## Entrada de datos
 El pegado y el arrastre se interceptan globalmente. Solo se acepta `text/plain`; en campos de una línea se eliminan los saltos de línea. No se aceptan archivos, HTML enriquecido ni imágenes.
+
+## Escáner de códigos de barras
+- Android usa `tauri-plugin-barcode-scanner` con permiso `CAMERA`. Como `src-tauri/gen/` está en `.gitignore`, `scripts/patch-android-manifest.mjs` añade el permiso y `uses-feature` de forma idempotente; CI y los builds locales deben ejecutarlo tras `tauri android init`.
+- El plugin no solicita el permiso por sí solo: el frontend comprueba, solicita si hace falta y, si queda denegado, explica cómo activarlo y ofrece **Abrir ajustes**.
+- A la lista nativa de formatos no se le pasa `QRCode`: `mapFormats` del plugin convierte QR en `0` y el nativo vuelve a añadir QR; pasar QR explícitamente puede generar un formato inválido y romper `scan()`.
+- Los rechazos de Tauri se convierten con `errorText` (`src/errors.ts`) para no mostrar `[object Object]`.
+- La búsqueda prueba variantes del código (exacto, sin ceros iniciales y relleno a 12/13/14 dígitos) en Rust y en el modo navegador. El producto se guarda con el código escaneado original para que el siguiente escaneo haga match local.
 
 ## Actualizaciones
 - Escritorio: plugin oficial `tauri-plugin-updater` + `tauri-plugin-process`.

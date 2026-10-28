@@ -65,6 +65,7 @@ pub fn run() {
             vault::get_vault_path,
             vault::vault_backup_status,
             vault::vault_run_backup,
+            vault::vault_restore_snapshot,
             vault::vault_delete_backups,
             barcode::lookup_barcode,
         ])

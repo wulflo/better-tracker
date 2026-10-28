@@ -1754,6 +1754,61 @@ input[type='checkbox'] {
   max-width: 70%;
 }
 
+.snapshot-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.snapshot-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(208, 188, 255, 0.1);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.snapshot-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.snapshot-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.snapshot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+@media (max-width: 560px) {
+  .snapshot-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .snapshot-item > .btn {
+    align-self: flex-start;
+  }
+}
+
 .segmented {
   display: inline-flex;
   padding: 4px;

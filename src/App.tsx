@@ -10,9 +10,11 @@ import {
   isTauri,
   listEvents,
   newEvent,
+  restoreSnapshot,
   runBackup,
   selectVault,
   type BackupStatus,
+  type SnapshotInfo,
 } from './vault';
 import { reduceExercises } from './metrics';
 import PanelView from './PanelView';
@@ -22,6 +24,7 @@ import BodyView from './BodyView';
 import { Icon, LogoMark } from './components/Icons';
 import { useLanguage, t } from './i18n';
 import UpdatePanel from './components/UpdatePanel';
+import { errorText } from './errors';
 
 type View = 'panel' | 'training' | 'history' | 'body';
 type ToastTone = 'success' | 'error' | 'info';
@@ -58,12 +61,16 @@ export default function App() {
   const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
   const [confirmDeleteBackups, setConfirmDeleteBackups] = useState(false);
+  const [restoreBusy, setRestoreBusy] = useState<string | null>(null);
+  const [confirmRestore, setConfirmRestore] = useState<string | null>(null);
+  const [eventDrop, setEventDrop] = useState<{ previous: number; current: number } | null>(null);
   const [deviceId, setDeviceId] = useState('');
   const [events, setEvents] = useState<VaultEvent[]>([]);
   const [view, setView] = useState<View>('panel');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null);
   const toastTimer = useRef<number | null>(null);
+  const dropWarnedRef = useRef('');
   const { lang, setLang } = useLanguage();
 
   const notify = useCallback((message: string, tone: ToastTone = 'info') => {
@@ -74,11 +81,32 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     try {
-      setEvents(await listEvents());
+      const next = await listEvents();
+      setEvents(next);
+      if (vault) {
+        // La bóveda es append-only: si el número de eventos baja, algo externo
+        // (FolderSync, una copia antigua del PC…) ha revertido archivos.
+        const key = `bt.event-count:${vault}`;
+        const previous = Number.parseInt(localStorage.getItem(key) ?? '', 10);
+        if (Number.isFinite(previous) && previous > next.length) {
+          setEventDrop({ previous, current: next.length });
+          const signature = `${key}:${previous}:${next.length}`;
+          if (dropWarnedRef.current !== signature) {
+            dropWarnedRef.current = signature;
+            notify(
+              `Aviso: la bóveda tiene ${next.length} eventos y antes había ${previous}. Revisa Longlife y restaura los que falten.`,
+              'error',
+            );
+          }
+        } else if (Number.isFinite(previous)) {
+          setEventDrop(null);
+        }
+        localStorage.setItem(key, String(next.length));
+      }
     } catch (e) {
-      notify(`No se pudo leer la bóveda: ${String(e)}`, 'error');
+      notify(`No se pudo leer la bóveda: ${errorText(e)}`, 'error');
     }
-  }, [notify]);
+  }, [notify, vault]);
 
   useEffect(() => {
     getAppInfo().then(setInfo).catch(() => {});
@@ -133,19 +161,25 @@ export default function App() {
       .then(setBackupStatus)
       .catch((e) => {
         setBackupStatus(null);
-        notify(`No se pudo leer el estado de Longlife: ${String(e)}`, 'error');
+        notify(`No se pudo leer el estado de Longlife: ${errorText(e)}`, 'error');
       });
   }, [settingsOpen, vault, notify]);
 
   useEffect(() => {
-    if (!settingsOpen) setConfirmDeleteBackups(false);
+    if (!settingsOpen) {
+      setConfirmDeleteBackups(false);
+      setConfirmRestore(null);
+    }
   }, [settingsOpen]);
 
   // Si la bóveda se estrena o la copia de hoy se borró, el primer evento debe
   // programar la copia sin esperar al intervalo de 6 horas.
+  const hasTodayCopy = backupStatus
+    ? backupStatus.copies.some((copy) => copy.current_device && copy.date === localDateKey())
+    : false;
   useEffect(() => {
     if (!vault || !isTauri() || events.length === 0) return;
-    if (backupStatus?.last_backup === localDateKey()) return;
+    if (hasTodayCopy) return;
 
     let active = true;
     const timer = window.setTimeout(async () => {
@@ -160,12 +194,12 @@ export default function App() {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [vault, events.length, backupStatus?.last_backup]);
+  }, [vault, events.length, hasTodayCopy]);
 
   useEffect(() => {
     const onRejection = (e: PromiseRejectionEvent) => {
       e.preventDefault();
-      notify(`Error: ${String(e.reason)}`, 'error');
+      notify(`Error: ${errorText(e.reason)}`, 'error');
     };
     window.addEventListener('unhandledrejection', onRejection);
     return () => window.removeEventListener('unhandledrejection', onRejection);
@@ -190,7 +224,7 @@ export default function App() {
       }
     } catch (e) {
       const text = String(e);
-      if (!text.toLowerCase().includes('cancel')) notify(text, 'error');
+      if (!text.toLowerCase().includes('cancel')) notify(errorText(e), 'error');
     }
   };
 
@@ -205,7 +239,7 @@ export default function App() {
         notify(result.skipped || 'No se creó ninguna copia.', 'info');
       }
     } catch (e) {
-      notify(`No se pudo crear la copia: ${String(e)}`, 'error');
+      notify(`No se pudo crear la copia: ${errorText(e)}`, 'error');
     } finally {
       setBackupBusy(false);
     }
@@ -219,16 +253,46 @@ export default function App() {
       setConfirmDeleteBackups(false);
       notify('Todas las copias de Longlife se han borrado. No se recreará hasta mañana.', 'success');
     } catch (e) {
-      notify(`No se pudieron borrar las copias: ${String(e)}`, 'error');
+      notify(`No se pudieron borrar las copias: ${errorText(e)}`, 'error');
     } finally {
       setBackupBusy(false);
     }
   };
 
+  const restoreCopy = async (copy: SnapshotInfo) => {
+    setRestoreBusy(copy.id);
+    try {
+      const result = await restoreSnapshot(copy.id);
+      setConfirmRestore(null);
+      await refresh();
+      try {
+        setBackupStatus(await getBackupStatus());
+      } catch {
+        // La restauración ya se aplicó; la lista se refrescará al abrir Ajustes.
+      }
+      if (result.imported > 0) {
+        notify(
+          `Restaurados ${result.imported} eventos en ${result.folder}. No se ha sobrescrito nada.`,
+          'success',
+        );
+      } else {
+        notify(
+          `No faltaban eventos: la bóveda actual ya contiene los ${result.source_events} de esa copia.`,
+          'info',
+        );
+      }
+    } catch (e) {
+      notify(`No se pudo restaurar la copia: ${errorText(e)}`, 'error');
+    } finally {
+      setRestoreBusy(null);
+    }
+  };
+
+  const ownCopies = backupStatus?.copies.filter((copy) => copy.current_device) ?? [];
   const vaultName = vaultLabel || (vault ? vault.split(/[\\/]/).filter(Boolean).pop() || vault : '');
   const backupSummary = backupStatus
     ? backupStatus.copies.length > 0
-      ? `${backupStatus.copies.length}/${backupStatus.retention_days} copias · última ${backupStatus.last_backup}`
+      ? `${ownCopies.length}/${backupStatus.retention_days} copias de este dispositivo · última ${backupStatus.last_backup ?? '—'}`
       : 'Sin copias todavía'
     : 'Cargando…';
   const formatBytes = (bytes: number) => {
@@ -505,8 +569,9 @@ export default function App() {
               <div style={{ marginTop: 14 }}>
                 <div className="modal-title" style={{ fontSize: 14, marginBottom: 4 }}>Copias de seguridad (Longlife)</div>
                 <div className="card-sub" style={{ marginBottom: 8 }}>
-                  Una copia idéntica de <span className="mono">omega</span> por día. Se conservan las{' '}
-                  {backupStatus?.retention_days ?? 7} más recientes.
+                  Una copia de <span className="mono">omega</span> por día y dispositivo en{' '}
+                  <span className="mono">Longlife/&lt;dispositivo&gt;/&lt;fecha&gt;</span>. Se conservan las{' '}
+                  {backupStatus?.retention_days ?? 7} más recientes de cada dispositivo.
                 </div>
                 <div className="settings-row">
                   <span className="muted">Estado</span>
@@ -518,17 +583,78 @@ export default function App() {
                     <span className="value">{formatBytes(backupStatus.total_bytes)}</span>
                   </div>
                 )}
+                {eventDrop && (
+                  <div className="notice notice-error" style={{ marginTop: 10 }}>
+                    <Icon name="info" size={16} />
+                    <span>
+                      La bóveda pasó de {eventDrop.previous} a {eventDrop.current} eventos. Una sincronización o una
+                      copia antigua pudo sobrescribir archivos. Elige una copia de Longlife y pulsa «Restaurar» para
+                      recuperar solo los eventos que faltan.
+                    </span>
+                  </div>
+                )}
                 <div className="row wrap" style={{ marginTop: 8 }}>
                   <button className="btn btn-ghost btn-sm" onClick={createBackup} disabled={backupBusy}>
                     <Icon name="history" size={14} /> {backupBusy ? 'Trabajando…' : 'Crear copia de hoy'}
                   </button>
                 </div>
+                {backupStatus && backupStatus.copies.length > 0 && (
+                  <>
+                    <div className="card-sub" style={{ marginTop: 12, marginBottom: 4 }}>
+                      Copias disponibles ({backupStatus.copies.length}). Restaurar nunca borra ni sobrescribe datos:
+                      importa a <span className="mono">omega/devices/restored-…</span> solo los eventos que falten.
+                    </div>
+                    <ul className="snapshot-list">
+                      {[...backupStatus.copies].reverse().map((copy) => (
+                        <li key={copy.id} className="snapshot-item">
+                          <div className="snapshot-main">
+                            <div className="snapshot-title">
+                              <strong>{copy.date}</strong>
+                              <span className="hint">{copy.device_label}</span>
+                              {copy.current_device && <span className="badge badge-success">Este dispositivo</span>}
+                              {copy.legacy && <span className="badge badge-muted">Formato antiguo</span>}
+                              {!copy.complete && <span className="badge badge-warning">Incompleta</span>}
+                            </div>
+                            <div className="hint small">
+                              {copy.files} archivos · {formatBytes(copy.bytes)} · <span className="mono">{copy.id}</span>
+                            </div>
+                          </div>
+                          {confirmRestore === copy.id ? (
+                            <div className="snapshot-actions">
+                              <button
+                                className="btn btn-primary btn-sm"
+                                onClick={() => void restoreCopy(copy)}
+                                disabled={restoreBusy !== null}
+                              >
+                                {restoreBusy === copy.id ? 'Restaurando…' : 'Restaurar lo que falta'}
+                              </button>
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                onClick={() => setConfirmRestore(null)}
+                                disabled={restoreBusy !== null}
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              onClick={() => setConfirmRestore(copy.id)}
+                              disabled={restoreBusy !== null}
+                            >
+                              Restaurar
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
                 <div className="notice notice-warn" style={{ marginTop: 10 }}>
                   <Icon name="info" size={16} />
                   <span>
-                    Zona de alto riesgo: borrar Longlife es irreversible. La app no usa esas copias como datos; solo
-                    las enumera para mostrarlas. Para restaurar una, muévela manualmente al directorio{' '}
-                    <span className="mono">omega</span>.
+                    Zona de alto riesgo: borrar Longlife es irreversible. La restauración es no destructiva, pero
+                    conviene tener una copia reciente antes de tocar la bóveda.
                   </span>
                 </div>
                 {!confirmDeleteBackups ? (

@@ -74,14 +74,17 @@ On Linux the app uses GTK/WebKit and runs natively on Wayland. If a proprietary 
 ## Data and privacy
 
 - No accounts, cloud dependency, telemetry, or LAN/P2P synchronization.
-- The vault is a folder you choose. All app data lives in `<vault>/omega`, and events are stored as append-only JSONL per device (`omega/devices/<id>/events.jsonl`).
+- The vault is a folder you choose. All app data lives in `<vault>/omega`. Every new event is written as its own file (`omega/devices/<id>/events/<event-id>.json`); legacy `events.jsonl` files are still read and deduplicated by `id`.
 - On Android the vault is selected with the system folder picker (SAF) and the read/write permission is kept across restarts.
-- The app creates one identical copy of `omega` per day in `<vault>/Longlife/<YYYY-MM-DD>` and keeps the 7 most recent copies. `Longlife` is never read automatically; to restore, move a copy's contents into `omega` yourself.
+- The app creates one copy of `omega` per day in `<vault>/Longlife/<device>/<YYYY-MM-DD>` and keeps the 7 most recent copies **per device**, without touching other devices' copies. Legacy copies in `<vault>/Longlife/<YYYY-MM-DD>` are still listed.
+- **Settings → Backups** lets you create a copy, see each copy's date, device, and size, and **restore** it safely: only events missing from `omega` are imported into `omega/devices/restored-<copy>-<stamp>/`, without deleting or overwriting anything.
 - Settings includes a high-risk action to delete every `Longlife` backup. It asks for confirmation, cannot be undone, and the daily backup is not recreated until the next day.
+- If the event count drops below the last count seen for that vault, the app warns: an append-only vault should never shrink (this usually means FolderSync or another machine reverted files). If you sync with FolderSync, use incremental copy mode from the phone to the PC (do not propagate deletions) and never sync an old PC copy back over the phone.
+- The scanner requests camera permission before opening, shows the real error if something fails, and offers a button to open Android settings. UPC-A/EAN-13/GTIN codes are tried in their zero-padded and unpadded forms (12/13/14 digits), both in the app and against Open Food Facts.
 - There is no encryption. Photos and files are not stored; pasted content is limited to plain text.
 - The only network connections are the **manual** update check and the optional Open Food Facts barcode lookup. They do not run in the background.
 - Desktop updates are signed with minisign and verified before installation. Android downloads a release APK with a published SHA-256 hash, verifies it, and saves it to Downloads for manual installation.
-- Because the format is append-only JSONL, the data remains readable and portable without the app.
+- Because events are immutable JSON files (legacy JSONL is still readable), the data remains readable and portable without the app.
 
 ## Build
 
@@ -95,6 +98,14 @@ npm run tauri build      # package for the current platform
 ```
 
 For development: `npm run tauri dev`.
+
+On Android, after `npx tauri android init`, run once:
+
+```bash
+npm run android:prepare
+```
+
+That command regenerates the icons from `src-tauri/icons/app-icon.png` (desktop and Android mipmaps) and adds the `CAMERA` permission to the manifest. Both steps are idempotent and the release workflow runs them automatically.
 
 The version lives in `VERSION`. After changing it:
 

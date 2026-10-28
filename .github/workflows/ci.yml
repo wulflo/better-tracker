@@ -29,6 +29,12 @@ jobs:
         run: |
           node scripts/sync-version.mjs
           git diff --exit-code -- package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+      - name: Verify app icons are up to date
+        run: |
+          npm run icons
+          # `icon.icns` cambia en cada generación (el CLI no es determinista ahí),
+          # así que solo se comparan los iconos reproducibles.
+          git diff --exit-code -- src-tauri/icons ':(exclude)src-tauri/icons/icon.icns'
       - name: Type check
         run: npx tsc --noEmit
       - name: Frontend tests

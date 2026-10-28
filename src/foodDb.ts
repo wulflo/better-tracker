@@ -746,14 +746,15 @@ export function normalizeBarcode(code: string): string {
   return String(code ?? '').replace(/\D/g, '');
 }
 
-function barcodeVariants(code: string): string[] {
+export function barcodeVariants(code: string): string[] {
   const clean = normalizeBarcode(code);
-  if (!clean) return [];
+  if (clean.length < 6 || clean.length > 14) return [];
   return [...new Set([
     clean,
     clean.replace(/^0+/, ''),
     clean.padStart(12, '0'),
     clean.padStart(13, '0'),
+    clean.padStart(14, '0'),
   ])].filter(Boolean);
 }
 

@@ -15,6 +15,7 @@ import {
   unitLabel,
 } from '../foodDb';
 import { lookupBarcode } from '../vault';
+import { errorText } from '../errors';
 import Select from './Select';
 import { NumberInput } from './Fields';
 import { Icon } from './Icons';
@@ -168,7 +169,7 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
     } catch (e) {
       setCustom((value) => ({ ...value, barcode: code }));
       setCustomOpen(true);
-      setScanNotice(`No se pudo consultar el producto (${String(e)}). Puedes guardarlo manualmente con este código.`);
+      setScanNotice(`No se pudo consultar el producto (${errorText(e)}). Puedes guardarlo manualmente con este código.`);
     } finally {
       setScanBusy(false);
     }

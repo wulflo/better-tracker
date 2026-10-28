@@ -243,38 +243,16 @@ jobs:
       - name: Initialize Android project
         run: npm run tauri android init -- --ci
       # `tauri android init` escribe el icono genérico de Tauri. Generamos los
-      # mipmaps desde el logo propio y los copiamos al proyecto ya inicializado.
-      - name: Generate Android launcher icons
+      # mipmaps desde el logo propio (también los de escritorio) y los copiamos
+      # al proyecto ya inicializado.
+      - name: Generate app icons (desktop + Android)
         run: |
-          set -euo pipefail
-          rm -rf "$RUNNER_TEMP/bt-icons"
-          npx tauri icon src-tauri/icons/android-icon-manifest.json -o "$RUNNER_TEMP/bt-icons"
-          SRC="$RUNNER_TEMP/bt-icons/android"
-          test -f "$SRC/mipmap-xxxhdpi/ic_launcher.png"
-          test -f "$SRC/mipmap-xxxhdpi/ic_launcher_background.png"
-          test -f "$SRC/mipmap-anydpi-v26/ic_launcher.xml"
-          cp -R "$SRC/." src-tauri/gen/android/app/src/main/res/
-          echo "Android launcher icons: logo propio aplicado" >> "$GITHUB_STEP_SUMMARY"
+          npm run icons
+          test -f src-tauri/gen/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          test -f src-tauri/gen/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          echo "App icons: logo propio aplicado" >> "$GITHUB_STEP_SUMMARY"
       - name: Patch Android manifest (camera)
-        run: |
-          python3 - <<'PY'
-          p='src-tauri/gen/android/app/src/main/AndroidManifest.xml'
-          s=open(p).read()
-          if 'android.permission.CAMERA' not in s:
-              marker='<uses-permission android:name="android.permission.INTERNET" />'
-              if marker not in s:
-                  raise SystemExit('No se encontró el marcador INTERNET en AndroidManifest.xml')
-              s=s.replace(
-                  marker,
-                  marker+'\n    <uses-permission android:name="android.permission.CAMERA" />'
-                  '\n    <uses-feature android:name="android.hardware.camera" android:required="false" />',
-                  1,
-              )
-              open(p,'w').write(s)
-          if 'android.permission.CAMERA' not in open(p).read():
-              raise SystemExit('No se pudo añadir el permiso CAMERA al manifest')
-          print('manifest: cámara OK')
-          PY
+        run: node scripts/patch-android-manifest.mjs
       - name: Patch Android signing config
         run: |
           python3 - <<'PY'

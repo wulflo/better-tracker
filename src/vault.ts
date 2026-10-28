@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import pkg from '../package.json';
+import { barcodeVariants } from './foodDb';
 import type { AppInfo, BarcodeProduct, FoodCategory, VaultEvent } from './types';
 
 export type { VaultEvent };
@@ -47,16 +48,23 @@ export interface VaultSelection {
   label: string;
 }
 
-export interface BackupDay {
+export interface SnapshotInfo {
+  /** `<fecha>` para copias antiguas o `<dispositivo>/<fecha>` en las nuevas. */
+  id: string;
   date: string;
+  device_id: string;
+  device_label: string;
   files: number;
   bytes: number;
+  complete: boolean;
+  legacy: boolean;
+  current_device: boolean;
 }
 
 export interface BackupStatus {
   retention_days: number;
   last_backup: string | null;
-  copies: BackupDay[];
+  copies: SnapshotInfo[];
   total_bytes: number;
 }
 
@@ -65,6 +73,13 @@ export interface BackupRunResult {
   skipped: string | null;
   date: string | null;
   status: BackupStatus;
+}
+
+export interface RestoreResult {
+  imported: number;
+  already_present: number;
+  source_events: number;
+  folder: string;
 }
 
 export async function getVaultInfo(): Promise<VaultInfo> {
@@ -118,6 +133,18 @@ export async function runBackup(force = false): Promise<BackupRunResult> {
 export async function deleteBackups(): Promise<BackupStatus> {
   if (!isTauri()) return emptyBackupStatus();
   return invoke<BackupStatus>('vault_delete_backups');
+}
+
+/**
+ * Importa a la bóveda actual los eventos de una copia Longlife que ya no estén
+ * presentes. Nunca sobrescribe ni borra eventos: los recuperados se escriben en
+ * `omega/devices/restored-<copia>-<marca>/events.jsonl` y se deduplican por id.
+ */
+export async function restoreSnapshot(id: string): Promise<RestoreResult> {
+  if (!isTauri()) {
+    throw new Error('La restauración de copias solo está disponible en la app nativa.');
+  }
+  return invoke<RestoreResult>('vault_restore_snapshot', { id });
 }
 
 export async function getDeviceId(): Promise<string> {
@@ -187,6 +214,21 @@ function categoryFromTags(tags: string[]): FoodCategory {
 }
 
 async function lookupBarcodeWeb(barcode: string): Promise<BarcodeProduct | null> {
+  let lastError: unknown = null;
+  for (const candidate of barcodeVariants(barcode)) {
+    try {
+      const product = await fetchProductForBarcode(candidate, barcode);
+      if (product) return product;
+    } catch (error) {
+      // Un fallo puntual con una variante no debe impedir probar las demás.
+      lastError = error;
+    }
+  }
+  if (lastError) throw lastError;
+  return null;
+}
+
+async function fetchProductForBarcode(barcode: string, scanned: string): Promise<BarcodeProduct | null> {
   const fields = 'product_name,product_name_es,generic_name,brands,nutriments,categories_tags,quantity,serving_size';
   const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json?fields=${fields}`);
   if (response.status === 404) return null;
@@ -215,13 +257,13 @@ async function lookupBarcodeWeb(barcode: string): Promise<BarcodeProduct | null>
     ? product.categories_tags.map((tag: unknown) => String(tag).toLowerCase())
     : [];
   return {
-    id: `off-${barcode}`,
+    id: `off-${scanned}`,
     name: brand && !name.toLowerCase().includes(brand.toLowerCase()) ? `${name} (${brand})` : name,
     category: categoryFromTags(tags),
     per100,
     units: {},
     custom: true,
-    barcode,
+    barcode: scanned,
     source: 'openfoodfacts',
     quantityLabel: product.quantity ? String(product.quantity) : null,
     servingLabel: product.serving_size ? String(product.serving_size) : null,

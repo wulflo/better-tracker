@@ -17,14 +17,12 @@ const TIMEOUT: Duration = Duration::from_secs(12);
  */
 #[tauri::command]
 pub async fn lookup_barcode(code: String) -> Result<Option<Value>, String> {
-    let barcode = code.trim().to_string();
-    if !(6..=14).contains(&barcode.len()) || !barcode.chars().all(|c| c.is_ascii_digit()) {
+    let barcode = code.trim().replace(char::is_whitespace, "");
+    let variants = barcode_variants(&barcode);
+    if variants.is_empty() {
         return Err("El código debe tener entre 6 y 14 dígitos (EAN/UPC).".into());
     }
 
-    let url = format!(
-        "{OFF_BASE}/{barcode}.json?fields=product_name,product_name_es,generic_name,brands,nutriments,categories_tags,quantity,serving_size"
-    );
     let client = reqwest::Client::builder()
         .timeout(TIMEOUT)
         .user_agent(concat!(
@@ -35,6 +33,54 @@ pub async fn lookup_barcode(code: String) -> Result<Option<Value>, String> {
         .build()
         .map_err(|e| format!("No se pudo crear el cliente HTTP: {e}"))?;
 
+    let mut last_error: Option<String> = None;
+    for candidate in variants {
+        match fetch_product(&client, &candidate).await {
+            Ok(Some(product)) => {
+                if let Some(product) = product_for_barcode(&product, &barcode) {
+                    return Ok(Some(product));
+                }
+            }
+            Ok(None) => continue,
+            Err(error) => last_error = Some(error),
+        }
+    }
+
+    match last_error {
+        Some(error) => Err(error),
+        None => Ok(None),
+    }
+}
+
+/// El mismo producto puede aparecer como UPC-A de 12 dígitos, EAN-13 con cero
+/// inicial o GTIN-14. Open Food Facts indexa una sola forma, así que probamos
+/// las variantes antes de decir que el código no existe.
+fn barcode_variants(code: &str) -> Vec<String> {
+    let clean: String = code.chars().filter(|c| c.is_ascii_digit()).collect();
+    if !(6..=14).contains(&clean.len()) {
+        return Vec::new();
+    }
+
+    let mut variants = Vec::new();
+    let candidates = [
+        clean.clone(),
+        clean.trim_start_matches('0').to_string(),
+        format!("{clean:0>12}"),
+        format!("{clean:0>13}"),
+        format!("{clean:0>14}"),
+    ];
+    for candidate in candidates {
+        if !candidate.is_empty() && !variants.contains(&candidate) {
+            variants.push(candidate);
+        }
+    }
+    variants
+}
+
+async fn fetch_product(client: &reqwest::Client, barcode: &str) -> Result<Option<Value>, String> {
+    let url = format!(
+        "{OFF_BASE}/{barcode}.json?fields=product_name,product_name_es,generic_name,brands,nutriments,categories_tags,quantity,serving_size"
+    );
     let response = client
         .get(&url)
         .send()
@@ -59,28 +105,32 @@ pub async fn lookup_barcode(code: String) -> Result<Option<Value>, String> {
     if payload.get("status").and_then(Value::as_i64) == Some(0) {
         return Ok(None);
     }
-    let product = match payload.get("product") {
-        Some(product) if product.is_object() => product,
-        _ => return Ok(None),
-    };
+    match payload.get("product") {
+        Some(product) if product.is_object() => Ok(Some(product.clone())),
+        _ => Ok(None),
+    }
+}
 
-    let name = first_text(product, &["product_name_es", "product_name", "generic_name"]);
+fn product_for_barcode(product: &Value, barcode: &str) -> Option<Value> {
+    let name = first_text(
+        product,
+        &["product_name_es", "product_name", "generic_name"],
+    );
     let name = match name {
         Some(name) if !name.trim().is_empty() => name.trim().to_string(),
-        _ => return Ok(None),
+        _ => return None,
     };
     let brand = first_text(product, &["brands"]).unwrap_or_default();
-    let display_name = if brand.trim().is_empty() || name.to_lowercase().contains(&brand.to_lowercase()) {
-        name
-    } else {
-        format!("{name} ({brand})")
-    };
+    let display_name =
+        if brand.trim().is_empty() || name.to_lowercase().contains(&brand.to_lowercase()) {
+            name
+        } else {
+            format!("{name} ({brand})")
+        };
 
     let nutriments = product.get("nutriments").unwrap_or(&Value::Null);
     let kcal = number(nutriments, &["energy-kcal_100g"])
-        .or_else(|| {
-            number(nutriments, &["energy_100g"]).map(|kilojoules| kilojoules / 4.184)
-        })
+        .or_else(|| number(nutriments, &["energy_100g"]).map(|kilojoules| kilojoules / 4.184))
         .unwrap_or(0.0);
     let protein = number(nutriments, &["proteins_100g"]).unwrap_or(0.0);
     let carbs = number(nutriments, &["carbohydrates_100g"]).unwrap_or(0.0);
@@ -90,14 +140,14 @@ pub async fn lookup_barcode(code: String) -> Result<Option<Value>, String> {
     // Sin datos nutricionales no sirve para contar macros; preferimos que el
     // usuario cree el alimento manualmente con la etiqueta del envase.
     if kcal <= 0.0 && protein <= 0.0 && carbs <= 0.0 && fat <= 0.0 {
-        return Ok(None);
+        return None;
     }
 
     let category = category_for(product);
     let quantity = first_text(product, &["quantity"]).unwrap_or_default();
     let serving = first_text(product, &["serving_size"]).unwrap_or_default();
 
-    Ok(Some(json!({
+    Some(json!({
         "id": format!("off-{barcode}"),
         "name": display_name,
         "category": category,
@@ -114,7 +164,7 @@ pub async fn lookup_barcode(code: String) -> Result<Option<Value>, String> {
         "source": "openfoodfacts",
         "quantityLabel": if quantity.is_empty() { Value::Null } else { Value::String(quantity) },
         "servingLabel": if serving.is_empty() { Value::Null } else { Value::String(serving) },
-    })))
+    }))
 }
 
 fn first_text(product: &Value, keys: &[&str]) -> Option<String> {
@@ -199,5 +249,47 @@ fn category_for(product: &Value) -> &'static str {
         "suplemento"
     } else {
         "procesado"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_upc_and_ean_variants() {
+        let variants = barcode_variants("012345678905");
+        assert!(variants.contains(&"012345678905".to_string()));
+        assert!(variants.contains(&"12345678905".to_string()));
+        assert!(variants.contains(&"0012345678905".to_string()));
+
+        let ean = barcode_variants("8412345678905");
+        assert!(ean.contains(&"8412345678905".to_string()));
+        assert!(ean.contains(&"08412345678905".to_string()));
+    }
+
+    #[test]
+    fn rejects_codes_that_are_not_ean_or_upc() {
+        assert!(barcode_variants("123").is_empty());
+        assert!(barcode_variants("no-es-un-codigo").is_empty());
+    }
+
+    #[test]
+    fn keeps_the_scanned_code_in_the_product() {
+        let product = json!({
+            "product_name": "Producto",
+            "brands": "Marca",
+            "nutriments": { "energy-kcal_100g": 200, "proteins_100g": 10 },
+        });
+        let parsed = product_for_barcode(&product, "012345678905").unwrap();
+        assert_eq!(parsed["barcode"], "012345678905");
+        assert_eq!(parsed["id"], "off-012345678905");
+        assert_eq!(parsed["name"], "Producto (Marca)");
+    }
+
+    #[test]
+    fn ignores_products_without_macros() {
+        let product = json!({ "product_name": "Agua", "nutriments": {} });
+        assert!(product_for_barcode(&product, "012345678905").is_none());
     }
 }

@@ -74,14 +74,17 @@ En Linux la app usa GTK/WebKit y funciona en Wayland de forma nativa. Si un driv
 ## Datos y privacidad
 
 - No hay cuentas, dependencia de la nube, telemetría ni sincronización LAN/P2P.
-- La bóveda es una carpeta elegida por ti. Todos los datos de la app viven en `<bóveda>/omega`, y los eventos se guardan en JSONL append-only por dispositivo (`omega/devices/<id>/events.jsonl`).
+- La bóveda es una carpeta elegida por ti. Todos los datos de la app viven en `<bóveda>/omega`. Cada evento nuevo se guarda como archivo propio (`omega/devices/<id>/events/<event-id>.json`); los `events.jsonl` antiguos se siguen leyendo y se deduplican por `id`.
 - En Android la bóveda se elige con el selector de carpetas del sistema (SAF) y el permiso de lectura/escritura se conserva entre reinicios.
-- La app crea una copia idéntica de `omega` al día en `<bóveda>/Longlife/<AAAA-MM-DD>` y conserva las 7 más recientes. `Longlife` nunca se lee automáticamente; para restaurar, mueve el contenido de una copia a `omega` manualmente.
+- La app crea una copia de `omega` al día en `<bóveda>/Longlife/<dispositivo>/<AAAA-MM-DD>` y conserva las 7 más recientes **de cada dispositivo**, sin tocar las de los demás. Las copias antiguas en `<bóveda>/Longlife/<AAAA-MM-DD>` se siguen mostrando como legado.
+- En **Ajustes → Copias de seguridad** puedes crear una copia, ver la fecha, el dispositivo y el tamaño de cada una, y **restaurar** sin riesgo: solo se importan los eventos que falten en `omega/devices/restored-<copia>-<marca>/`, sin borrar ni sobrescribir nada.
 - Los ajustes incluyen una acción de alto riesgo para borrar todas las copias de `Longlife`. Pide confirmación, no se puede deshacer y la copia diaria no se recrea hasta el día siguiente.
+- Si el número de eventos baja respecto al último visto en esa bóveda, la app avisa: una bóveda append-only no debe decrecer (suele indicar que FolderSync u otro equipo ha revertido archivos). Si sincronizas con FolderSync, usa modo copia incremental del móvil al PC (sin propagar borrados) y nunca subas una copia antigua del PC sobre el móvil.
+- El escáner pide el permiso de cámara antes de abrirla, muestra el error real si algo falla y ofrece un botón para abrir los ajustes de Android. Los códigos UPC-A/EAN-13/GTIN se prueban en sus variantes (con y sin ceros iniciales, 12/13/14 dígitos) tanto en la app como en Open Food Facts.
 - No hay cifrado. No se guardan fotos ni archivos: el pegado se limita a texto plano.
 - Las únicas conexiones de red son la comprobación **manual** de actualizaciones y la consulta opcional a Open Food Facts al escanear un código. No se ejecutan en segundo plano.
 - En escritorio las actualizaciones se firman con minisign y se verifican antes de instalar. En Android se descarga la APK de la release, se verifica su SHA-256 publicado y se guarda en Descargas para instalarla manualmente.
-- Al ser JSONL append-only, los datos siguen siendo legibles y portables sin la app.
+- Al ser eventos JSON inmutables (con los JSONL antiguos aún legibles), los datos siguen siendo legibles y portables sin la app.
 
 ## Compilar
 
@@ -95,6 +98,14 @@ npm run tauri build      # paquete de la plataforma actual
 ```
 
 Para desarrollo: `npm run tauri dev`.
+
+En Android, tras `npx tauri android init`, ejecuta una vez:
+
+```bash
+npm run android:prepare
+```
+
+Ese comando genera los iconos desde `src-tauri/icons/app-icon.png` (escritorio y mipmaps de Android) y añade el permiso `CAMERA` al manifiesto. Ambos pasos son idempotentes y el workflow de release ya los ejecuta.
 
 La versión vive en `VERSION`. Después de cambiarla:
 

@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "icons": "node scripts/generate-icons.mjs",
+    "android:manifest": "node scripts/patch-android-manifest.mjs",
+    "android:prepare": "npm run icons && npm run android:manifest",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run"

@@ -4,10 +4,12 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 import {
   Format,
   checkPermissions,
+  openAppSettings,
   requestPermissions,
   scan,
 } from '@tauri-apps/plugin-barcode-scanner';
 import { platform } from '@tauri-apps/plugin-os';
+import { errorText } from '../errors';
 import { isTauri } from '../vault';
 
 interface Props {
@@ -25,13 +27,17 @@ const ZXING_FORMATS = [
   BarcodeFormat.QR_CODE,
 ];
 
+/**
+ * El plugin añade QR internamente (`mapFormats` convierte QR en 0 y el nativo
+ * lo vuelve a añadir). Si se pasa QRCode explícitamente, Android recibe un
+ * formato inválido y `scan()` puede fallar al configurar ML Kit.
+ */
 const NATIVE_FORMATS = [
   Format.EAN13,
   Format.EAN8,
   Format.UPC_A,
   Format.UPC_E,
   Format.Code128,
-  Format.QRCode,
 ];
 
 function nativeMobile(): boolean {
@@ -46,12 +52,16 @@ function nativeMobile(): boolean {
   return /android|iphone|ipad|ipod/i.test(navigator.userAgent);
 }
 
+const CAMERA_SETTINGS_HINT =
+  'Abre Ajustes de Android → Aplicaciones → Better Tracker → Permisos → Cámara y elige «Permitir».';
+
 export default function BarcodeScanner({ onResult, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const resultRef = useRef(onResult);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [showSettings, setShowSettings] = useState(false);
   const mobile = nativeMobile();
 
   useEffect(() => {
@@ -62,6 +72,7 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
     let cancelled = false;
     let controls: { stop: () => void } | null = null;
     setError(null);
+    setShowSettings(false);
     setRunning(false);
 
     const emit = (code: string) => {
@@ -73,35 +84,44 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
     const startNative = async () => {
       try {
         // El plugin no pide el permiso de cámara por sí solo: si no se concede
-        // primero, `scan()` falla con un error genérico en Android.
-        let permission = await checkPermissions();
-        if (permission !== 'granted') {
+        // antes, `scan()` lanza "No permission to use camera".
+        let permission: string = await checkPermissions();
+        if (permission === 'prompt' || permission === 'prompt-with-rationale') {
           permission = await requestPermissions();
         }
         if (permission !== 'granted') {
-          if (!cancelled) {
-            setError(
-              permission === 'denied'
-                ? 'Permiso de cámara denegado. Actívalo en Ajustes de Android → Aplicaciones → Better Tracker → Permisos → Cámara y vuelve a intentarlo.'
-                : 'Android necesita permiso para usar la cámara. Acepta el aviso y vuelve a intentarlo.',
-            );
-          }
+          if (cancelled) return;
+          setShowSettings(true);
+          setError(
+            permission === 'denied'
+              ? `Permiso de cámara denegado. ${CAMERA_SETTINGS_HINT}`
+              : `Android necesita permiso para usar la cámara. Pulsa «Reintentar» y acepta el aviso. ${CAMERA_SETTINGS_HINT}`,
+          );
           return;
         }
+
+        if (!cancelled) setRunning(true);
         const result = await scan({ windowed: true, formats: NATIVE_FORMATS });
-        if (result?.content) emit(result.content);
-      } catch (e) {
-        const message = String(e);
-        if (cancelled) return;
-        if (/cancel/i.test(message)) {
-          setError('Escaneo cancelado.');
-        } else if (/permission|denied|camera/i.test(message)) {
-          setError(
-            `No se pudo abrir la cámara: ${message}. Revisa el permiso de cámara en Ajustes de Android.`,
-          );
-        } else {
-          setError(`No se pudo abrir la cámara: ${message}`);
+        if (result?.content) {
+          emit(result.content);
+        } else if (!cancelled) {
+          setError('El lector no devolvió ningún código. Acércalo al envase y vuelve a intentarlo.');
         }
+      } catch (e) {
+        if (cancelled) return;
+        const message = errorText(e);
+        setRunning(false);
+        if (/cancel/i.test(message)) {
+          setError('Escaneo cancelado. Pulsa «Reintentar» para abrir la cámara otra vez.');
+          return;
+        }
+        const permissionProblem = /permission|denied|camera|permiso/i.test(message);
+        setShowSettings(permissionProblem);
+        setError(
+          permissionProblem
+            ? `No se pudo abrir la cámara: ${message}. ${CAMERA_SETTINGS_HINT}`
+            : `No se pudo abrir la cámara: ${message}`,
+        );
       }
     };
 
@@ -117,7 +137,16 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
         });
         if (!cancelled) setRunning(true);
       } catch (e) {
-        if (!cancelled) setError(`No se pudo abrir la cámara: ${String(e)}`);
+        if (!cancelled) {
+          const message = errorText(e);
+          const permissionProblem = /permission|denied|notallowed|notfound/i.test(message);
+          setShowSettings(false);
+          setError(
+            permissionProblem
+              ? `No se pudo abrir la cámara: ${message}. Revisa el permiso de cámara del navegador y que no haya otra aplicación usándola.`
+              : `No se pudo abrir la cámara: ${message}`,
+          );
+        }
       }
     };
 
@@ -130,6 +159,16 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
     };
   }, [mobile, attempt]);
 
+  const openSettings = async () => {
+    try {
+      await openAppSettings();
+    } catch (e) {
+      setError(
+        `No se pudieron abrir los ajustes (${errorText(e)}). ${CAMERA_SETTINGS_HINT}`,
+      );
+    }
+  };
+
   return (
     <div className="barcode-scanner">
       {!mobile && (
@@ -141,7 +180,7 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
           aria-label="Vista de la cámara para escanear"
         />
       )}
-      {mobile && running === false && !error && (
+      {mobile && running && !error && (
         <div className="notice notice-info">
           <span>La cámara nativa está abierta. Apunta al código de barras del envase.</span>
         </div>
@@ -149,9 +188,20 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
       {error && (
         <div className="notice notice-warn">
           <span>{error}</span>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAttempt((n) => n + 1)}>
-            Reintentar
-          </button>
+          <div className="row wrap" style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setAttempt((n) => n + 1)}
+            >
+              Reintentar
+            </button>
+            {mobile && showSettings && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={openSettings}>
+                Abrir ajustes
+              </button>
+            )}
+          </div>
         </div>
       )}
       {!running && !error && !mobile && <span className="hint">Iniciando cámara…</span>}

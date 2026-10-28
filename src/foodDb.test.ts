@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Food, FoodLogItem, VaultEvent } from './types';
 import {
   FOODS,
+  barcodeVariants,
   calcFood,
   findFoodByBarcode,
   foodUnits,
@@ -81,6 +82,16 @@ describe('food database', () => {
   it('searches names without accents being mandatory', () => {
     const results = searchFoods(FOODS, 'platano');
     expect(results.some((food) => food.id === 'platano')).toBe(true);
+  });
+
+  it('builds the same UPC/EAN/GTIN variants as the native lookup', () => {
+    const upc = barcodeVariants('012345678905');
+    expect(upc).toContain('012345678905');
+    expect(upc).toContain('12345678905');
+    expect(upc).toContain('0012345678905');
+    expect(barcodeVariants('8412345678905')).toContain('08412345678905');
+    expect(barcodeVariants('123')).toEqual([]);
+    expect(barcodeVariants('no-es-un-codigo')).toEqual([]);
   });
 
   it('finds products by barcode across UPC/EAN zero padding', () => {
