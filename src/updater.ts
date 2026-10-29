@@ -52,6 +52,27 @@ export type AvailableUpdate =
   | { kind: 'package'; update: LinuxPackageUpdate; info: UpdateInfo }
   | { kind: 'android'; update: AndroidUpdate; info: UpdateInfo };
 
+export type UpdatePhase = 'download' | 'save';
+
+type ProgressHandler = (
+  downloaded: number,
+  total: number | null,
+  phase?: UpdatePhase,
+) => void;
+
+interface UpdateProgressPayload {
+  phase: UpdatePhase;
+  downloaded: number;
+  total: number | null;
+}
+
+async function watchUpdateProgress(onProgress: ProgressHandler): Promise<() => void> {
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen<UpdateProgressPayload>('update-progress', (event) => {
+    onProgress(event.payload.downloaded, event.payload.total, event.payload.phase);
+  });
+}
+
 interface ManifestAsset {
   url?: string;
   size?: number;
@@ -123,7 +144,7 @@ export async function checkForUpdate(installFormat?: string): Promise<AvailableU
 
 export async function installUpdate(
   target: AvailableUpdate,
-  onProgress: (downloaded: number, total: number | null) => void,
+  onProgress: ProgressHandler,
 ): Promise<
   | { kind: 'desktop' }
   | { kind: 'package'; path: string }
@@ -152,27 +173,37 @@ export async function installUpdate(
     const asset = target.update.asset;
     // El comando nativo descarga en streaming, verifica el SHA-256 y abre el
     // instalador. No pasa el paquete por la memoria del webview.
-    onProgress(0, asset.size ?? null);
-    const path = await invoke<string>('download_and_install_linux_package', {
+    onProgress(0, asset.size ?? null, 'download');
+    const unlisten = await watchUpdateProgress(onProgress);
+    try {
+      const path = await invoke<string>('download_and_install_linux_package', {
+        url: asset.url,
+        sha256: asset.sha256,
+        size: asset.size ?? null,
+        version: target.update.version,
+      });
+      onProgress(asset.size ?? 0, asset.size ?? null, 'download');
+      return { kind: 'package', path };
+    } finally {
+      unlisten();
+    }
+  }
+
+  const asset = target.update.asset;
+  onProgress(0, asset.size ?? null, 'download');
+  const unlisten = await watchUpdateProgress(onProgress);
+  try {
+    const path = await invoke<string>('download_android_apk', {
       url: asset.url,
       sha256: asset.sha256,
       size: asset.size ?? null,
       version: target.update.version,
     });
-    onProgress(asset.size ?? 0, asset.size ?? null);
-    return { kind: 'package', path };
+    onProgress(asset.size ?? 0, asset.size ?? null, 'save');
+    return { kind: 'android', path };
+  } finally {
+    unlisten();
   }
-
-  const asset = target.update.asset;
-  onProgress(0, asset.size ?? null);
-  const path = await invoke<string>('download_android_apk', {
-    url: asset.url,
-    sha256: asset.sha256,
-    size: asset.size ?? null,
-    version: target.update.version,
-  });
-  onProgress(asset.size ?? 0, asset.size ?? null);
-  return { kind: 'android', path };
 }
 
 export function updateSummary(update: Update): UpdateInfo {

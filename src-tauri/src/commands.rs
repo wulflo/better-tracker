@@ -6,6 +6,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tauri::AppHandle;
+use tauri::Emitter;
 use tauri::Manager;
 
 const UPDATE_MANIFEST_URL: &str =
@@ -74,12 +75,34 @@ pub async fn fetch_update_manifest() -> Result<Value, String> {
         .map_err(|error| format!("El manifiesto de actualizaciones no es JSON válido: {error}"))
 }
 
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "android")),
+    allow(dead_code)
+)]
+fn emit_progress(app: &AppHandle, phase: &str, downloaded: u64, total: Option<u64>) {
+    let _ = app.emit(
+        "update-progress",
+        serde_json::json!({
+            "phase": phase,
+            "downloaded": downloaded,
+            "total": total,
+        }),
+    );
+}
+
+/// Descarga en streaming con verificación SHA-256. El callback recibe el
+/// progreso como máximo cada 512 KB para no saturar el puente con el webview.
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "android")),
+    allow(dead_code)
+)]
 async fn stream_to_file(
     url: &str,
     path: &Path,
     expected_sha256: &str,
     expected_size: Option<u64>,
     max_bytes: u64,
+    on_progress: &mut (dyn FnMut(u64, Option<u64>) + Send),
 ) -> Result<u64, String> {
     validate_release_url(url)?;
     validate_sha256(expected_sha256)?;
@@ -117,6 +140,9 @@ async fn stream_to_file(
         .map_err(|error| format!("No se pudo crear el archivo de actualización: {error}"))?;
     let mut hasher = Sha256::new();
     let mut downloaded: u64 = 0;
+    let total = expected_size.or(header_size);
+    let mut reported: u64 = 0;
+    on_progress(0, total);
     while let Some(chunk) = response
         .chunk()
         .await
@@ -130,7 +156,12 @@ async fn stream_to_file(
         hasher.update(&chunk);
         file.write_all(&chunk)
             .map_err(|error| format!("No se pudo escribir la actualización: {error}"))?;
+        if downloaded.saturating_sub(reported) >= 512 * 1024 || total == Some(downloaded) {
+            on_progress(downloaded, total);
+            reported = downloaded;
+        }
     }
+    on_progress(downloaded, total);
     file.flush()
         .map_err(|error| format!("No se pudo cerrar la actualización: {error}"))?;
     drop(file);
@@ -253,7 +284,19 @@ pub async fn download_and_install_linux_package(
             safe_version(&version)
         );
         let path = downloads.join(file_name);
-        stream_to_file(&url, &path, &sha256, size, MAX_PACKAGE_BYTES).await?;
+        let progress_app = app.clone();
+        let mut on_progress = move |downloaded: u64, total: Option<u64>| {
+            emit_progress(&progress_app, "download", downloaded, total);
+        };
+        stream_to_file(
+            &url,
+            &path,
+            &sha256,
+            size,
+            MAX_PACKAGE_BYTES,
+            &mut on_progress,
+        )
+        .await?;
         open_with_system(&path)?;
         Ok(path.to_string_lossy().to_string())
     }
@@ -308,10 +351,31 @@ pub async fn download_android_apk(
         let stamp = chrono::Utc::now().timestamp();
         let temp_name = format!("BetterTracker-{}-{stamp}.apk", safe_version(&version));
         let temp_path = cache_dir.join(&temp_name);
-        stream_to_file(&url, &temp_path, &sha256, size, MAX_APK_BYTES).await?;
+        let progress_app = app.clone();
+        let mut on_progress = move |downloaded: u64, total: Option<u64>| {
+            emit_progress(&progress_app, "download", downloaded, total);
+        };
+        stream_to_file(
+            &url,
+            &temp_path,
+            &sha256,
+            size,
+            MAX_APK_BYTES,
+            &mut on_progress,
+        )
+        .await?;
 
-        let display_path = publish_apk(&app, &temp_path, &version)?;
-        let _ = std::fs::remove_file(&temp_path);
+        // La publicación en MediaStore y la copia de 47 MB son operaciones
+        // bloqueantes. Se ejecutan en un hilo de bloqueo para que el runtime
+        // async y la interfaz sigan respondiendo; antes la copia se hacía en el
+        // propio comando async y la app parecía congelarse.
+        let display_path = tauri::async_runtime::spawn_blocking(move || {
+            let result = publish_apk(&app, &temp_path, &version);
+            let _ = std::fs::remove_file(&temp_path);
+            result
+        })
+        .await
+        .map_err(|error| format!("No se pudo guardar la APK: {error}"))??;
         Ok(display_path)
     }
     #[cfg(not(target_os = "android"))]
@@ -323,69 +387,90 @@ pub async fn download_android_apk(
 
 #[cfg(target_os = "android")]
 fn publish_apk(app: &AppHandle, temp_path: &Path, version: &str) -> Result<String, String> {
+    use std::io::{Read, Write};
     use tauri_plugin_android_fs::{AndroidFsExt, PublicGeneralPurposeDir};
 
     const PUBLIC_SUBDIR: &str = "BetterTracker";
     const APK_MIME: &str = "application/vnd.android.package-archive";
     let public_name = format!("BetterTracker-{}.apk", safe_version(version));
-
-    let mut source = std::fs::File::open(temp_path)
-        .map_err(|error| format!("No se pudo abrir la APK descargada: {error}"))?;
     let relative_path = format!("{PUBLIC_SUBDIR}/{public_name}");
-    let primary = app.android_fs().public_storage().create_new_file(
-        None,
-        PublicGeneralPurposeDir::Download,
-        &relative_path,
-        Some(APK_MIME),
-    );
+    let api = app.android_fs();
 
-    let display_path = match primary {
-        Ok(saved_path) => {
-            let mut destination = app
-                .android_fs()
-                .open_file_writable(&saved_path)
+    // Android 9 y anteriores necesitan WRITE_EXTERNAL_STORAGE para MediaStore.
+    // En Android 10+ esta llamada devuelve `true` sin mostrar ningún diálogo.
+    if !api
+        .public_storage()
+        .request_permission()
+        .map_err(|error| format!("No se pudo comprobar el permiso de almacenamiento: {error}"))?
+    {
+        return Err(
+            "Android necesita permiso de almacenamiento para guardar la APK en Descargas. Concédelo y vuelve a intentarlo."
+                .into(),
+        );
+    }
+
+    // `pending` mantiene la APK oculta hasta que la copia termina, de modo que
+    // ningún gestor de archivos puede abrir un archivo a medio escribir.
+    let uri = api
+        .public_storage()
+        .create_new_file_with_pending(
+            None,
+            PublicGeneralPurposeDir::Download,
+            &relative_path,
+            Some(APK_MIME),
+        )
+        .map_err(|error| format!("No se pudo crear la APK en Descargas: {error}"))?;
+
+    let save_total = std::fs::metadata(temp_path).map(|meta| meta.len()).unwrap_or(0);
+    let write_result = (|| -> Result<(), String> {
+        let mut source = std::fs::File::open(temp_path)
+            .map_err(|error| format!("No se pudo abrir la APK descargada: {error}"))?;
+        let mut destination = api
+            .open_file_writable(&uri)
+            .map_err(|error| format!("No se pudo abrir la APK en Descargas: {error}"))?;
+        // Buffer grande: la copia por FUSE/MediaStore con el buffer por defecto
+        // de 8 KB tardaba demasiado y parecía un cuelgue.
+        let mut buffer = vec![0u8; 1024 * 1024];
+        let mut written: u64 = 0;
+        let mut reported: u64 = 0;
+        emit_progress(app, "save", 0, Some(save_total));
+        loop {
+            let read = source
+                .read(&mut buffer)
+                .map_err(|error| format!("No se pudo leer la APK descargada: {error}"))?;
+            if read == 0 {
+                break;
+            }
+            destination
+                .write_all(&buffer[..read])
                 .map_err(|error| format!("No se pudo escribir la APK en Descargas: {error}"))?;
-            std::io::copy(&mut source, &mut destination)
-                .map_err(|error| format!("No se pudo escribir la APK en Descargas: {error}"))?;
-            drop(destination);
-            let file_name = app
-                .android_fs()
-                .get_name(&saved_path)
-                .unwrap_or_else(|_| public_name.clone());
-            format!("Descargas/{PUBLIC_SUBDIR}/{file_name}")
+            written += read as u64;
+            if written.saturating_sub(reported) >= 512 * 1024 || written == save_total {
+                emit_progress(app, "save", written, Some(save_total));
+                reported = written;
+            }
         }
-        Err(primary_error) => {
-            // Android < 10 no soporta `RELATIVE_PATH` en MediaStore. El selector
-            // SAF funciona en todas las versiones y también evita duplicados.
-            let chosen = app
-                .android_fs()
-                .picker()
-                .save_file(None, &public_name, Some(APK_MIME), false)
-                .map_err(|error| {
-                    format!(
-                        "No se pudo guardar la APK en Descargas ({primary_error}) ni abrir el selector de archivos: {error}"
-                    )
-                })?;
-            let Some(chosen) = chosen else {
-                return Err(format!("No se guardó la APK. MediaStore falló: {primary_error}"));
-            };
-            use std::io::{Seek, SeekFrom};
-            source
-                .seek(SeekFrom::Start(0))
-                .map_err(|error| format!("No se pudo releer la APK descargada: {error}"))?;
-            let mut destination = app
-                .android_fs()
-                .open_file_writable(&chosen)
-                .map_err(|error| format!("No se pudo crear la APK elegida: {error}"))?;
-            std::io::copy(&mut source, &mut destination)
-                .map_err(|error| format!("No se pudo escribir la APK elegida: {error}"))?;
-            drop(destination);
-            app.android_fs()
-                .get_name(&chosen)
-                .unwrap_or_else(|_| public_name.clone())
-        }
-    };
-    Ok(display_path)
+        destination
+            .flush()
+            .map_err(|error| format!("No se pudo cerrar la APK en Descargas: {error}"))?;
+        emit_progress(app, "save", written, Some(save_total));
+        Ok(())
+    })();
+
+    if let Err(error) = write_result {
+        let _ = api.remove_file(&uri);
+        return Err(error);
+    }
+
+    api.public_storage()
+        .set_pending(&uri, false)
+        .map_err(|error| format!("La APK se escribió pero no se pudo publicar en Descargas: {error}"))?;
+    // `scan` solo fuerza la indexación; si falla, el archivo ya está escrito y
+    // visible en Descargas, así que no convertimos eso en un error de guardado.
+    let _ = api.public_storage().scan(&uri);
+
+    let file_name = api.get_name_or_last_path_segment(&uri);
+    Ok(format!("Descargas/{PUBLIC_SUBDIR}/{file_name}"))
 }
 
 #[tauri::command]
@@ -441,4 +526,66 @@ pub async fn append_event(app: AppHandle, event: vault::Event) -> Result<(), Str
     tauri::async_runtime::spawn_blocking(move || vault::append_event(&app, &event))
         .await
         .map_err(|error| format!("No se pudo guardar el evento: {error}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_only_official_release_urls() {
+        assert!(validate_release_url(
+            "https://github.com/wulflo/better-tracker/releases/download/v0.9.5/app.apk"
+        )
+        .is_ok());
+        assert!(validate_release_url(
+            "https://github.com/wulflo/better-tracker/releases/latest/download/latest.json"
+        )
+        .is_ok());
+        assert!(validate_release_url(
+            "https://github.com/evil/better-tracker/releases/download/v1/app.apk"
+        )
+        .is_err());
+        assert!(validate_release_url(
+            "http://github.com/wulflo/better-tracker/releases/download/v1/app.apk"
+        )
+        .is_err());
+        assert!(validate_release_url(
+            "https://github.com/wulflo/better-tracker.evil/releases/download/v1/app.apk"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn accepts_only_sha256_hex_digests() {
+        assert!(validate_sha256(&"a".repeat(64)).is_ok());
+        assert!(validate_sha256(&"A".repeat(64)).is_ok());
+        assert!(validate_sha256(&"a".repeat(63)).is_err());
+        assert!(validate_sha256(&"g".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn derives_download_extension_from_url() {
+        assert_eq!(
+            extension_from_url("https://x/app.apk").unwrap(),
+            "apk"
+        );
+        assert_eq!(
+            extension_from_url("https://x/app.deb?sig=1").unwrap(),
+            "deb"
+        );
+        assert_eq!(
+            extension_from_url("https://x/app.rpm#fragment").unwrap(),
+            "rpm"
+        );
+        assert!(extension_from_url("https://x/app.zip").is_err());
+    }
+
+    #[test]
+    fn sanitizes_version_for_file_names() {
+        assert_eq!(safe_version("0.9.5"), "0.9.5");
+        assert_eq!(safe_version("../../etc/passwd"), "....etcpasswd");
+        assert_eq!(safe_version(""), "update");
+        assert!(safe_version(&"9".repeat(100)).len() <= 32);
+    }
 }

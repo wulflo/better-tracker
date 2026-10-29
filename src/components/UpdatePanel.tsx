@@ -7,6 +7,7 @@ import {
   installUpdate,
   updaterUnavailableReason,
   type AvailableUpdate,
+  type UpdatePhase,
 } from '../updater';
 
 type Status = 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'ready' | 'error';
@@ -30,6 +31,7 @@ export default function UpdatePanel({
   const [target, setTarget] = useState<AvailableUpdate | null>(null);
   const [error, setError] = useState('');
   const [savedPath, setSavedPath] = useState('');
+  const [phase, setPhase] = useState<UpdatePhase>('download');
   const [progress, setProgress] = useState<{ downloaded: number; total: number | null }>({
     downloaded: 0,
     total: null,
@@ -65,9 +67,13 @@ export default function UpdatePanel({
     if (!target || status === 'downloading') return;
     setStatus('downloading');
     setError('');
+    setPhase('download');
     setProgress({ downloaded: 0, total: null });
     try {
-      const result = await installUpdate(target, (downloaded, total) => setProgress({ downloaded, total }));
+      const result = await installUpdate(target, (downloaded, total, nextPhase) => {
+        setProgress({ downloaded, total });
+        if (nextPhase) setPhase(nextPhase);
+      });
       if (result.kind === 'android') {
         setSavedPath(result.path);
         setStatus('ready');
@@ -108,7 +114,7 @@ export default function UpdatePanel({
           </div>
           <div className="update-sub">
             {android
-              ? 'Se comprueba solo cuando lo pides. La APK se descarga en Rust, se verifica con SHA-256 y se guarda en Descargas; la instalación es manual.'
+              ? 'Se comprueba solo cuando lo pides. La APK se descarga y se guarda en Descargas sin bloquear la app; la instalación es manual. En Android 9 o anterior se pedirá permiso de almacenamiento.'
               : packageFormat
                 ? `Se comprueba solo cuando lo pides. El paquete .${packageFormat} se descarga en streaming, se verifica con SHA-256 y se abre con el instalador del sistema.`
                 : 'Se comprueba solo cuando lo pides. El manifiesto se consulta sin caché y el paquete se verifica antes de instalarse.'}
@@ -162,7 +168,9 @@ export default function UpdatePanel({
           <div className="progress-labels">
             <span>
               {android
-                ? 'Descargando y verificando el APK…'
+                ? phase === 'save'
+                  ? 'Guardando la APK en Descargas…'
+                  : 'Descargando y verificando el APK…'
                 : packageFormat
                   ? `Descargando y verificando el paquete .${packageFormat}…`
                   : 'Descargando y verificando la firma…'}
