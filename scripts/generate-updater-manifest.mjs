@@ -96,6 +96,34 @@ for (const sig of files.filter((f) => f.endsWith('.sig'))) {
   }
 }
 
+// Los paquetes .deb/.rpm no usan minisign (el instalador del sistema valida el
+// paquete). Publicamos SHA-256 y tamaño para que Rust los descargue y verifique
+// antes de abrir el instalador. Las claves son propias: el plugin de Tauri sigue
+// usando `linux-x86_64` para AppImage.
+const linuxPackages = [
+  { extension: '.deb', key: 'linux-deb-x86_64' },
+  { extension: '.rpm', key: 'linux-rpm-x86_64' },
+];
+for (const { extension, key } of linuxPackages) {
+  const candidates = files.filter((file) => file.endsWith(extension) && !file.endsWith(`${extension}.sig`));
+  if (!candidates.length) {
+    console.warn(`No ${extension} package found; ${key} will be absent from latest.json.`);
+    continue;
+  }
+  const chosen =
+    candidates.find((file) => /x86_64|amd64/i.test(basename(file))) ?? candidates[0];
+  const bytes = readFileSync(chosen);
+  platforms[key] = {
+    // El updater de escritorio deserializa todas las entradas con `signature`.
+    // Para .deb/.rpm la verificación es SHA-256 + el propio gestor de paquetes.
+    signature: '',
+    url: assetUrl(chosen),
+    size: statSync(chosen).size,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  };
+  console.log(`  ${key} <- ${basename(chosen)} (sha256)`);
+}
+
 // La APK no usa la firma minisign de Tauri: el cliente Android verifica el
 // SHA-256 publicado y luego el sistema comprueba la firma del APK al instalar.
 const apks = files.filter((file) => /\.apk$/i.test(file));
@@ -120,7 +148,13 @@ if (apks.length) {
   console.warn('No APK found; android-aarch64 will be absent from latest.json.');
 }
 
-const required = ['linux-x86_64', 'windows-x86_64', 'android-aarch64'];
+const required = [
+  'linux-x86_64',
+  'linux-deb-x86_64',
+  'linux-rpm-x86_64',
+  'windows-x86_64',
+  'android-aarch64',
+];
 const missing = required.filter((key) => !platforms[key]);
 if (missing.length) {
   console.error(`Missing updater artifacts for: ${missing.join(', ')}`);

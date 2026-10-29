@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  ActivityLevel,
   BodyMeasures,
   Exercise,
   Food,
@@ -14,11 +15,16 @@ import type {
 import { EMPTY_MEASURES } from './types';
 import { appendEvent, newEvent } from './vault';
 import {
+  ACTIVITY_LEVELS,
+  AUTO_ACTIVITY,
+  activityLevelFromEvents,
+  activityOption,
   bodyComposition,
   computeMacros,
   computeSatiety,
   computeWaterGuidance,
   fmtDuration,
+  formatShort,
   goalModeFromEvents,
   latestMeasurement,
   latestNutrition,
@@ -29,6 +35,8 @@ import {
   trainingAlerts,
   trainingSummary,
 } from './metrics';
+import { classifyValue, projectBody, safeBmiRange, safeBodyFatRange } from './bodyRange';
+import { goalLabel, recipeLogItems, recommendRecipes } from './recipes';
 import { FOODS, mealGrams, mealTotals, reduceCustomFoods } from './foodDb';
 import { clearMealDraft, loadMealDraft, saveMealDraft } from './meals';
 import { ZONE_MAP } from './zones';
@@ -79,6 +87,7 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
   const [nutri, setNutri] = useState<NutritionEntry>(() => emptyNutrition(todayISO()));
   const dirtyNutrition = useRef(false);
   const [goalMode, setGoalMode] = useState<GoalMode>(() => goalModeFromEvents(events));
+  const [activity, setActivity] = useState<ActivityLevel>(() => activityLevelFromEvents(events));
   const [waterBusy, setWaterBusy] = useState(false);
   const waterSaving = useRef(false);
   const [remTitle, setRemTitle] = useState('');
@@ -90,6 +99,7 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
   // el modo elegido se quedaba en "mantener" hasta el siguiente clic.
   useEffect(() => {
     setGoalMode(goalModeFromEvents(events));
+    setActivity(activityLevelFromEvents(events));
   }, [events]);
 
   const weights = useMemo(() => reduceWeights(events), [events]);
@@ -108,8 +118,15 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
     ...(lastMeas ?? {}),
     weight: currentWeight || lastMeas?.weight || 0,
   };
-  const macros = computeMacros(baseMeasures, exerciseSummary.weekMinutes, goalMode);
+  const macros = computeMacros(baseMeasures, exerciseSummary.weekMinutes, goalMode, activity);
   const comp = bodyComposition(baseMeasures);
+  const projection = useMemo(
+    () => projectBody(baseMeasures, goalMode, exerciseSummary.weekMinutes, activity, comp),
+    [baseMeasures, goalMode, exerciseSummary.weekMinutes, activity, comp],
+  );
+  const bmiRange = safeBmiRange(baseMeasures.age);
+  const fatRange = safeBodyFatRange(baseMeasures.sex, baseMeasures.age);
+  const bmiStatus = classifyValue(comp.bmi, bmiRange);
   const bmi = comp.bmi;
   const fatAvg = comp.avg;
   const draftGrams = mealGrams(mealItems);
@@ -212,6 +229,28 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
     setGoalMode(mode);
     await appendEvent(newEvent(deviceId, 'goal.mode', { mode }));
     await onRefresh();
+  };
+
+  const changeActivity = async (level: ActivityLevel) => {
+    setActivity(level);
+    await appendEvent(newEvent(deviceId, 'activity.level', { level }));
+    await onRefresh();
+  };
+
+  const remainingMacros = macros
+    ? {
+        kcal: Math.max(0, macros.kcal - (Number(nutri.kcal) || 0)),
+        protein: Math.max(0, macros.protein - (Number(nutri.protein) || 0)),
+        carbs: Math.max(0, macros.carbs - (Number(nutri.carbs) || 0)),
+        fat: Math.max(0, macros.fat - (Number(nutri.fat) || 0)),
+      }
+    : null;
+  const recipeSuggestions = recommendRecipes(goalMode, remainingMacros, 3);
+
+  const addRecipe = (recipe: (typeof recipeSuggestions)[number]) => {
+    const items = recipeLogItems(recipe);
+    for (const item of items) addMeal(item);
+    notify(`${recipe.name}: ${items.length} ingredientes añadidos a ${recipe.meal}.`, 'success');
   };
 
   const logWater = async (delta: number) => {
@@ -529,6 +568,130 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
 
         <FatTrend events={events} className="span-2" />
 
+        <section className="card span-2">
+          <div className="card-header">
+            <div>
+              <div className="card-title"><Icon name="target" /> Rango seguro y proyección</div>
+              <div className="card-sub">
+                Rangos deducidos de tu sexo y edad, y progreso estimado con el balance energético actual.
+                Son referencias orientativas, no diagnóstico médico.
+              </div>
+            </div>
+            <span className={`badge ${projection.safe ? 'badge-success' : 'badge-warning'}`}>
+              {projection.safe ? 'Dentro de rango' : 'Revisar objetivo'}
+            </span>
+          </div>
+          <div className="card-body stack">
+            <div className="grid grid-2" style={{ gap: 10 }}>
+              <div className="metric">
+                <div className="metric-label">IMC actual</div>
+                <div className="metric-value-lg">{comp.bmi !== null ? comp.bmi.toFixed(1) : '—'}</div>
+                <div className="metric-caption">{bmiRange.label} · {bmiStatus.label}</div>
+              </div>
+              <div className="metric">
+                <div className="metric-label">% grasa actual</div>
+                <div className="metric-value-lg">{comp.avg !== null ? `${comp.avg.toFixed(1)}%` : '—'}</div>
+                <div className="metric-caption">
+                  {fatRange ? fatRange.label : 'Añade sexo para calcular el rango'} · {classifyValue(comp.avg, fatRange).label}
+                </div>
+              </div>
+              <div className="metric">
+                <div className="metric-label">Peso objetivo</div>
+                <div className="metric-value-lg">{projection.targetWeight !== null ? `${projection.targetWeight.toFixed(1)} kg` : '—'}</div>
+                <div className="metric-caption">
+                  {projection.targetBmi !== null ? `IMC ${projection.targetBmi.toFixed(1)}` : 'Faltan datos'}
+                  {projection.targetBodyFat !== null ? ` · ${projection.targetBodyFat.toFixed(0)}% grasa` : ''}
+                </div>
+              </div>
+              <div className="metric">
+                <div className="metric-label">Ritmo estimado</div>
+                <div className="metric-value-lg">
+                  {projection.weeklyRateKg > 0 ? `${projection.weeklyRateKg.toFixed(2)} kg/sem` : '—'}
+                </div>
+                <div className="metric-caption">
+                  {projection.dailyKcalDelta === 0
+                    ? 'Sin déficit ni superávit'
+                    : `${projection.dailyKcalDelta > 0 ? '+' : ''}${projection.dailyKcalDelta} kcal/día`}
+                </div>
+              </div>
+            </div>
+
+            <div className={`notice ${projection.safe ? 'notice-info' : 'notice-warn'}`}>
+              <Icon name={projection.safe ? 'info' : 'alert'} size={16} />
+              <div>
+                <strong>{projection.message}</strong>
+                {projection.etaDate && <div className="small">Fecha estimada: {formatShort(projection.etaDate)} · {projection.weeks} semana(s).</div>}
+                <div className="small muted">{bmiRange.note} {fatRange?.note ?? ''}</div>
+              </div>
+            </div>
+
+            {projection.milestones.length > 0 && (
+              <div className="projection-track">
+                <span className="field-label">Hitos aproximados</span>
+                <div className="projection-steps">
+                  {projection.milestones.map((milestone) => (
+                    <div key={milestone.date} className="projection-step">
+                      <strong>{milestone.weight.toFixed(1)} kg</strong>
+                      <span className="small muted">{formatShort(milestone.date)}</span>
+                      {milestone.bodyFat !== null && <span className="small">≈{milestone.bodyFat.toFixed(1)}% grasa</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <p className="hint">
+              El cálculo asume que mantienes el nivel de actividad y el balance actual. Una variación de peso de
+              0,5–1 % por semana al perder grasa y de 0,25–0,5 % al ganar es un ritmo sostenible.
+            </p>
+          </div>
+        </section>
+
+        <section className="card span-2">
+          <div className="card-header">
+            <div>
+              <div className="card-title"><Icon name="bowl" /> Recetas recomendadas</div>
+              <div className="card-sub">
+                {goalLabel(goalMode)} · elige una receta y añade sus ingredientes al diario con los mismos macros
+                de la base de alimentos.
+              </div>
+            </div>
+            <span className="badge badge-muted">Basado en evidencia</span>
+          </div>
+          <div className="card-body stack">
+            <div className="recipe-grid">
+              {recipeSuggestions.map((recipe) => (
+                <article key={recipe.id} className="recipe-card">
+                  <div className="row between wrap">
+                    <strong>{recipe.name}</strong>
+                    <span className={`badge ${recipe.fit === 'excellent' ? 'badge-success' : recipe.fit === 'good' ? 'badge-primary' : 'badge-muted'}`}>
+                      {recipe.fit === 'excellent' ? 'Encaje alto' : recipe.fit === 'good' ? 'Buen encaje' : 'Alternativa'}
+                    </span>
+                  </div>
+                  <p className="small muted">{recipe.description}</p>
+                  <div className="chips">
+                    <span className="chip active">{recipe.macros.kcal} kcal</span>
+                    <span className="chip active">{recipe.macros.protein} g proteína</span>
+                    <span className="chip">{recipe.macros.carbs} g carbos</span>
+                    <span className="chip">{recipe.macros.fat} g grasa</span>
+                    <span className="chip">{recipe.macros.fiber} g fibra</span>
+                  </div>
+                  <p className="hint small"><strong>Por qué:</strong> {recipe.science}</p>
+                  <div className="row between wrap">
+                    <span className="hint small">{recipe.minutes} min · {recipe.meal} · {recipe.macros.grams} g</span>
+                    <button className="btn btn-tonal btn-sm" onClick={() => addRecipe(recipe)}>
+                      <Icon name="plus" size={14} /> Añadir al diario
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <p className="hint">
+              En déficit se prioriza proteína y fibra por caloría; en superávit, densidad energética y carbohidratos
+              alrededor del entrenamiento. Ajusta las porciones a tu hambre y a tus objetivos.
+            </p>
+          </div>
+        </section>
+
         <section className="card">
           <div className="card-header">
             <div>
@@ -549,6 +712,23 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
               ))}
             </div>
 
+            <label className="field">
+              <span className="field-label">Nivel de actividad física</span>
+              <select
+                className="select"
+                value={activity}
+                onChange={(event) => void changeActivity(event.target.value as ActivityLevel)}
+              >
+                {[AUTO_ACTIVITY, ...ACTIVITY_LEVELS].map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                    {option.multiplier > 0 ? ` · ×${option.multiplier}` : ' · según entrenamiento'}
+                  </option>
+                ))}
+              </select>
+              <span className="hint">{activityOption(activity).description}</span>
+            </label>
+
             {macros ? (
               <>
                 <div className="grid grid-2" style={{ gap: 10 }}>
@@ -556,6 +736,12 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
                   <Stat label="Proteína" value={`${macros.protein} g`} caption={`${(macros.protein / (baseMeasures.weight || 1)).toFixed(1)} g/kg`} />
                   <Stat label="Carbohidratos" value={`${macros.carbs} g`} caption="energía y glucógeno" />
                   <Stat label="Grasas" value={`${macros.fat} g`} caption="hormonas y saciedad" />
+                  <Stat label="Gasto estimado" value={`${macros.tdee}`} caption={activity === 'auto' ? `BMR ${macros.bmr} · actividad ×${macros.activity}` : `BMR ${macros.bmr} · nivel ${activityOption(activity).label}`} />
+                  <Stat
+                    label="Balance"
+                    value={`${macros.kcal - macros.tdee > 0 ? '+' : ''}${macros.kcal - macros.tdee} kcal`}
+                    caption={`${goalLabel(goalMode)} · ${activityOption(activity).label}`}
+                  />
                 </div>
                 <div className="notice notice-info">
                   <Icon name="water" size={17} />

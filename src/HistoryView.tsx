@@ -1,17 +1,27 @@
 import React, { useMemo, useState } from 'react';
 import type { Exercise, PR, Routine, Session, VaultEvent, Workout } from './types';
+import { EMPTY_MEASURES } from './types';
 import { appendEvent, newEvent } from './vault';
 import {
+  activityLevelFromEvents,
+  computeMacros,
+  computeWaterGuidance,
   formatShort,
+  goalModeFromEvents,
+  latestMeasurement,
   minutesLabel,
   reducePRs,
   reduceRoutines,
   reduceSessions,
+  reduceWeights,
   reduceWorkouts,
+  trainingSummary,
   visibleTrainingEvents,
 } from './metrics';
+import { dailyNutrition, nutritionDigest, type NutritionTargets } from './nutrition';
 import { Icon } from './components/Icons';
-import { EmptyState } from './components/Fields';
+import { EmptyState, Stat } from './components/Fields';
+import { ProgressBar } from './components/Charts';
 
 interface Props {
   deviceId: string;
@@ -36,12 +46,46 @@ interface Row {
 export default function HistoryView({ deviceId, events, exercises, onRefresh, notify }: Props) {
   const [filter, setFilter] = useState<Filter>('all');
   const [confirm, setConfirm] = useState(false);
+  const [tab, setTab] = useState<'training' | 'nutrition'>('training');
 
   const routines = useMemo(() => reduceRoutines(events), [events]);
   const sessions = useMemo(() => reduceSessions(events), [events]);
   const workouts = useMemo(() => reduceWorkouts(events), [events]);
   const prs = useMemo(() => reducePRs(events), [events]);
   const exerciseMap = useMemo(() => new Map(exercises.map((e) => [e.id, e])), [exercises]);
+
+  const nutritionEntries = useMemo(() => dailyNutrition(events), [events]);
+  const lastMeas = useMemo(() => latestMeasurement(events), [events]);
+  const weightEntries = useMemo(() => reduceWeights(events), [events]);
+  const currentWeight =
+    (weightEntries.length ? weightEntries[weightEntries.length - 1].kg : 0) || lastMeas?.weight || 0;
+  const body = useMemo(
+    () => ({ ...EMPTY_MEASURES, ...(lastMeas ?? {}), weight: currentWeight }),
+    [lastMeas, currentWeight],
+  );
+  const exerciseSummary = useMemo(() => trainingSummary(events, exercises), [events, exercises]);
+  const nutritionTargets = useMemo<NutritionTargets | undefined>(() => {
+    const macros = computeMacros(
+      body,
+      exerciseSummary.weekMinutes,
+      goalModeFromEvents(events),
+      activityLevelFromEvents(events),
+    );
+    if (!macros) return undefined;
+    const water = computeWaterGuidance(body, exerciseSummary.weekMinutes, 0);
+    return {
+      kcal: macros.kcal,
+      protein: macros.protein,
+      carbs: macros.carbs,
+      fat: macros.fat,
+      fiber: macros.fiber,
+      water: water.targetMl,
+    };
+  }, [body, exerciseSummary.weekMinutes, events]);
+  const nutrition = useMemo(
+    () => nutritionDigest(nutritionEntries, 8, new Date(), nutritionTargets, currentWeight),
+    [nutritionEntries, nutritionTargets, currentWeight],
+  );
 
   const rows = useMemo<Row[]>(() => {
     const visible = visibleTrainingEvents(events);
@@ -99,6 +143,213 @@ export default function HistoryView({ deviceId, events, exercises, onRefresh, no
         </div>
       </header>
 
+      <div className="row between wrap">
+        <div className="segmented" role="tablist" aria-label="Historial de entrenamiento o nutrición">
+          <button type="button" className={`segment ${tab === 'training' ? 'active' : ''}`} onClick={() => setTab('training')}>
+            Entrenamiento
+          </button>
+          <button type="button" className={`segment ${tab === 'nutrition' ? 'active' : ''}`} onClick={() => setTab('nutrition')}>
+            Nutrición
+          </button>
+        </div>
+        <span className="hint">
+          {tab === 'training'
+            ? 'Sesiones, entrenamientos y marcas personales.'
+            : 'Solo se promedian los días con registro; una semana incompleta no penaliza.'}
+        </span>
+      </div>
+
+      {tab === 'nutrition' && (
+        <div className="stack">
+          <div className="grid grid-4">
+            <Stat
+              label="Días registrados"
+              value={nutrition.loggedDays}
+              caption={`de los últimos ${nutrition.weeks.length * 7} días`}
+            />
+            <Stat
+              label="Media de calorías"
+              value={`${nutrition.avg.kcal}`}
+              caption={
+                nutritionTargets
+                  ? `Objetivo ${nutritionTargets.kcal} kcal · ${nutrition.adherencePct ?? 0}% de adherencia`
+                  : 'Añade peso y altura para comparar con el objetivo'
+              }
+            />
+            <Stat
+              label="Rango de calorías"
+              value={`${nutrition.min.min}–${nutrition.min.max}`}
+              caption="mínimo y máximo de los días con log"
+            />
+            <Stat
+              label="Racha de registro"
+              value={`${nutrition.longestStreak} día${nutrition.longestStreak === 1 ? '' : 's'}`}
+              caption={nutrition.bestWeek ? `Mejor semana: ${nutrition.bestWeek.label}` : 'Sin datos suficientes'}
+            />
+          </div>
+
+          <section className="card">
+            <div className="card-header">
+              <div>
+                <div className="card-title"><Icon name="chart" /> Promedios y rangos por macro</div>
+                <div className="card-sub">
+                  Cada valor se calcula solo con días que tienen log. El rango muestra la variabilidad real, no una
+                  media que esconde los extremos.
+                </div>
+              </div>
+              {nutritionTargets && <span className="badge badge-primary">Objetivo: {nutritionTargets.kcal} kcal</span>}
+            </div>
+            <div className="card-body">
+              <div className="nutrition-table">
+                <div className="nutrition-row nutrition-head">
+                  <span>Macro</span><span>Media</span><span>Mín.</span><span>Máx.</span><span>Objetivo</span>
+                </div>
+                {([
+                  ['Calorías', nutrition.avg.kcal, nutrition.ranges.kcal.min, nutrition.ranges.kcal.max, nutritionTargets?.kcal, 'kcal'],
+                  ['Proteína', nutrition.avg.protein, nutrition.ranges.protein.min, nutrition.ranges.protein.max, nutritionTargets?.protein, 'g'],
+                  ['Carbohidratos', nutrition.avg.carbs, nutrition.ranges.carbs.min, nutrition.ranges.carbs.max, nutritionTargets?.carbs, 'g'],
+                  ['Grasas', nutrition.avg.fat, nutrition.ranges.fat.min, nutrition.ranges.fat.max, nutritionTargets?.fat, 'g'],
+                  ['Fibra', nutrition.avg.fiber, nutrition.ranges.fiber.min, nutrition.ranges.fiber.max, nutritionTargets?.fiber, 'g'],
+                  ['Agua', nutrition.avg.water, nutrition.ranges.water.min, nutrition.ranges.water.max, nutritionTargets?.water, 'ml'],
+                ] as Array<[string, number, number, number, number | undefined, string]>).map(([label, avg, min, max, target, unit]) => (
+                  <div key={label} className="nutrition-row">
+                    <span>{label}</span>
+                    <strong>{Math.round(avg).toLocaleString('es')} {unit}</strong>
+                    <span className="muted">{nutrition.loggedDays > 0 ? Math.round(min).toLocaleString('es') : '—'}</span>
+                    <span className="muted">{nutrition.loggedDays > 0 ? Math.round(max).toLocaleString('es') : '—'}</span>
+                    <span className="muted">{target !== undefined ? `${Math.round(target).toLocaleString('es')} ${unit}` : '—'}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-2" style={{ gap: 12, marginTop: 14 }}>
+                <ProgressBar
+                  label="Adherencia calórica (±10 %)"
+                  valueLabel={nutrition.adherencePct !== null ? `${nutrition.adherencePct}%` : 'Sin objetivo'}
+                  value={nutrition.adherencePct ?? 0}
+                />
+                <ProgressBar
+                  label="Días registrados"
+                  valueLabel={`${nutrition.loggedDays}/${nutrition.weeks.length * 7}`}
+                  value={nutrition.loggedDays}
+                  max={Math.max(1, nutrition.weeks.length * 7)}
+                />
+              </div>
+              {nutrition.avg.min !== nutrition.avg.max && (
+                <p className="hint" style={{ marginTop: 10 }}>
+                  Rango calórico de los días registrados: {nutrition.min.min}–{nutrition.min.max} kcal.
+                  La variabilidad extrema sugiere revisar los fines de semana o los días sin planificar.
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="card-header">
+              <div>
+                <div className="card-title"><Icon name="calendar" /> Últimas 8 semanas</div>
+                <div className="card-sub">Solo aparecen semanas con al menos un día registrado. Las medias dividen por días con log.</div>
+              </div>
+            </div>
+            <div className="card-body stack">
+              {nutrition.loggedDays === 0 ? (
+                <EmptyState
+                  icon={<Icon name="bowl" />}
+                  title="Sin registros de nutrición"
+                  sub="Guarda la ingesta desde el Panel para ver promedios, rangos y sugerencias."
+                />
+              ) : (
+                nutrition.weeks.map((week) => (
+                  <div key={week.key} className={`nutrition-week ${week.loggedDays ? '' : 'empty'}`}>
+                    <div className="nutrition-week-head">
+                      <strong>{week.label}</strong>
+                      <span className="hint small">
+                        {week.loggedDays} día(s) · {Math.round(week.kcal.avg).toLocaleString('es')} kcal medias
+                        {week.adherencePct !== null ? ` · ${week.adherencePct}% en objetivo` : ''}
+                      </span>
+                    </div>
+                    {week.loggedDays > 0 ? (
+                      <>
+                        <div className="nutrition-week-bar">
+                          <div
+                            style={{
+                              width: `${Math.min(100, Math.round((week.kcal.avg / Math.max(1, nutritionTargets?.kcal ?? Math.max(...nutrition.weeks.map((w) => w.kcal.max), 1))) * 100))}%`,
+                            }}
+                          />
+                        </div>
+                        <div className="chips">
+                          <span className="chip">P {Math.round(week.protein.avg)} g</span>
+                          <span className="chip">C {Math.round(week.carbs.avg)} g</span>
+                          <span className="chip">G {Math.round(week.fat.avg)} g</span>
+                          <span className="chip">Fibra {Math.round(week.fiber.avg)} g</span>
+                          <span className="chip">Agua {(week.water.avg / 1000).toFixed(1)} L</span>
+                          <span className="chip">Rango {week.kcal.min}–{week.kcal.max} kcal</span>
+                        </div>
+                      </>
+                    ) : (
+                      <span className="hint small">Sin registros.</span>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="card-header">
+              <div>
+                <div className="card-title"><Icon name="spark" /> Sugerencias de mejora</div>
+                <div className="card-sub">Generadas a partir de tus medias frente a los objetivos y de la constancia del registro.</div>
+              </div>
+            </div>
+            <div className="card-body stack">
+              {nutrition.tips.map((tip, index) => (
+                <div key={index} className="notice notice-info">
+                  <Icon name="info" size={16} />
+                  <span>{tip}</span>
+                </div>
+              ))}
+              {nutrition.longestStreak > 0 && (
+                <div className="notice notice-success">
+                  <Icon name="check" size={16} />
+                  <span>Llevas {nutrition.longestStreak} día(s) consecutivos registrando. La constancia es el mejor predictor de resultados.</span>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {nutritionEntries.length > 0 && (
+            <section className="card">
+              <div className="card-header">
+                <div>
+                  <div className="card-title"><Icon name="history" /> Días con registro</div>
+                  <div className="card-sub">Los días sin log no aparecen ni cuentan en los promedios.</div>
+                </div>
+                <span className="badge badge-muted">{nutritionEntries.length} día(s)</span>
+              </div>
+              <div className="card-body">
+                <div className="nutrition-table">
+                  <div className="nutrition-row nutrition-head">
+                    <span>Fecha</span><span>kcal</span><span>Proteína</span><span>Carbos</span><span>Grasa</span><span>Agua</span>
+                  </div>
+                  {nutritionEntries.slice(-14).reverse().map((entry) => (
+                    <div key={entry.date} className="nutrition-row">
+                      <span>{formatShort(entry.date)}</span>
+                      <strong>{Math.round(entry.kcal)}</strong>
+                      <span>{Math.round(entry.protein)} g</span>
+                      <span>{Math.round(entry.carbs)} g</span>
+                      <span>{Math.round(entry.fat)} g</span>
+                      <span>{(entry.water / 1000).toFixed(1)} L</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+          )}
+        </div>
+      )}
+
+      {tab === 'training' && (
+        <>
       <div className="grid grid-4">
         <div className="metric">
           <div className="metric-label">Sesiones</div>
@@ -216,6 +467,8 @@ export default function HistoryView({ deviceId, events, exercises, onRefresh, no
             return null;
           })}
         </div>
+      )}
+        </>
       )}
 
       {confirm && (

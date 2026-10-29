@@ -1446,6 +1446,7 @@ fn saf_manifest_matches(app: &AppHandle, dir: &FsUri) -> Result<bool, String> {
 }
 
 #[cfg(target_os = "android")]
+#[allow(clippy::too_many_arguments)]
 fn saf_snapshot_info(
     app: &AppHandle,
     dir: &FsUri,

@@ -24,6 +24,7 @@ const manifest = join(iconsDir, 'app-icon.json');
 const master = join(iconsDir, 'app-icon.png');
 const tmpDir = join(root, 'node_modules', '.cache', 'better-tracker-icons');
 const androidRes = join(root, 'src-tauri', 'gen', 'android', 'app', 'src', 'main', 'res');
+const publicLogo = join(root, 'public', 'logo.png');
 
 if (!existsSync(master)) {
   console.error(`generate-icons: falta el master ${master}`);
@@ -45,6 +46,11 @@ const tauriArgs = existsSync(tauriBin) ? [] : ['tauri'];
 
 rmSync(tmpDir, { recursive: true, force: true });
 mkdirSync(tmpDir, { recursive: true });
+
+// 0. Logo de la interfaz: el mismo master que el icono. Así una build no puede
+// volver a mostrar el logo antiguo de `public/logo.png`.
+cpSync(master, publicLogo);
+console.log('generate-icons: logo de la interfaz sincronizado con app-icon.png.');
 
 console.log('generate-icons: generando desde app-icon.png…');
 execFileSync(tauri, [...tauriArgs, 'icon', manifest, '-o', tmpDir], {

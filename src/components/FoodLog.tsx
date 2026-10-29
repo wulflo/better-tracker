@@ -15,6 +15,7 @@ import {
   unitLabel,
 } from '../foodDb';
 import { lookupBarcode } from '../vault';
+import { lookupBarcodeCatalog } from '../barcodeCatalog';
 import { errorText } from '../errors';
 import Select from './Select';
 import { NumberInput } from './Fields';
@@ -151,8 +152,23 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
     }
 
     setScanBusy(true);
-    setScanNotice(`Buscando el código ${code} en Open Food Facts…`);
+    setScanNotice(`Buscando el código ${code} en el catálogo local…`);
     try {
+      // 1) Catálogo local AR/PE/MX: disponible sin conexión. Los macros son
+      // una aproximación por categoría, así que se avisa en el resultado.
+      const catalogFood = await lookupBarcodeCatalog(code);
+      if (catalogFood) {
+        setScannedFood(catalogFood);
+        await onCreateFood(catalogFood);
+        chooseFood(catalogFood);
+        setScanNotice(
+          `Producto del catálogo local: ${catalogFood.name}. Macros estimados por categoría; ajusta la cantidad o edítalo con la etiqueta si necesitas precisión.`,
+        );
+        return;
+      }
+
+      // 2) Open Food Facts: datos exactos si el producto existe y hay red.
+      setScanNotice(`Buscando el código ${code} en Open Food Facts…`);
       const product = await lookupBarcode(code);
       if (product) {
         setScannedFood(product);
@@ -163,7 +179,7 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
         setCustom((value) => ({ ...value, barcode: code }));
         setCustomOpen(true);
         setScanNotice(
-          `El código ${code} no está en Open Food Facts o no tiene macros. Revisa la etiqueta y guárdalo manualmente: el código quedará asociado.`,
+          `El código ${code} no está en el catálogo local ni en Open Food Facts o no tiene macros. Revisa la etiqueta y guárdalo manualmente: el código quedará asociado.`,
         );
       }
     } catch (e) {
@@ -541,7 +557,7 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
             <div className="modal-header">
               <div>
                 <div className="modal-title">Escanear producto</div>
-                <div className="card-sub">EAN/UPC del envase. Si no está en Open Food Facts, podrás crearlo manualmente.</div>
+                <div className="card-sub">EAN/UPC del envase. Se busca primero en tu base y en el catálogo local AR/PE/MX; si no aparece, podrás crearlo manualmente.</div>
               </div>
               <button className="btn-icon" aria-label="Cerrar escáner" onClick={() => setScannerOpen(false)}>
                 <Icon name="close" size={16} />

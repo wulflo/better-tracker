@@ -2,7 +2,20 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type { BodyMeasures, MeasurementEntry, Sex, VaultEvent } from './types';
 import { EMPTY_MEASURES } from './types';
 import { appendEvent, newEvent } from './vault';
-import { bodyComposition, latestMeasurement, reduceWeights, todayISO } from './metrics';
+import {
+  activityLevelFromEvents,
+  activityOption,
+  bodyComposition,
+  computeMacros,
+  formatShort,
+  goalModeFromEvents,
+  latestMeasurement,
+  reduceExercises,
+  reduceWeights,
+  todayISO,
+  trainingSummary,
+} from './metrics';
+import { classifyValue, projectBody, safeBmiRange, safeBodyFatRange } from './bodyRange';
 import BodyFigure from './BodyFigure';
 import Select from './components/Select';
 import { NumberInput, Field, EmptyState, Stat } from './components/Fields';
@@ -34,6 +47,24 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
   const weights = useMemo(() => reduceWeights(events), [events]);
   const comp = useMemo(() => bodyComposition(form), [form]);
   const latestWeight = weights.length ? weights[weights.length - 1] : null;
+  const goal = useMemo(() => goalModeFromEvents(events), [events]);
+  const activity = useMemo(() => activityLevelFromEvents(events), [events]);
+  const exerciseSummary = useMemo(
+    () => trainingSummary(events, reduceExercises(events)),
+    [events],
+  );
+  const projection = useMemo(
+    () => projectBody(form, goal, exerciseSummary.weekMinutes, activity, comp),
+    [form, goal, exerciseSummary.weekMinutes, activity, comp],
+  );
+  const macros = useMemo(
+    () => computeMacros(form, exerciseSummary.weekMinutes, goal, activity),
+    [form, exerciseSummary.weekMinutes, goal, activity],
+  );
+  const bmiRange = safeBmiRange(form.age);
+  const fatRange = safeBodyFatRange(form.sex, form.age);
+  const bmiStatus = classifyValue(comp.bmi, bmiRange);
+  const fatStatus = classifyValue(comp.avg, fatRange);
 
   const set = <K extends keyof BodyMeasures>(key: K, value: BodyMeasures[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
@@ -86,7 +117,11 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
         <Stat
           label="% grasa estimado"
           value={comp.avg !== null ? `${comp.avg.toFixed(1)}%` : '—'}
-          caption={comp.min !== null && comp.max !== null ? `Rango ${comp.min.toFixed(1)}–${comp.max.toFixed(1)}%` : 'Añade datos para estimar'}
+          caption={
+            comp.min !== null && comp.max !== null
+              ? `Rango ${comp.min.toFixed(1)}–${comp.max.toFixed(1)}% · ${fatStatus.label}`
+              : 'Añade datos para estimar'
+          }
         />
         <Stat
           label="Masa grasa"
@@ -101,11 +136,83 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
         <Stat
           label="IMC"
           value={comp.bmi !== null ? comp.bmi.toFixed(1) : '—'}
-          caption={comp.whtr !== null ? `Cintura/altura ${comp.whtr.toFixed(2)}` : 'Faltan peso y altura'}
+          caption={comp.bmi !== null ? `${bmiRange.label} · ${bmiStatus.label}` : 'Faltan peso y altura'}
         />
       </div>
 
       <FatTrend events={events} />
+
+      <section className="card">
+        <div className="card-header">
+          <div>
+            <div className="card-title"><Icon name="target" /> Rango seguro y progreso proyectado</div>
+            <div className="card-sub">
+              Detectado automáticamente con sexo, edad, peso, altura y composición. El ritmo parte del objetivo
+              calórico y del nivel de actividad guardados en el Panel.
+            </div>
+          </div>
+          <span className={`badge ${projection.safe ? 'badge-success' : 'badge-warning'}`}>
+            {projection.safe ? 'Rango seguro' : 'Límite alcanzado'}
+          </span>
+        </div>
+        <div className="card-body stack">
+          <div className="grid grid-4">
+            <div className="metric">
+              <div className="metric-label">IMC saludable</div>
+              <div className="metric-value-lg">{bmiRange.min.toFixed(1)}–{bmiRange.max.toFixed(1)}</div>
+              <div className="metric-caption">{bmiStatus.label}{comp.bmi !== null ? ` · actual ${comp.bmi.toFixed(1)}` : ''}</div>
+            </div>
+            <div className="metric">
+              <div className="metric-label">% grasa orientativo</div>
+              <div className="metric-value-lg">{fatRange ? `${fatRange.min}–${fatRange.max}%` : '—'}</div>
+              <div className="metric-caption">{fatRange ? fatStatus.label : 'Añade sexo y edad'}</div>
+            </div>
+            <div className="metric">
+              <div className="metric-label">Objetivo</div>
+              <div className="metric-value-lg">{projection.targetWeight !== null ? `${projection.targetWeight.toFixed(1)} kg` : '—'}</div>
+              <div className="metric-caption">
+                {projection.targetBodyFat !== null ? `${projection.targetBodyFat.toFixed(0)}% grasa` : 'Sin estimación'}
+                {projection.targetBmi !== null ? ` · IMC ${projection.targetBmi.toFixed(1)}` : ''}
+              </div>
+            </div>
+            <div className="metric">
+              <div className="metric-label">Ritmo y fecha</div>
+              <div className="metric-value-lg">
+                {projection.weeklyRateKg > 0 ? `${projection.weeklyRateKg.toFixed(2)} kg` : '—'}
+              </div>
+              <div className="metric-caption">
+                {projection.weeklyRateKg > 0 ? 'por semana' : 'sin déficit ni superávit'}
+                {projection.etaDate ? ` · ${formatShort(projection.etaDate)}` : ''}
+              </div>
+            </div>
+          </div>
+
+          <div className={`notice ${projection.safe ? 'notice-info' : 'notice-warn'}`}>
+            <Icon name={projection.safe ? 'info' : 'alert'} size={16} />
+            <div>
+              <strong>{projection.message}</strong>
+              <div className="small muted">
+                {bmiRange.note} {fatRange?.note ?? ''} El cálculo es orientativo y no sustituye una valoración médica.
+              </div>
+            </div>
+          </div>
+
+          {projection.milestones.length > 0 && (
+            <div className="projection-track">
+              <span className="field-label">Progreso esperado</span>
+              <div className="projection-steps">
+                {projection.milestones.map((milestone) => (
+                  <div key={milestone.date} className="projection-step">
+                    <strong>{milestone.weight.toFixed(1)} kg</strong>
+                    <span className="small muted">{formatShort(milestone.date)}</span>
+                    {milestone.bodyFat !== null && <span className="small">≈{milestone.bodyFat.toFixed(1)}%</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
 
       <div className="body-layout">
         <section className="card">
@@ -166,8 +273,8 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
               </div>
               <div className="metric">
                 <div className="metric-label">TDEE estimado</div>
-                <div className="metric-value-lg">{comp.tdee !== null ? `${Math.round(comp.tdee)}` : '—'}</div>
-                <div className="metric-caption">factor actividad 1.55</div>
+                <div className="metric-value-lg">{macros ? `${Math.round(macros.tdee)}` : '—'}</div>
+                <div className="metric-caption">{activityOption(activity).label} · {goal === 'cut' ? 'déficit' : goal === 'bulk' ? 'superávit' : 'mantenimiento'}</div>
               </div>
               <div className="metric">
                 <div className="metric-label">Cintura/cadera</div>

@@ -323,11 +323,18 @@ p {
 
 .page {
   max-width: 1480px;
+  width: 100%;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 20px;
   animation: page-in 0.28s ease;
+}
+
+.grid > *,
+.stack > *,
+.row > * {
+  min-width: 0;
 }
 
 @keyframes page-in {
@@ -2472,6 +2479,339 @@ option {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* ------------------------------------------------------------------ */
+/* Escritorio ancho: aprovechar el espacio sin estirar las tarjetas   */
+/* ------------------------------------------------------------------ */
+@media (min-width: 1440px) {
+  .content {
+    padding: 30px 40px 64px;
+  }
+
+  .page {
+    max-width: 1560px;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Hábitos y ánimo                                                    */
+/* ------------------------------------------------------------------ */
+.habit-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(208, 188, 255, 0.1);
+  background: rgba(255, 255, 255, 0.025);
+  transition: border-color 0.16s ease, background 0.16s ease, opacity 0.16s ease;
+}
+
+.habit-row:hover {
+  border-color: rgba(208, 188, 255, 0.22);
+  background: rgba(208, 188, 255, 0.05);
+}
+
+.habit-row.habit-done {
+  border-color: rgba(168, 230, 163, 0.28);
+  background: rgba(29, 58, 34, 0.35);
+}
+
+.habit-row.habit-off {
+  opacity: 0.55;
+}
+
+.habit-check {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  margin-top: 1px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1.5px solid rgba(208, 188, 255, 0.35);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--on-primary);
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.12s ease;
+}
+
+.habit-check:hover:not(:disabled) {
+  border-color: var(--primary);
+  transform: scale(1.04);
+}
+
+.habit-check.active {
+  background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(143, 111, 232, 0.35);
+}
+
+.habit-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.habit-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13.5px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.habit-sub {
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+  line-height: 1.4;
+}
+
+.habit-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.mood-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mood-face {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 11px 6px 9px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(208, 188, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--on-surface-variant);
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease, transform 0.12s ease;
+}
+
+.mood-face:hover {
+  border-color: rgba(208, 188, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+.mood-face > span {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.mood-face > small {
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.mood-face.active {
+  border-color: rgba(208, 188, 255, 0.5);
+  background: linear-gradient(160deg, rgba(208, 188, 255, 0.22), rgba(143, 111, 232, 0.12));
+  color: var(--on-primary-container);
+  box-shadow: 0 6px 18px rgba(143, 111, 232, 0.22);
+}
+
+.wellness-day {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) minmax(90px, auto);
+  align-items: center;
+  gap: 10px;
+}
+
+.wellness-day-label {
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--on-surface-variant);
+}
+
+.wellness-day-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(208, 188, 255, 0.1);
+  overflow: hidden;
+}
+
+.wellness-day-bar > div {
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--primary-deep), var(--primary));
+  transition: width 0.3s ease;
+}
+
+.wellness-day > .hint {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ */
+/* Recomendador de recetas                                            */
+/* ------------------------------------------------------------------ */
+.recipe-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.recipe-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(208, 188, 255, 0.12);
+  background: linear-gradient(165deg, rgba(208, 188, 255, 0.07), rgba(255, 255, 255, 0.015));
+}
+
+.recipe-card > p.small {
+  line-height: 1.5;
+  margin: 0;
+}
+
+.recipe-card > .row:last-child {
+  margin-top: auto;
+}
+
+.recipe-card .chips {
+  gap: 5px;
+}
+
+.recipe-card .chip {
+  padding: 4px 8px;
+  font-size: 10px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Proyección corporal                                                */
+/* ------------------------------------------------------------------ */
+.projection-track {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.projection-steps {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+.projection-step {
+  flex: 1 0 108px;
+  min-width: 108px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(208, 188, 255, 0.14);
+  background: rgba(208, 188, 255, 0.06);
+}
+
+.projection-step strong {
+  font-size: 15px;
+  letter-spacing: -0.3px;
+}
+
+.projection-step:last-child {
+  border-color: rgba(208, 188, 255, 0.32);
+  background: linear-gradient(160deg, rgba(208, 188, 255, 0.18), rgba(143, 111, 232, 0.1));
+}
+
+/* ------------------------------------------------------------------ */
+/* Historial de nutrición                                             */
+/* ------------------------------------------------------------------ */
+.nutrition-table {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-x: auto;
+}
+
+.nutrition-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 1.4fr) repeat(4, minmax(64px, 1fr));
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  min-width: 420px;
+}
+
+.nutrition-row:nth-child(even) {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.nutrition-row > :not(:first-child) {
+  text-align: right;
+}
+
+.nutrition-head {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+  background: rgba(208, 188, 255, 0.07);
+}
+
+.nutrition-head:nth-child(even) {
+  background: rgba(208, 188, 255, 0.07);
+}
+
+/* La tabla de días tiene 6 columnas. */
+.nutrition-table:has(.nutrition-row > span:nth-child(6)) .nutrition-row {
+  grid-template-columns: minmax(64px, 1fr) repeat(5, minmax(56px, 1fr));
+}
+
+.nutrition-week {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(208, 188, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.nutrition-week.empty {
+  opacity: 0.5;
+}
+
+.nutrition-week-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.nutrition-week-bar {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(208, 188, 255, 0.1);
+  overflow: hidden;
+}
+
+.nutrition-week-bar > div {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--primary-deep), var(--primary));
 }
 
 /* ------------------------------------------------------------------ */

@@ -133,6 +133,12 @@ const PATHS: Record<string, React.ReactNode> = {
       <path d="M8 7c0-1 1-2 2-2M13 7c0-1 1-2 2-2" />
     </>
   ),
+  repo: (
+    <>
+      <path d="M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+      <path d="M8 3v18M11 8h5M11 12h5" />
+    </>
+  ),
 };
 
 export function Icon({

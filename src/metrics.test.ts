@@ -55,6 +55,32 @@ describe('metrics', () => {
     expect(todayISO(startOfWeek(new Date(2026, 9, 28)))).toBe('2026-10-26');
   });
 
+  it('uses the declared activity level exactly once', () => {
+    const base = computeMacros(BODY, 30, 'maintain');
+    const auto = computeMacros(BODY, 30, 'maintain', 'auto');
+    const moderate = computeMacros(BODY, 30, 'maintain', 'moderate');
+    const high = computeMacros(BODY, 30, 'maintain', 'high');
+    expect(base).not.toBeNull();
+    expect(auto).not.toBeNull();
+    expect(moderate).not.toBeNull();
+    expect(high).not.toBeNull();
+    expect(auto!.activity).toBe(base!.activity);
+    expect(auto!.tdee).toBe(base!.tdee);
+    expect(moderate!.activity).toBeCloseTo(1.55, 2);
+    expect(moderate!.tdee).toBeGreaterThan(base!.tdee);
+    expect(high!.tdee).toBeGreaterThan(moderate!.tdee);
+  });
+
+  it('applies the selected goal as a calorie deficit or surplus', () => {
+    const maintain = computeMacros(BODY, 180, 'maintain', 'moderate')!;
+    const cut = computeMacros(BODY, 180, 'cut', 'moderate')!;
+    const bulk = computeMacros(BODY, 180, 'bulk', 'moderate')!;
+    expect(maintain.kcal).toBe(maintain.tdee);
+    expect(cut.kcal).toBeLessThan(cut.tdee);
+    expect(bulk.kcal).toBeGreaterThan(bulk.tdee);
+  });
+
+
   it('applies exercise upserts and deletes deterministically', () => {
     const exercises = reduceExercises([
       event('exercise.upsert', { id: 'a', name: 'Sentadilla' } as unknown as Record<string, unknown>),

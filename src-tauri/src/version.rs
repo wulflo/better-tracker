@@ -57,19 +57,63 @@ pub fn detect_install_format() -> &'static str {
     {
         return "appimage";
     }
-    match std::env::var("TAURI_INSTALL_FORMAT").as_deref() {
-        Ok("deb") => "deb",
-        Ok("rpm") => "rpm",
-        Ok("appimage") => "appimage",
-        Ok("msi") => "msi",
-        Ok("nsis") => "nsis",
-        Ok("exe") => "exe",
-        Ok("apk") => "apk",
-        _ if cfg!(target_os = "android") => "apk",
-        _ if cfg!(target_os = "windows") => "windows",
-        _ if cfg!(target_os = "linux") => "linux",
-        _ => "unknown",
+    if let Ok(value) = std::env::var("TAURI_INSTALL_FORMAT") {
+        match value.as_str() {
+            "deb" => return "deb",
+            "rpm" => return "rpm",
+            "appimage" => return "appimage",
+            "msi" => return "msi",
+            "nsis" => return "nsis",
+            "exe" => return "exe",
+            "apk" => return "apk",
+            _ => {}
+        }
     }
+    #[cfg(target_os = "android")]
+    {
+        "apk"
+    }
+    #[cfg(target_os = "windows")]
+    {
+        "windows"
+    }
+    #[cfg(target_os = "linux")]
+    {
+        detect_linux_package_format().unwrap_or("linux")
+    }
+    #[cfg(not(any(target_os = "android", target_os = "windows", target_os = "linux")))]
+    {
+        "unknown"
+    }
+}
+
+/// En Linux, un binario instalado por el sistema no lleva `TAURI_INSTALL_FORMAT`
+/// en el entorno. Sin esta comprobación, un `.deb`/`.rpm` se mostraba como
+/// "linux" y la app decía que no se podía actualizar. Distinguimos dpkg de rpm
+/// por la base de datos del gestor y solo cuando el ejecutable vive en una ruta
+/// de instalación del sistema (no en una carpeta personal o portátil).
+#[cfg(target_os = "linux")]
+fn detect_linux_package_format() -> Option<&'static str> {
+    use std::path::Path;
+    let exe = std::env::current_exe().ok()?;
+    let path = exe.to_string_lossy();
+    let installed = path.starts_with("/usr/bin/")
+        || path.starts_with("/usr/local/bin/")
+        || path.starts_with("/usr/lib/")
+        || path.starts_with("/opt/");
+    if !installed {
+        return None;
+    }
+    if Path::new("/var/lib/dpkg/status").exists() || Path::new("/etc/debian_version").exists() {
+        return Some("deb");
+    }
+    if Path::new("/etc/redhat-release").exists()
+        || Path::new("/etc/fedora-release").exists()
+        || Path::new("/var/lib/rpm").exists()
+    {
+        return Some("rpm");
+    }
+    None
 }
 
 #[cfg(test)]

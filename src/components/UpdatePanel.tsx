@@ -1,9 +1,11 @@
 import React, { useCallback, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { Icon } from './Icons';
 import {
   canUseUpdater,
   checkForUpdate,
   installUpdate,
+  updaterUnavailableReason,
   type AvailableUpdate,
 } from '../updater';
 
@@ -35,6 +37,7 @@ export default function UpdatePanel({
 
   const enabled = canUseUpdater(installFormat);
   const android = installFormat === 'apk';
+  const packageFormat = installFormat === 'deb' || installFormat === 'rpm' ? installFormat : null;
   const busy = status === 'checking' || status === 'downloading';
 
   const onCheck = useCallback(async () => {
@@ -69,6 +72,10 @@ export default function UpdatePanel({
         setSavedPath(result.path);
         setStatus('ready');
         notify('APK guardada. Abre el archivo desde tu gestor de archivos para instalarla.', 'success');
+      } else if (result.kind === 'package') {
+        setSavedPath(result.path);
+        setStatus('ready');
+        notify('Paquete descargado y verificado. Se ha abierto el instalador del sistema.', 'success');
       } else {
         notify('Actualización instalada. Reiniciando…', 'success');
       }
@@ -83,6 +90,15 @@ export default function UpdatePanel({
       ? Math.min(100, Math.round((progress.downloaded / progress.total) * 100))
       : null;
 
+  const onOpenSaved = useCallback(async () => {
+    if (!savedPath) return;
+    try {
+      await invoke('open_update_file', { path: savedPath });
+    } catch (e) {
+      notify(readableError(e), 'error');
+    }
+  }, [notify, savedPath]);
+
   return (
     <div className="update-panel">
       <div className="update-head">
@@ -92,8 +108,10 @@ export default function UpdatePanel({
           </div>
           <div className="update-sub">
             {android
-              ? 'Se comprueba solo cuando lo pides. La APK se verifica con SHA-256 y se guarda en Descargas; la instalación es manual.'
-              : 'Se comprueba solo cuando lo pides. El paquete se verifica con la firma criptográfica antes de instalarse.'}
+              ? 'Se comprueba solo cuando lo pides. La APK se descarga en Rust, se verifica con SHA-256 y se guarda en Descargas; la instalación es manual.'
+              : packageFormat
+                ? `Se comprueba solo cuando lo pides. El paquete .${packageFormat} se descarga en streaming, se verifica con SHA-256 y se abre con el instalador del sistema.`
+                : 'Se comprueba solo cuando lo pides. El manifiesto se consulta sin caché y el paquete se verifica antes de instalarse.'}
           </div>
         </div>
         <button className="btn btn-ghost btn-sm" onClick={onCheck} disabled={!enabled || busy}>
@@ -105,11 +123,7 @@ export default function UpdatePanel({
       {!enabled && (
         <div className="notice notice-warn">
           <Icon name="info" size={16} />
-          <span>
-            {installFormat === 'navegador'
-              ? 'La actualización está disponible solo en la app nativa.'
-              : 'En Linux la actualización integrada solo funciona con AppImage. Si usas .deb, .rpm o un binario portable, descarga el paquete nuevo desde GitHub Releases.'}
-          </span>
+          <span>{updaterUnavailableReason(installFormat)}</span>
         </div>
       )}
 
@@ -131,7 +145,12 @@ export default function UpdatePanel({
               </div>
             </div>
             <button className="btn btn-primary btn-sm" onClick={onInstall}>
-              <Icon name="download" size={14} /> {android ? 'Descargar APK' : 'Instalar y reiniciar'}
+              <Icon name="download" size={14} />{' '}
+              {android
+                ? 'Descargar APK'
+                : packageFormat
+                  ? `Descargar .${packageFormat} e instalar`
+                  : 'Instalar y reiniciar'}
             </button>
           </div>
           {target.info.body && <div className="update-notes">{target.info.body.slice(0, 900)}</div>}
@@ -141,7 +160,13 @@ export default function UpdatePanel({
       {status === 'downloading' && (
         <div className="progress-wrap">
           <div className="progress-labels">
-            <span>{android ? 'Descargando y verificando el APK…' : 'Descargando y verificando la firma…'}</span>
+            <span>
+              {android
+                ? 'Descargando y verificando el APK…'
+                : packageFormat
+                  ? `Descargando y verificando el paquete .${packageFormat}…`
+                  : 'Descargando y verificando la firma…'}
+            </span>
             <span>
               {progressPct === null ? `${Math.round(progress.downloaded / 1024)} KB` : `${progressPct}%`}
             </span>
@@ -155,10 +180,28 @@ export default function UpdatePanel({
       {status === 'ready' && (
         <div className="notice notice-success">
           <Icon name="check" size={16} />
-          <span>
-            APK guardada en <span className="mono">{savedPath}</span>. Abre el archivo desde un gestor de archivos
-            para instalar la nueva versión; Android puede pedirte permitir la instalación desde el gestor de archivos.
-          </span>
+          <div className="stack-sm">
+            <span>
+              {android ? (
+                <>
+                  APK guardada en <span className="mono">{savedPath}</span>. Abre el archivo desde un gestor de archivos
+                  para instalar la nueva versión; Android puede pedirte permitir la instalación desde el gestor.
+                </>
+              ) : (
+                <>
+                  Paquete guardado y verificado en <span className="mono">{savedPath}</span>. Se ha abierto el instalador
+                  del sistema; si no aparece, ábrelo manualmente desde Descargas.
+                </>
+              )}
+            </span>
+            {packageFormat && (
+              <div>
+                <button className="btn btn-tonal btn-sm" onClick={onOpenSaved}>
+                  <Icon name="download" size={14} /> Abrir instalador de nuevo
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

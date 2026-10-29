@@ -21,19 +21,22 @@ import PanelView from './PanelView';
 import TrainingView from './TrainingView';
 import HistoryView from './HistoryView';
 import BodyView from './BodyView';
+import WellnessView from './WellnessView';
 import { Icon, LogoMark } from './components/Icons';
 import { useLanguage, t } from './i18n';
 import UpdatePanel from './components/UpdatePanel';
 import { errorText } from './errors';
+import { openRepository, REPOSITORY_URL } from './links';
 
-type View = 'panel' | 'training' | 'history' | 'body';
+type View = 'panel' | 'training' | 'history' | 'body' | 'wellness';
 type ToastTone = 'success' | 'error' | 'info';
 
-const NAV: Array<{ id: View; label: string; icon: string }> = [
-  { id: 'panel', label: 'Panel', icon: 'dashboard' },
-  { id: 'training', label: 'Entrenamiento', icon: 'dumbbell' },
-  { id: 'history', label: 'Historial', icon: 'history' },
-  { id: 'body', label: 'Figura corporal', icon: 'body' },
+const NAV: Array<{ id: View; icon: string }> = [
+  { id: 'panel', icon: 'dashboard' },
+  { id: 'training', icon: 'dumbbell' },
+  { id: 'history', icon: 'history' },
+  { id: 'body', icon: 'body' },
+  { id: 'wellness', icon: 'check' },
 ];
 
 const TITLES: Record<View, string> = {
@@ -41,6 +44,7 @@ const TITLES: Record<View, string> = {
   training: 'Entrenamiento',
   history: 'Historial',
   body: 'Figura corporal',
+  wellness: 'Hábitos y ánimo',
 };
 
 /** Fecha local en el mismo formato que usa Rust para `Longlife`. */
@@ -405,7 +409,7 @@ export default function App() {
               onClick={() => setView(item.id)}
             >
               <span className="nav-icon"><Icon name={item.icon} size={19} /></span>
-              <span className="nav-label">{t(`nav.${item.id === 'panel' ? 'panel' : item.id === 'training' ? 'training' : item.id === 'history' ? 'history' : 'body'}`, lang)}</span>
+              <span className="nav-label">{t(`nav.${item.id}`, lang)}</span>
             </button>
           ))}
         </nav>
@@ -419,6 +423,14 @@ export default function App() {
           </div>
           <button type="button" className="settings-btn" onClick={() => setSettingsOpen(true)}>
             <Icon name="settings" size={17} /> {t('settings', lang)}
+          </button>
+          <button
+            type="button"
+            className="settings-btn"
+            onClick={() => void openRepository().catch((e) => notify(errorText(e), 'error'))}
+            title={REPOSITORY_URL}
+          >
+            <Icon name="repo" size={17} /> Repositorio
           </button>
         </div>
       </aside>
@@ -474,6 +486,14 @@ export default function App() {
               notify={notify}
             />
           )}
+          {view === 'wellness' && (
+            <WellnessView
+              deviceId={deviceId}
+              events={events}
+              onRefresh={onRefresh}
+              notify={notify}
+            />
+          )}
           <div className="row between wrap" style={{ marginTop: 18 }}>
             <span className="hint">Better Tracker · {info ? `v${info.version}` : 'v—'} · {events.length} eventos locales</span>
             <span className="hint">Bóveda: {vaultName}{vaultDataDir ? ` · datos en ${vaultDataDir}` : ''}</span>
@@ -491,18 +511,9 @@ export default function App() {
             onClick={() => setView(item.id)}
           >
             <Icon name={item.icon} size={20} />
-            <span>{item.label}</span>
+            <span>{t(`nav.mobile.${item.id}`, lang)}</span>
           </button>
         ))}
-        <button
-          type="button"
-          className="bottom-nav-item"
-          aria-label="Ajustes"
-          onClick={() => setSettingsOpen(true)}
-        >
-          <Icon name="settings" size={20} />
-          <span>{t('settings', lang)}</span>
-        </button>
       </nav>
 
       {settingsOpen && (
@@ -566,6 +577,15 @@ export default function App() {
               <div className="settings-row">
                 <span className="muted">Código de barras</span>
                 <span className="value small">Escanea desde Panel → Ingesta → Escanear código</span>
+              </div>
+              <div className="settings-row">
+                <span className="muted">Repositorio</span>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => void openRepository().catch((e) => notify(errorText(e), 'error'))}
+                >
+                  <Icon name="repo" size={14} /> Abrir GitHub
+                </button>
               </div>
               <UpdatePanel installFormat={info?.install_format} notify={notify} />
               <div style={{ marginTop: 14 }}>

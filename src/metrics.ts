@@ -1,4 +1,5 @@
 import type {
+  ActivityLevel,
   BodyMeasures,
   Exercise,
   GoalMode,
@@ -85,6 +86,82 @@ export function goalModeFromEvents(events: VaultEvent[]): GoalMode {
   const last = [...events].reverse().find((e) => e.kind === 'goal.mode');
   const mode = last?.payload?.mode;
   return mode === 'cut' || mode === 'bulk' || mode === 'maintain' ? mode : 'maintain';
+}
+
+export interface ActivityOption {
+  id: ActivityLevel;
+  label: string;
+  short: string;
+  multiplier: number;
+  description: string;
+}
+
+/**
+ * Niveles de actividad declarados por el usuario. Los multiplicadores son PAL
+ * estándar e incluyen tanto la vida diaria como el entrenamiento habitual; por
+ * eso no se suman otra vez los minutos registrados.
+ */
+export const ACTIVITY_LEVELS: ActivityOption[] = [
+  {
+    id: 'sedentary',
+    label: 'Sedentario',
+    short: 'Sedentario',
+    multiplier: 1.2,
+    description: 'Trabajo de oficina, poco movimiento y sin entrenamiento habitual.',
+  },
+  {
+    id: 'light',
+    label: 'Ligero',
+    short: 'Ligero',
+    multiplier: 1.375,
+    description: 'Camina a diario, trabaja de pie o entrena 1-2 veces por semana.',
+  },
+  {
+    id: 'moderate',
+    label: 'Moderado',
+    short: 'Moderado',
+    multiplier: 1.55,
+    description: 'Actividad diaria normal y 3-4 entrenamientos por semana.',
+  },
+  {
+    id: 'high',
+    label: 'Alto',
+    short: 'Alto',
+    multiplier: 1.725,
+    description: 'Trabajo físico o 5-6 entrenamientos intensos por semana.',
+  },
+  {
+    id: 'very_high',
+    label: 'Muy alto',
+    short: 'Muy alto',
+    multiplier: 1.9,
+    description: 'Trabajo muy físico, dobles sesiones o deporte de competición.',
+  },
+];
+
+/**
+ * Opción por defecto: deduce el multiplicador de los minutos de entrenamiento
+ * registrados, como hacía la app antes de existir el selector. Así nadie ve un
+ * objetivo inflado solo por no haber tocado todavía el nivel de actividad.
+ */
+export const AUTO_ACTIVITY: ActivityOption = {
+  id: 'auto',
+  label: 'Automático',
+  short: 'Auto',
+  multiplier: 0,
+  description: 'Se calcula con los minutos de entrenamiento de los últimos 7 días. Elige un nivel si prefieres fijarlo.',
+};
+
+export function activityLevelFromEvents(events: VaultEvent[]): ActivityLevel {
+  const last = [...events].reverse().find((e) => e.kind === 'activity.level');
+  const level = last?.payload?.level;
+  if (level === 'auto') return 'auto';
+  return ACTIVITY_LEVELS.some((option) => option.id === level) ? (level as ActivityLevel) : 'auto';
+}
+
+export function activityOption(level: ActivityLevel): ActivityOption {
+  if (level === 'auto') return AUTO_ACTIVITY;
+  return ACTIVITY_LEVELS.find((option) => option.id === level) ?? AUTO_ACTIVITY;
 }
 
 export function historyCutoff(events: VaultEvent[]): string {
@@ -432,15 +509,24 @@ export interface MacroResult {
   bmr: number;
   tdee: number;
   activity: number;
+  /** Nivel declarado por el usuario; `null` si se dedujo del entrenamiento. */
+  activityLevel: ActivityLevel | null;
   fiber: number;
   missing: string[];
   notes: string[];
 }
 
+/**
+ * Calcula los objetivos diarios. Si el usuario declara su nivel de actividad,
+ * el gasto basal se multiplica por ese PAL (que ya incluye el ejercicio
+ * habitual). Sin nivel declarado se mantiene la heurística antigua basada en
+ * minutos semanales para no romper datos anteriores.
+ */
 export function computeMacros(
   m: BodyMeasures,
   weeklyMinutes: number,
   goal: GoalMode,
+  activityLevel?: ActivityLevel,
 ): MacroResult | null {
   if (!m.weight || m.weight <= 0) return null;
   const missing: string[] = [];
@@ -463,10 +549,25 @@ export function computeMacros(
   const sexConst = m.sex === 'male' ? 5 : m.sex === 'female' ? -161 : -78;
   const bmr = 10 * m.weight + 6.25 * height - 5 * age + sexConst;
 
-  let activity = 1.2;
-  if (weeklyMinutes >= 60) activity = 1.375;
-  if (weeklyMinutes >= 150) activity = 1.55;
-  if (weeklyMinutes >= 300) activity = 1.725;
+  let activity: number;
+  if (activityLevel && activityLevel !== 'auto') {
+    activity = activityOption(activityLevel).multiplier;
+    // Los multiplicadores PAL ya incluyen el ejercicio habitual (de 1,2
+    // sedentario a 1,9 muy activo). Sumar otra vez los minutos registrados
+    // duplicaría el gasto del entrenamiento y dispararía el objetivo calórico.
+    notes.push(
+      `Actividad declarada: ${activityOption(activityLevel).label} (×${activity}). ` +
+        'El multiplicador ya incluye el entrenamiento habitual, así que no se suma dos veces.',
+    );
+  } else {
+    activity = 1.2;
+    if (weeklyMinutes >= 60) activity = 1.375;
+    if (weeklyMinutes >= 150) activity = 1.55;
+    if (weeklyMinutes >= 300) activity = 1.725;
+    notes.push(
+      `Actividad automática (×${activity}) según ${Math.round(weeklyMinutes)} min de entrenamiento en 7 días.`,
+    );
+  }
   const tdee = bmr * activity;
   const kcal = Math.round(tdee * (goal === 'cut' ? 0.85 : goal === 'bulk' ? 1.1 : 1));
   const proteinPerKg = goal === 'cut' ? 2.0 : 1.8;
@@ -487,6 +588,7 @@ export function computeMacros(
     bmr: Math.round(bmr),
     tdee: Math.round(tdee),
     activity,
+    activityLevel: activityLevel ?? null,
     fiber,
     missing,
     notes,

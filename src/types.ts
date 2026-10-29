@@ -1,5 +1,12 @@
 export type Sex = 'male' | 'female' | 'unspecified';
 export type GoalMode = 'cut' | 'maintain' | 'bulk';
+export type ActivityLevel =
+  | 'auto'
+  | 'sedentary'
+  | 'light'
+  | 'moderate'
+  | 'high'
+  | 'very_high';
 
 export type FoodCategory =
   | 'fruta'
@@ -162,6 +169,41 @@ export interface Goal {
   target: number;
   date: string;
   note: string;
+}
+
+export type HabitFrequency = 'daily' | 'weekly' | 'monthly';
+
+export interface Habit {
+  id: string;
+  name: string;
+  note?: string;
+  frequency: HabitFrequency;
+  /** Días de la semana (0 = domingo) para hábitos semanales concretos. */
+  days: number[];
+  /** Veces por semana cuando no se eligen días concretos. */
+  timesPerWeek: number;
+  /** Día del mes para hábitos mensuales. */
+  dayOfMonth: number;
+  points: number;
+  enabled: boolean;
+  createdAt: string;
+}
+
+export interface HabitLog {
+  habitId: string;
+  date: string;
+  completed: boolean;
+  points: number;
+}
+
+export type MoodScore = 1 | 2 | 3 | 4 | 5;
+
+export interface MoodEntry {
+  date: string;
+  mood: MoodScore;
+  note: string;
+  /** Resumen del día, máximo 5 palabras. */
+  summary: string;
 }
 
 export interface BodyMeasures {
