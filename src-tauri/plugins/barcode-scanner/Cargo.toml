@@ -1,0 +1,28 @@
+[package]
+name = "tauri-plugin-barcode-scanner"
+version = "2.5.3"
+description = "Scan QR codes, EAN-13 and other kinds of barcodes on Android and iOS"
+edition = "2024"
+rust-version = "1.90"
+authors = ["Tauri Programme within The Commons Conservancy"]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/tauri-apps/plugins-workspace"
+links = "tauri-plugin-barcode-scanner"
+
+# Copia local del crate `tauri-plugin-barcode-scanner` 2.5.3 con los arreglos
+# descritos en UPSTREAM.md (comportamiento nulo del vibrador y del contenedor
+# de la WebView, más ML Kit empaquetado). Se actualiza a mano cuando upstream
+# publique una versión con esos arreglos.
+
+[build-dependencies]
+tauri-plugin = { version = "2.7.1", features = ["build"] }
+
+[dependencies]
+log = "0.4.21"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.12", default-features = false }
+thiserror = "2"
+
+[target.'cfg(target_os = "ios")'.dependencies]
+tauri = { version = "2.12", features = ["wry"], default-features = false }

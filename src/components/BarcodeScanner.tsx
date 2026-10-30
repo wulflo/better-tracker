@@ -3,6 +3,7 @@ import { BrowserMultiFormatReader } from '@zxing/browser';
 import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 import {
   Format,
+  cancel,
   checkPermissions,
   openAppSettings,
   requestPermissions,
@@ -115,6 +116,16 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
           setError('Escaneo cancelado. Pulsa «Reintentar» para abrir la cámara otra vez.');
           return;
         }
+        // Errores nativos sin mensaje útil (por ejemplo el NPE de la vista previa
+        // que lanzaban versiones antiguas del plugin). Mejor un aviso claro que
+        // el texto de Java.
+        if (/null object reference|getClass\(\)|Something went wrong/i.test(message)) {
+          setShowSettings(false);
+          setError(
+            'La cámara no pudo abrirse en este dispositivo. Cierra la app, vuelve a abrirla y prueba otra vez.',
+          );
+          return;
+        }
         const permissionProblem = /permission|denied|camera|permiso/i.test(message);
         setShowSettings(permissionProblem);
         setError(
@@ -156,6 +167,9 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
     return () => {
       cancelled = true;
       controls?.stop();
+      // Al cerrar el modal hay que soltar la cámara nativa: si no, `scan()`
+      // queda pendiente y la vista previa sigue abierta por detrás.
+      if (mobile) void cancel().catch(() => undefined);
     };
   }, [mobile, attempt]);
 

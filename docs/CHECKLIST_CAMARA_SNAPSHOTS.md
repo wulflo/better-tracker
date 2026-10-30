@@ -21,6 +21,32 @@
   generar un formato inválido (`0`).
 - [x] Formatear errores objeto de Tauri (`[object Object]`) con `errorText` (`src/errors.ts`).
 - [x] Añadir botón “Abrir ajustes” cuando el permiso esté denegado.
+- [x] Corregir el NPE que aparecía justo después de conceder el permiso:
+  `No se pudo abrir la cámara: attempt to invoke virtual method 'java.lang.Class
+  java.lang.Object.getClass()' on a null object reference`. Origen: Tauri
+  entrega a `load()` la primera WebView creada, que aquí es la del `splash` y se
+  cierra al arrancar; el plugin 2.5.3 se quedaba con esa WebView sin padre y
+  `webView.parent as ViewGroup` lanzaba el NPE (R8 compila esa comprobación como
+  `Object.getClass()`). `getSystemService(VIBRATOR_SERVICE) as Vibrator` era otro
+  posible nulo. Además, al fallar dejaba la vista previa montada y el fondo de
+  la WebView transparente, así que «Reintentar» no recuperaba la app.
+- [x] Copiar el plugin a `src-tauri/plugins/barcode-scanner` (2.5.3 + parches)
+  y apuntar ahí la dependencia de Android. Parches: contenedor de respaldo para
+  la vista previa, vibrador opcional, desmontaje siempre, `scan()` limpia antes
+  de rechazar, `mapFormats` sin ceros y ML Kit empaquetado (sin Play Services).
+  Detalle en `src-tauri/plugins/barcode-scanner/UPSTREAM.md`.
+- [x] Aviso comprensible en el frontend si llega un error nativo sin mensaje
+  (`null object reference` / `getClass()`), en vez de mostrar el texto de Java.
+- [x] Cerrar el modal cancela el escaneo pendiente: el *cleanup* del componente
+  llama a `cancel()`, así la cámara nativa no se queda abierta por detrás.
+- [x] Verificado en emulador x86_64 (API 35, sin Play Store): permiso concedido,
+  `scan()` abre la vista previa sin NPE, la interfaz sigue visible y usable
+  (`windowed`), **Cancelar** suelta la cámara y un segundo `scan()` vuelve a
+  abrirla.
+- [x] Verificado que el ML Kit empaquetado decodifica un EAN-13 **con Google Play
+  Services desactivado** (`pm disable-user com.google.android.gms`):
+  `cd src-tauri/gen/android && ./gradlew :tauri-plugin-barcode-scanner:connectedDebugAndroidTest`
+  (2 pruebas en verde).
 - [ ] Verificar en un Android real: permiso concedido, cámara abierta y código leído.
 - [ ] Verificar en un Android real: permiso denegado y mensaje comprensible.
 

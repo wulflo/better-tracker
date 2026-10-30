@@ -26,6 +26,7 @@
 - Escáner: el frontend comprueba y solicita el permiso `CAMERA`, muestra el error real (sin `[object Object]`) y ofrece **Abrir ajustes** si está denegado.
 - `scripts/patch-android-manifest.mjs` añade `CAMERA` y `uses-feature` de forma idempotente al manifiesto generado; CI lo ejecuta tras `tauri android init`.
 - Formatos nativos sin `QRCode` explícito para evitar el formato inválido `0` de `mapFormats`; el plugin añade QR internamente.
+- Escáner arreglado: el plugin 2.5.3 se quedaba con la WebView del splash (cerrada al arrancar) y `webView.parent as ViewGroup` lanzaba `attempt to invoke virtual method 'java.lang.Class java.lang.Object.getClass()' on a null object reference`; además dejaba la capa de cámara montada al fallar. Ahora vive en `src-tauri/plugins/barcode-scanner` con la WebView visible, vibrador opcional, limpieza al fallar y ML Kit empaquetado (funciona sin Google Play Services). Ver `UPSTREAM.md`.
 - Búsqueda de producto por variantes UPC/EAN/GTIN (exacto, sin ceros, 12/13/14 dígitos) en Rust y en navegador; el producto guarda el código escaneado original.
 - `tauri-plugin-android-fs` 30.2.0 con `compileSdk = 36`: la APK vuelve a compilar en CI sin parches manuales del registro de Cargo. Las rutas SAF guardadas por 2.x se siguen leyendo.
 
