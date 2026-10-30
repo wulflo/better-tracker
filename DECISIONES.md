@@ -7,23 +7,30 @@ Better Tracker. El nombre se define en `tauri.conf.json` (`productName`) y se us
 Escritorio y Android:
 - Linux x86_64: `.deb`, `.rpm`, `.AppImage`. Wayland mediante GTK/WebKit de Tauri 2.
 - Windows 10/11 x64: NSIS (instalación `currentUser`) y MSI.
-- Android arm64: APK firmada; la bóveda se elige con SAF.
+- Android arm64: APK firmada; la bóveda se elige con SAF. **minSdk 33** (`bundle.android.minSdkVersion` en `tauri.conf.json`): la app solo admite Android 13 o superior, lo que elimina las ramas y permisos para Android 9/10 (`WRITE/READ_EXTERNAL_STORAGE`, `legacy-storage-permission`).
 
 Cada plataforma de escritorio tiene su archivo de configuración (`tauri.linux.conf.json`, `tauri.windows.conf.json`) para que los targets y el instalador no interfieran entre sí.
 
 ## Stack
 Tauri 2 + React 18 + TypeScript + Vite. La lógica de archivos y comandos vive en Rust; el frontend usa IPC tipado y un mock de navegador solo para pruebas visuales.
 
+### HTTP y TLS (Rust)
+- El backend usa `reqwest 0.12` con `rustls-tls-webpki-roots` (raíces de Mozilla, como `tauri-plugin-http`). No se usa la feature `rustls` de reqwest 0.13: activa `rustls-platform-verifier`, que en Android requiere inicialización JNI manual que Tauri no hace; al construir el cliente entra en panic y, con `panic = "abort"` del perfil release, **cierra la app**. Ese era el motivo de los cierres al escanear (la búsqueda en Open Food Facts usa la misma pila) y al comprobar actualizaciones.
+- Consecuencia: si algún módulo necesita HTTPS en Android, debe pasar por reqwest 0.12 con webpki-roots (o por `tauri-plugin-http`), nunca por reqwest 0.13 + `rustls`.
+
 ## Almacenamiento
 Bóveda en una carpeta elegida por el usuario. Todos los datos de la app viven en `<bóveda>/omega`; los eventos son append-only. Cada evento nuevo se escribe como archivo propio (`omega/devices/<id>/events/<event-id>.json`) con temporal + rename en escritorio y `create_new_file` en SAF. Los `events.jsonl` antiguos se siguen leyendo para no romper bóvedas existentes y todos los eventos se deduplican por `id` al leer. La reducción es determinista por timestamp; los borrados usan eventos de “limpieza” o lápidas. Sin cifrado activo, sin fotos y sin adjuntos.
 
 Escribir un archivo por evento evita que dos dispositivos (o FolderSync) reescriban el mismo JSONL y se pisen datos: un evento creado en Android nunca puede ser borrado por una versión antigua del archivo que tenga el PC.
 
-En Android la carpeta se elige con el selector SAF (`tauri-plugin-android-fs`), se concede permiso persistente de lectura/escritura y se guarda la ruta serializada en la configuración de la app. La app no usa `Longlife` como fuente de datos: solo lo enumera para mostrar el estado, restaurar o borrar copias.
+En Android la carpeta se elige con el selector SAF (`tauri-plugin-android-fs`), se concede permiso persistente de lectura/escritura y se guarda la ruta serializada en la configuración de la app. La app no usa `longlife` como fuente de datos: solo lo enumera para mostrar el estado, restaurar o borrar copias.
 
-### Copias Longlife
-- Una copia de `omega` por día y dispositivo en `<bóveda>/Longlife/<dispositivo>/<AAAA-MM-DD>`. Cada dispositivo escribe solo en su carpeta, así que dos móviles/PC nunca compiten por la misma copia diaria.
-- Las copias antiguas en `<bóveda>/Longlife/<AAAA-MM-DD>` se listan como legado y también se pueden restaurar.
+### Copias longlife
+- La carpeta se llama `longlife` (minúsculas) para que las bóvedas sincronizadas entre sistemas que distinguen mayúsculas (Linux, Android/SAF) no terminen con dos carpetas distintas (`Longlife` y `longlife`).
+- En escritorio, `<bóveda>/Longlife` se renombra a `longlife` la primera vez que se abre la bóveda (`fs::rename`, sin mover archivos). Si ambas existen a la vez, ambas se listan y se deduplican por `device/fecha`; la heredada se lee como legado y ninguna copia deja de verse.
+- En SAF (Android) no existe renombrado por API: las copias nuevas se crean siempre en `longlife/` y la carpeta `Longlife` se sigue **leyendo y restaurando** como legado (también se borra desde «Borrar todas las copias»). El usuario puede moverla a mano con el explorador cuando quiera.
+- Una copia de `omega` por día y dispositivo en `<bóveda>/longlife/<dispositivo>/<AAAA-MM-DD>`. Cada dispositivo escribe solo en su carpeta, así que dos móviles/PC nunca compiten por la misma copia diaria.
+- Las copias antiguas en `<bóveda>/longlife/<AAAA-MM-DD>` se listan como legado y también se pueden restaurar.
 - Se conservan las 7 copias más recientes **de cada dispositivo**; las de otros dispositivos no se tocan.
 - `snapshot.json` dentro de cada copia guarda `device_id`, etiqueta, plataforma, fecha y versión de la app. Así el PC puede mostrar correctamente una copia creada en Android.
 - Un marcador `.backup-complete` dentro de la carpeta del día distingue una copia completa de una interrumpida. Si falta, la copia parcial se reemplaza.
@@ -34,8 +41,8 @@ En Android la carpeta se elige con el selector SAF (`tauri-plugin-android-fs`), 
 - Si el número de eventos de una bóveda baja respecto al último valor visto (guardado en `localStorage` por ruta de bóveda), la app muestra un aviso y sugiere restaurar una copia.
 
 ### FolderSync
-- La bóveda completa (incluida `Longlife`) puede sincronizarse entre Android y PC.
-- Los conflictos nunca deben resolverse borrando `omega/devices/` ni `Longlife/`: los eventos son inmutables y las copias por dispositivo no colisionan.
+- La bóveda completa (incluida `longlife`) puede sincronizarse entre Android y PC.
+- Los conflictos nunca deben resolverse borrando `omega/devices/` ni `longlife/`: los eventos son inmutables y las copias por dispositivo no colisionan.
 - Recomendado: configurar FolderSync como copia incremental del móvil al PC (o desactivar la propagación de borrados). Un modo espejo puede borrar en el PC eventos que ya no existan en el origen, y una copia antigua del PC nunca debe sincronizarse sobre el móvil.
 - Si una sincronización antigua revierte la bóveda, la UI detecta la caída de eventos y la restauración recupera solo lo que falte.
 

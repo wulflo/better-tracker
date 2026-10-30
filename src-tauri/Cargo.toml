@@ -1,6 +1,6 @@
 [package]
 name = "better-tracker"
-version = "0.9.6"
+version = "0.9.7"
 description = "Better Tracker"
 authors = ["better-tracker"]
 license = "MIT"
@@ -23,7 +23,16 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 uuid = { version = "1.0", features = ["v4"] }
 chrono = { version = "0.4", features = ["clock", "serde"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+# TLS con webpki-roots (paquete de raíces de Mozilla), igual que tauri-plugin-http.
+# IMPORTANTE en Android: reqwest 0.13 con la feature `rustls` usa
+# rustls-platform-verifier, que exige inicialización JNI manual
+# (`android::init_with_env`) que Tauri no hace; al construir el cliente entra en
+# panic y, con `panic = "abort"`, cierra la aplicación al comprobar
+# actualizaciones o al buscar el producto de un código escaneado. reqwest 0.12
+# con `rustls-tls-webpki-roots` no depende de ese verificador y funciona igual en
+# escritorio (GitHub y Open Food Facts usan ISRG/DigiCert, incluidas en las
+# raíces webpki).
+reqwest = { version = "0.12.28", default-features = false, features = ["json", "rustls-tls-webpki-roots"] }
 sha2 = "0.10"
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
@@ -31,7 +40,11 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 
 [target.'cfg(target_os = "android")'.dependencies]
-tauri-plugin-android-fs = { version = "30.2", features = ["legacy-storage-permission"] }
+# minSdk es 33 (Android 13+), así que no hace falta la feature
+# `legacy-storage-permission`: MediaStore en Descargas no pide permisos
+# de almacenamiento desde Android 10 y WRITE/READ_EXTERNAL solo existiría
+# para Android 9 o anterior.
+tauri-plugin-android-fs = { version = "30.2" }
 # Copia local con los arreglos del escáner (ver plugins/barcode-scanner/UPSTREAM.md).
 tauri-plugin-barcode-scanner = { path = "plugins/barcode-scanner" }
 # GitHub no envía cabeceras CORS en los assets de release; el plugin HTTP usa

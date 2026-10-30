@@ -127,7 +127,7 @@ export async function runBackup(force = false): Promise<BackupRunResult> {
   if (!isTauri()) {
     return {
       created: false,
-      skipped: 'Las copias Longlife solo están disponibles en la app nativa.',
+      skipped: 'Las copias longlife solo están disponibles en la app nativa.',
       date: null,
       status: emptyBackupStatus(),
     };
@@ -141,7 +141,7 @@ export async function deleteBackups(): Promise<BackupStatus> {
 }
 
 /**
- * Importa a la bóveda actual los eventos de una copia Longlife que ya no estén
+ * Importa a la bóveda actual los eventos de una copia longlife que ya no estén
  * presentes. Nunca sobrescribe ni borra eventos: los recuperados se escriben en
  * `omega/devices/restored-<copia>-<marca>/events.jsonl` y se deduplican por id.
  */

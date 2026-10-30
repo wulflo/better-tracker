@@ -3,7 +3,8 @@
 //! La app solo usa `<bóveda>/omega` como fuente de datos. Cada evento se guarda
 //! como archivo propio en `omega/devices/<device>/events/<id>.json` para que
 //! FolderSync no tenga que fusionar un JSONL compartido. Las copias diarias
-//! viven en `<bóveda>/Longlife/<device>/<AAAA-MM-DD>` y se pueden listar,
+//! viven en `<bóveda>/longlife/<device>/<AAAA-MM-DD>` (antes `Longlife`, que se
+//! migra al abrir la bóveda y se sigue leyendo como legado) y se pueden listar,
 //! restaurar (solo eventos que falten) o borrar desde Ajustes.
 //!
 //! En Android la bóveda se elige con el selector SAF y se conserva el permiso
@@ -25,7 +26,13 @@ pub const DATA_DIR: &str = "omega";
 const DEVICES_DIR: &str = "devices";
 const EVENTS_FILE: &str = "events.jsonl";
 const EVENTS_DIR: &str = "events";
-pub const BACKUP_DIR: &str = "Longlife";
+/// Nombre nuevo de la carpeta de copias, en minúsculas, para no crear dos
+/// carpetas distintas cuando la bóveda se sincroniza entre sistemas
+/// operativos que distinguen mayúsculas (Linux, Android/SAF).
+pub const BACKUP_DIR: &str = "longlife";
+/// Nombre heredado. Se sigue leyendo como legado y se migra al abrir la
+/// bóveda en escritorio.
+pub const LEGACY_BACKUP_DIR: &str = "Longlife";
 const BACKUP_MARKER: &str = ".backup-complete";
 const SNAPSHOT_META: &str = "snapshot.json";
 pub const BACKUP_RETENTION: usize = 7;
@@ -569,7 +576,7 @@ fn read_local_events(root: &Path) -> Result<Vec<Event>, String> {
 }
 
 /* ------------------------------------------------------------------ */
-/* Copias diarias Longlife                                           */
+/* Copias diarias longlife                                            */
 /* ------------------------------------------------------------------ */
 
 #[derive(Serialize, Clone)]
@@ -821,65 +828,118 @@ fn local_snapshot_info(
     }))
 }
 
+/// Raíces de copias en modo escritorio: la nueva y la heredada, sin duplicar
+/// la ruta cuando el sistema no distingue mayúsculas (Windows/FAT).
+fn local_backup_roots(root: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    for name in [BACKUP_DIR, LEGACY_BACKUP_DIR] {
+        let dir = root.join(name);
+        if !dir.is_dir() {
+            continue;
+        }
+        if let Ok(canonical) = dir.canonicalize() {
+            if roots.contains(&canonical) {
+                continue;
+            }
+            roots.push(canonical);
+        } else {
+            roots.push(dir);
+        }
+    }
+    roots
+}
+
+/// Renombra `Longlife` a `longlife` la primera vez (con `fs::rename`, los
+/// archivos no se mueven ni se copian).
+///
+/// En ficheros que no distinguen mayúsculas (Windows) `new.exists()` ya es
+/// `true` con el nombre antiguo, así que no se toca nada: es la misma carpeta.
+fn migrate_local_backup_dir(root: &Path) {
+    let old = root.join(LEGACY_BACKUP_DIR);
+    if !old.is_dir() {
+        return;
+    }
+    let new = root.join(BACKUP_DIR);
+    if new.exists() {
+        return;
+    }
+    if let Err(error) = fs::rename(&old, &new) {
+        eprintln!("No se pudo renombrar {LEGACY_BACKUP_DIR} a {BACKUP_DIR}: {error}");
+    }
+}
+
+/// Lista las copias de todas las raíces (`longlife` y, si sigue existiendo,
+/// `Longlife`) sin repetir la misma carpeta dos veces.
 fn list_local_backups(root: &Path, current_device: &str) -> Result<Vec<SnapshotInfo>, String> {
-    let backup_root = root.join(BACKUP_DIR);
-    let entries = match fs::read_dir(&backup_root) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(format!("No se pudo leer Longlife: {error}")),
-    };
+    migrate_local_backup_dir(root);
 
     let mut copies = Vec::new();
-    for entry in entries.flatten() {
-        if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
-            continue;
-        }
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else { continue };
-
-        if is_date_name(name) {
-            // Formato antiguo: Longlife/<fecha>. Sigue siendo legible, pero
-            // nunca se usa para escribir copias nuevas porque todos los
-            // dispositivos competían por la misma carpeta.
-            if let Some(info) = local_snapshot_info(
-                &entry.path(),
-                name.to_string(),
-                name.to_string(),
-                "legacy",
-                "Copia antigua (sin dispositivo)",
-                true,
-                current_device,
-            )? {
-                copies.push(info);
-            }
-            continue;
-        }
-
-        let device_entries = match fs::read_dir(entry.path()) {
+    let mut seen_ids = HashSet::new();
+    for backup_root in local_backup_roots(root) {
+        let entries = match fs::read_dir(&backup_root) {
             Ok(entries) => entries,
-            Err(_) => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(format!("No se pudo leer {BACKUP_DIR}: {error}"));
+            }
         };
-        for day in device_entries.flatten() {
-            if !day.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
                 continue;
             }
-            let Some(date) = day.file_name().to_str().map(str::to_string) else {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+
+            if is_date_name(name) {
+                // Formato antiguo: longlife/<fecha>. Sigue siendo legible, pero
+                // nunca se usa para escribir copias nuevas porque todos los
+                // dispositivos competían por la misma carpeta.
+                if seen_ids.insert(name.to_string()) {
+                    if let Some(info) = local_snapshot_info(
+                        &entry.path(),
+                        name.to_string(),
+                        name.to_string(),
+                        "legacy",
+                        "Copia antigua (sin dispositivo)",
+                        true,
+                        current_device,
+                    )? {
+                        copies.push(info);
+                    }
+                }
                 continue;
+            }
+
+            let device_entries = match fs::read_dir(entry.path()) {
+                Ok(entries) => entries,
+                Err(_) => continue,
             };
-            if !is_date_name(&date) {
-                continue;
-            }
-            let id = format!("{name}/{date}");
-            if let Some(info) = local_snapshot_info(
-                &day.path(),
-                id,
-                date,
-                name,
-                &format!("Dispositivo {}", short_id(name)),
-                false,
-                current_device,
-            )? {
-                copies.push(info);
+            for day in device_entries.flatten() {
+                if !day.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                    continue;
+                }
+                let Some(date) = day.file_name().to_str().map(str::to_string) else {
+                    continue;
+                };
+                if !is_date_name(&date) {
+                    continue;
+                }
+                let id = format!("{name}/{date}");
+                if !seen_ids.insert(id.clone()) {
+                    continue;
+                }
+                if let Some(info) = local_snapshot_info(
+                    &day.path(),
+                    id,
+                    date,
+                    name,
+                    &format!("Dispositivo {}", short_id(name)),
+                    false,
+                    current_device,
+                )? {
+                    copies.push(info);
+                }
             }
         }
     }
@@ -925,24 +985,30 @@ fn resolve_snapshot_dir(root: &Path, id: &str) -> Result<PathBuf, String> {
     if parts.is_empty() || parts.len() > 2 {
         return Err("La copia seleccionada no es válida.".to_string());
     }
-    let mut dir = root.join(BACKUP_DIR);
-    for part in parts {
-        if part == "." || part == ".." || part.contains('\\') || part.len() > 128 {
+    for part in &parts {
+        if *part == "." || *part == ".." || part.contains('\\') || part.len() > 128 {
             return Err("La copia seleccionada no es válida.".to_string());
         }
-        dir.push(part);
     }
-    if !dir.is_dir() {
-        return Err("La copia ya no existe. Actualiza la lista.".to_string());
+    // La copia puede vivir en la carpeta nueva o en la heredada (`Longlife`)
+    // cuando la migración todavía no ha corrido o el renombrado falló.
+    for name in [BACKUP_DIR, LEGACY_BACKUP_DIR] {
+        let mut dir = root.join(name);
+        for part in &parts {
+            dir.push(part);
+        }
+        if dir.is_dir() {
+            return Ok(dir);
+        }
     }
-    Ok(dir)
+    Err("La copia ya no existe. Actualiza la lista.".to_string())
 }
 
 #[tauri::command]
 pub async fn vault_backup_status(app: AppHandle) -> Result<BackupStatus, String> {
     tauri::async_runtime::spawn_blocking(move || backup_status(&app))
         .await
-        .map_err(|error| format!("No se pudo consultar Longlife: {error}"))?
+        .map_err(|error| format!("No se pudo consultar longlife: {error}"))?
 }
 
 pub fn backup_status(app: &AppHandle) -> Result<BackupStatus, String> {
@@ -973,7 +1039,7 @@ pub fn backup_status(app: &AppHandle) -> Result<BackupStatus, String> {
 }
 
 /// Crea como máximo una copia completa por día y dispositivo en
-/// `Longlife/<device>/<fecha>`. Así dos dispositivos nunca escriben la misma
+/// `longlife/<device>/<fecha>`. Así dos dispositivos nunca escriben la misma
 /// carpeta del día y FolderSync no tiene que resolver un conflicto destructivo.
 #[tauri::command]
 pub async fn vault_run_backup(
@@ -1021,6 +1087,7 @@ pub fn run_daily_backup(app: &AppHandle, force: bool) -> Result<BackupRunResult,
 
     match location {
         VaultLocation::Local(root) => {
+            migrate_local_backup_dir(&root);
             ensure_local_layout(&root)?;
             let omega = root.join(DATA_DIR);
             let (files, _) = count_dir(&omega)?;
@@ -1171,16 +1238,23 @@ pub fn delete_backups(app: &AppHandle) -> Result<BackupStatus, String> {
     let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     match location {
         VaultLocation::Local(root) => {
-            let backup_root = root.join(BACKUP_DIR);
-            if backup_root.exists() {
-                fs::remove_dir_all(&backup_root)
-                    .map_err(|e| format!("No se pudieron borrar las copias: {e}"))?;
+            for name in [BACKUP_DIR, LEGACY_BACKUP_DIR] {
+                let backup_root = root.join(name);
+                // En sistemas sin distinción de mayúsculas, `longlife` y
+                // `Longlife` son la misma carpeta: remove_dir_all solo se
+                // ejecuta si existe.
+                if backup_root.exists() {
+                    fs::remove_dir_all(&backup_root)
+                        .map_err(|e| format!("No se pudieron borrar las copias: {e}"))?;
+                }
             }
         }
         #[cfg(target_os = "android")]
         VaultLocation::Saf(saf) => {
-            if let Some(backup_root) = saf_find_dir(app, &saf.root, BACKUP_DIR)? {
-                saf_delete_tree(app, &backup_root)?;
+            for name in [BACKUP_DIR, LEGACY_BACKUP_DIR] {
+                if let Some(backup_root) = saf_find_dir(app, &saf.root, name)? {
+                    saf_delete_tree(app, &backup_root)?;
+                }
             }
         }
     }
@@ -1248,18 +1322,30 @@ fn saf_snapshot_dir(app: &AppHandle, root: &FsUri, id: &str) -> Result<FsUri, St
     if parts.is_empty() || parts.len() > 2 {
         return Err("La copia seleccionada no es válida.".to_string());
     }
-    let Some(mut dir) = saf_find_dir(app, root, BACKUP_DIR)? else {
-        return Err("La copia ya no existe. Actualiza la lista.".to_string());
-    };
-    for part in parts {
-        if part == "." || part == ".." || part.contains('\\') || part.len() > 128 {
+    for part in &parts {
+        if *part == "." || *part == ".." || part.contains('\\') || part.len() > 128 {
             return Err("La copia seleccionada no es válida.".to_string());
         }
-        dir = saf_find_dir(app, &dir, part)?
-            .ok_or_else(|| "La copia ya no existe. Actualiza la lista.".to_string())?;
     }
-    Ok(dir)
-}
+    for backup_name in [BACKUP_DIR, LEGACY_BACKUP_DIR] {
+        let Some(mut dir) = saf_find_dir(app, root, backup_name)? else {
+            continue;
+        };
+        let mut found = true;
+        for part in &parts {
+            match saf_find_dir(app, &dir, part)? {
+                Some(child) => dir = child,
+                None => {
+                    found = false;
+                    break;
+                }
+            }
+        }
+        if found {
+            return Ok(dir);
+        }
+    }
+    Err("La copia ya no existe. Actualiza la lista.".to_string())}
 
 #[cfg(target_os = "android")]
 fn restore_saf_snapshot(app: &AppHandle, root: &FsUri, id: &str) -> Result<RestoreResult, String> {
@@ -1496,66 +1582,89 @@ fn list_saf_backups(
     root: &FsUri,
     current_device: &str,
 ) -> Result<Vec<SnapshotInfo>, String> {
-    let Some(backup_root) = saf_find_dir(app, root, BACKUP_DIR)? else {
-        return Ok(Vec::new());
-    };
-
+    // SAF no permite renombrar: las copias heredadas en `Longlife` se leen
+    // como legado mientras el usuario las mueva (o las deje) a mano.
     let mut copies = Vec::new();
-    for entry in app
-        .android_fs()
-        .read_dir(&backup_root)
-        .map_err(|e| format!("No se pudo leer Longlife: {e}"))?
-    {
-        if !entry.is_dir() {
-            continue;
-        }
-        let name = entry.name().to_string();
-
-        if is_date_name(&name) {
-            if let Some(info) = saf_snapshot_info(
-                app,
-                entry.uri(),
-                name.clone(),
-                name,
-                "legacy",
-                "Copia antigua (sin dispositivo)",
-                true,
-                current_device,
-            )? {
-                copies.push(info);
-            }
-            continue;
-        }
-
-        for day in app
+    let mut seen_ids = HashSet::new();
+    for backup_root in saf_backup_roots(app, root)? {
+        for entry in app
             .android_fs()
-            .read_dir(entry.uri())
-            .map_err(|e| format!("No se pudo leer Longlife: {e}"))?
+            .read_dir(&backup_root)
+            .map_err(|e| format!("No se pudo leer {BACKUP_DIR}: {e}"))?
         {
-            if !day.is_dir() {
+            if !entry.is_dir() {
                 continue;
             }
-            let date = day.name().to_string();
-            if !is_date_name(&date) {
+            let name = entry.name().to_string();
+
+            if is_date_name(&name) {
+                if seen_ids.insert(name.clone()) {
+                    if let Some(info) = saf_snapshot_info(
+                        app,
+                        entry.uri(),
+                        name.clone(),
+                        name,
+                        "legacy",
+                        "Copia antigua (sin dispositivo)",
+                        true,
+                        current_device,
+                    )? {
+                        copies.push(info);
+                    }
+                }
                 continue;
             }
-            let id = format!("{name}/{date}");
-            if let Some(info) = saf_snapshot_info(
-                app,
-                day.uri(),
-                id,
-                date,
-                &name,
-                &format!("Dispositivo {}", short_id(&name)),
-                false,
-                current_device,
-            )? {
-                copies.push(info);
+
+            for day in app
+                .android_fs()
+                .read_dir(entry.uri())
+                .map_err(|e| format!("No se pudo leer {BACKUP_DIR}: {e}"))?
+            {
+                if !day.is_dir() {
+                    continue;
+                }
+                let date = day.name().to_string();
+                if !is_date_name(&date) {
+                    continue;
+                }
+                let id = format!("{name}/{date}");
+                if !seen_ids.insert(id.clone()) {
+                    continue;
+                }
+                if let Some(info) = saf_snapshot_info(
+                    app,
+                    day.uri(),
+                    id,
+                    date,
+                    &name,
+                    &format!("Dispositivo {}", short_id(&name)),
+                    false,
+                    current_device,
+                )? {
+                    copies.push(info);
+                }
             }
         }
     }
     copies.sort_by(|a, b| a.date.cmp(&b.date).then(a.device_id.cmp(&b.device_id)));
     Ok(copies)
+}
+
+/// Raíces de copias en SAF: `longlife` y, si sigue existiendo, `Longlife`.
+/// En SAF el nombre distingue mayúsculas, así que son carpetas distintas.
+#[cfg(target_os = "android")]
+fn saf_backup_roots(app: &AppHandle, root: &FsUri) -> Result<Vec<FsUri>, String> {
+    let mut roots = Vec::new();
+    for name in [BACKUP_DIR, LEGACY_BACKUP_DIR] {
+        if let Some(dir) = saf_find_dir(app, root, name)? {
+            // FsUri implementa PartialEq; evita repetir la misma carpeta si
+            // algún proveedor devuelve la misma URI con los dos nombres.
+            if !roots.contains(&dir) {
+                roots.push(dir);
+            }
+        }
+    }
+    Ok(roots)
 }
 
 #[cfg(target_os = "android")]
@@ -1656,7 +1765,7 @@ fn prune_saf_device_backups(app: &AppHandle, root: &FsUri, device: &str) -> Resu
     for entry in app
         .android_fs()
         .read_dir(&device_dir)
-        .map_err(|e| format!("No se pudo leer Longlife: {e}"))?
+        .map_err(|e| format!("No se pudo leer longlife: {e}"))?
     {
         if !entry.is_dir() || !is_date_name(entry.name()) {
             continue;
@@ -1705,6 +1814,7 @@ mod tests {
         assert!(!is_date_name("2026-13-01"));
         assert!(!is_date_name("2026-1-01"));
         assert!(!is_date_name("Longlife"));
+        assert!(!is_date_name("longlife"));
         assert!(!is_date_name("2026-10-28-extra"));
     }
 
@@ -1725,6 +1835,67 @@ mod tests {
             .join(EVENTS_FILE)
             .is_file());
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// Crea una copia de prueba `device-a/<fecha>` bajo `backup_root`.
+    fn write_snapshot(backup_root: &Path, date: &str) -> PathBuf {
+        let dir = backup_root.join("device-a").join(date);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("events.jsonl"), "{\"id\":\"1\"}\n").unwrap();
+        fs::write(dir.join(BACKUP_MARKER), b"ok\n").unwrap();
+        dir
+    }
+
+    #[test]
+    fn migrates_uppercase_longlife_to_lowercase() {
+        let root = temp_dir("migrate-longlife");
+        write_snapshot(&root.join(LEGACY_BACKUP_DIR), "2026-10-28");
+
+        // La primera lectura migra y lista la copia.
+        let copies = list_local_backups(&root, "device-a").unwrap();
+        assert_eq!(
+            copies.len(),
+            1,
+            "la copia heredada debe seguir viéndose"
+        );
+        assert!(!root.join(LEGACY_BACKUP_DIR).exists());
+        assert!(root
+            .join(BACKUP_DIR)
+            .join("device-a")
+            .join("2026-10-28")
+            .join("events.jsonl")
+            .is_file());
+
+        // Segunda lectura: ya no hay nada que migrar.
+        let copies = list_local_backups(&root, "device-a").unwrap();
+        assert_eq!(copies.len(), 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reads_uppercase_longlife_when_lowercase_already_exists() {
+        let root = temp_dir("longlife-legacy");
+        write_snapshot(&root.join(BACKUP_DIR), "2026-10-29");
+        write_snapshot(&root.join(LEGACY_BACKUP_DIR), "2026-10-28");
+
+        let copies = list_local_backups(&root, "device-a").unwrap();
+        let branches: Vec<&str> = copies.iter().map(|c| c.date.as_str()).collect();
+        assert!(
+            branches.contains(&"2026-10-28") && branches.contains(&"2026-10-29"),
+            "deben listarse ambas copias, nuevo {branches:?}"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn resolves_snapshots_in_the_uppercase_legacy_dir() {
+        let root = temp_dir("longlife-resolve");
+        write_snapshot(&root.join(LEGACY_BACKUP_DIR), "2026-10-28");
+
+        let dir = resolve_snapshot_dir(&root, "device-a/2026-10-28").unwrap();
+        assert!(dir.join("events.jsonl").is_file());
         let _ = fs::remove_dir_all(root);
     }
 

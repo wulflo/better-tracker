@@ -38,12 +38,6 @@ const CAMERA_PERMISSION = '<uses-permission android:name="android.permission.CAM
 const CAMERA_FEATURE =
   '<uses-feature android:name="android.hardware.camera" android:required="false" />';
 const INTERNET_MARKER = '<uses-permission android:name="android.permission.INTERNET" />';
-// Android 9 y anteriores: MediaStore necesita estos permisos para publicar la
-// APK de actualización en Descargas. En Android 10+ no se piden (maxSdkVersion).
-const LEGACY_STORAGE_PERMISSIONS = [
-  '<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />',
-  '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="28" />',
-].join('\n    ');
 
 let manifest = readFileSync(target, 'utf8');
 const original = manifest;
@@ -74,28 +68,9 @@ if (!manifest.includes('android.permission.CAMERA')) {
   process.exit(1);
 }
 
-if (!manifest.includes('android.permission.WRITE_EXTERNAL_STORAGE')) {
-  if (manifest.includes(INTERNET_MARKER)) {
-    manifest = manifest.replace(
-      INTERNET_MARKER,
-      `${INTERNET_MARKER}\n    ${LEGACY_STORAGE_PERMISSIONS}`,
-    );
-  } else {
-    const match = manifest.match(/<manifest\b[^>]*>/);
-    if (!match) {
-      console.error('patch-android-manifest: el archivo no parece un AndroidManifest.xml');
-      process.exit(1);
-    }
-    manifest = manifest.replace(
-      match[0],
-      `${match[0]}\n    ${LEGACY_STORAGE_PERMISSIONS}`,
-    );
-  }
-}
-
 if (manifest !== original) {
   writeFileSync(target, manifest);
-  console.log(`patch-android-manifest: permisos de cámara/almacenamiento añadidos a ${target}`);
+  console.log(`patch-android-manifest: permisos de cámara añadidos a ${target}`);
 } else {
   console.log(`patch-android-manifest: los permisos ya estaban en ${target}`);
 }

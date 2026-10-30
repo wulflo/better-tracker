@@ -2,7 +2,7 @@
 
 Training, body composition, nutrition, and weekly load in a local-first desktop app.
 
-Current version: **0.9.6**.
+Current version: **0.9.7**.
 
 [Leer en español](README.es.md)
 
@@ -14,7 +14,7 @@ Better Tracker is built and published for Linux, Windows and Android.
 | --- | --- | --- |
 | Linux x86_64 | `.AppImage`, `.deb`, `.rpm` | AppImage only. `.deb` and `.rpm` are updated by installing the new package. |
 | Windows 10/11 x64 | NSIS `.exe` (per-user install), `.msi` | NSIS. |
-| Android (arm64) | Signed `.apk` | The app downloads and verifies the APK, saves it to `Downloads/BetterTracker`, and the user installs it manually. |
+| Android (arm64) | Signed `.apk` | Requires Android 13 or later (minSdk 33). The app downloads and verifies the APK, saves it to `Downloads/BetterTracker`, and the user installs it manually. |
 
 On Linux the app uses GTK/WebKit and runs natively on Wayland. If a proprietary driver causes rendering issues, start it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
 
@@ -75,10 +75,10 @@ On Linux the app uses GTK/WebKit and runs natively on Wayland. If a proprietary 
 
 - No accounts, cloud dependency, telemetry, or LAN/P2P synchronization.
 - The vault is a folder you choose. All app data lives in `<vault>/omega`. Every new event is written as its own file (`omega/devices/<id>/events/<event-id>.json`); legacy `events.jsonl` files are still read and deduplicated by `id`.
-- On Android the vault is selected with the system folder picker (SAF) and the read/write permission is kept across restarts.
-- The app creates one copy of `omega` per day in `<vault>/Longlife/<device>/<YYYY-MM-DD>` and keeps the 7 most recent copies **per device**, without touching other devices' copies. Legacy copies in `<vault>/Longlife/<YYYY-MM-DD>` are still listed.
+- On Android the vault is selected with the system folder picker (SAF) and the read/write permission is kept across restarts. Daily backups live in `longlife/<device>/<date>`; the legacy `Longlife` folder is migrated when the vault is opened (desktop) and keeps being read as legacy until the user renames it via SAF.
+- The app creates one copy of `omega` per day in `<vault>/longlife/<device>/<YYYY-MM-DD>` and keeps the 7 most recent copies **per device**, without touching other devices' copies. Legacy copies in `<vault>/longlife/<YYYY-MM-DD>` are still listed.
 - **Settings → Backups** lets you create a copy, see each copy's date, device, and size, and **restore** it safely: only events missing from `omega` are imported into `omega/devices/restored-<copy>-<stamp>/`, without deleting or overwriting anything. Each copy stores a manifest with file count and bytes: if a sync leaves it half-copied, it shows as **damaged** and today's copy is rebuilt automatically.
-- Settings includes a high-risk action to delete every `Longlife` backup. It asks for confirmation, cannot be undone, and the daily backup is not recreated until the next day.
+- Settings includes a high-risk action to delete every `longlife` backup. It asks for confirmation, cannot be undone, and the daily backup is not recreated until the next day.
 - If the event count drops below the last count seen for that vault, the app warns: an append-only vault should never shrink (this usually means FolderSync or another machine reverted files). If you sync with FolderSync, use incremental copy mode from the phone to the PC (do not propagate deletions) and never sync an old PC copy back over the phone.
 - The scanner requests camera permission before opening, shows the real error if something fails, and offers a button to open Android settings. UPC-A/EAN-13/GTIN codes are tried in their zero-padded and unpadded forms (12/13/14 digits), both in the app and against Open Food Facts.
 - There is no encryption. Photos and files are not stored; pasted content is limited to plain text.

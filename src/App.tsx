@@ -47,7 +47,7 @@ const TITLES: Record<View, string> = {
   wellness: 'Hábitos y ánimo',
 };
 
-/** Fecha local en el mismo formato que usa Rust para `Longlife`. */
+/** Fecha local en el mismo formato que usa Rust para `longlife`. */
 function localDateKey(): string {
   const now = new Date();
   return [
@@ -98,7 +98,7 @@ export default function App() {
           if (dropWarnedRef.current !== signature) {
             dropWarnedRef.current = signature;
             notify(
-              `Aviso: la bóveda tiene ${next.length} eventos y antes había ${previous}. Revisa Longlife y restaura los que falten.`,
+              `Aviso: la bóveda tiene ${next.length} eventos y antes había ${previous}. Revisa longlife y restaura los que falten.`,
               'error',
             );
           }
@@ -134,7 +134,7 @@ export default function App() {
     return () => window.removeEventListener('better-tracker:refresh', onRefresh);
   }, [refresh]);
 
-  // Copia diaria en `Longlife`. La comprobación se repite cada 6 horas por si
+  // Copia diaria en `longlife`. La comprobación se repite cada 6 horas por si
   // la app queda abierta, y siempre es idempotente: solo crea una copia por día.
   useEffect(() => {
     if (!vault || !isTauri()) return;
@@ -165,7 +165,7 @@ export default function App() {
       .then(setBackupStatus)
       .catch((e) => {
         setBackupStatus(null);
-        notify(`No se pudo leer el estado de Longlife: ${errorText(e)}`, 'error');
+        notify(`No se pudo leer el estado de longlife: ${errorText(e)}`, 'error');
       });
   }, [settingsOpen, vault, notify]);
 
@@ -240,7 +240,7 @@ export default function App() {
       const result = await runBackup(true);
       setBackupStatus(result.status);
       if (result.created && result.date) {
-        notify(`Copia de ${result.date} creada en Longlife.`, 'success');
+        notify(`Copia de ${result.date} creada en longlife.`, 'success');
       } else {
         notify(result.skipped || 'No se creó ninguna copia.', 'info');
       }
@@ -257,7 +257,7 @@ export default function App() {
       const status = await deleteBackups();
       setBackupStatus(status);
       setConfirmDeleteBackups(false);
-      notify('Todas las copias de Longlife se han borrado. No se recreará hasta mañana.', 'success');
+      notify('Todas las copias de longlife se han borrado. No se recreará hasta mañana.', 'success');
     } catch (e) {
       notify(`No se pudieron borrar las copias: ${errorText(e)}`, 'error');
     } finally {
@@ -589,10 +589,10 @@ export default function App() {
               </div>
               <UpdatePanel installFormat={info?.install_format} notify={notify} />
               <div style={{ marginTop: 14 }}>
-                <div className="modal-title" style={{ fontSize: 14, marginBottom: 4 }}>Copias de seguridad (Longlife)</div>
+                <div className="modal-title" style={{ fontSize: 14, marginBottom: 4 }}>Copias de seguridad (longlife)</div>
                 <div className="card-sub" style={{ marginBottom: 8 }}>
                   Una copia de <span className="mono">omega</span> por día y dispositivo en{' '}
-                  <span className="mono">Longlife/&lt;dispositivo&gt;/&lt;fecha&gt;</span>. Se conservan las{' '}
+                  <span className="mono">longlife/&lt;dispositivo&gt;/&lt;fecha&gt;</span>. Se conservan las{' '}
                   {backupStatus?.retention_days ?? 7} más recientes de cada dispositivo.
                 </div>
                 <div className="settings-row">
@@ -610,7 +610,7 @@ export default function App() {
                     <Icon name="info" size={16} />
                     <span>
                       La bóveda pasó de {eventDrop.previous} a {eventDrop.current} eventos. Una sincronización o una
-                      copia antigua pudo sobrescribir archivos. Elige una copia de Longlife y pulsa «Restaurar» para
+                      copia antigua pudo sobrescribir archivos. Elige una copia de longlife y pulsa «Restaurar» para
                       recuperar solo los eventos que faltan.
                     </span>
                   </div>
@@ -688,7 +688,7 @@ export default function App() {
                 <div className="notice notice-warn" style={{ marginTop: 10 }}>
                   <Icon name="info" size={16} />
                   <span>
-                    Zona de alto riesgo: borrar Longlife es irreversible. La restauración es no destructiva, pero
+                    Zona de alto riesgo: borrar longlife es irreversible. La restauración es no destructiva, pero
                     conviene tener una copia reciente antes de tocar la bóveda.
                   </span>
                 </div>
@@ -704,7 +704,7 @@ export default function App() {
                   <div className="notice notice-error">
                     <Icon name="info" size={16} />
                     <span>
-                      ¿Borrar definitivamente las {backupStatus?.copies.length ?? 0} copias de Longlife? Esta acción
+                      ¿Borrar definitivamente las {backupStatus?.copies.length ?? 0} copias de longlife? Esta acción
                       no se puede deshacer.
                     </span>
                     <div className="row wrap" style={{ marginTop: 8 }}>
@@ -725,7 +725,7 @@ export default function App() {
               <div className="notice notice-info">
                 <Icon name="info" size={16} />
                 <span>
-                  La app solo lee y escribe datos en <span className="mono">omega</span>. Las copias Longlife son una
+                  La app solo lee y escribe datos en <span className="mono">omega</span>. Las copias longlife son una
                   red de seguridad local; no se exportan ni se envían a ningún servidor. Las únicas conexiones de red
                   son la comprobación manual de actualizaciones y la consulta opcional a Open Food Facts al escanear un
                   código.

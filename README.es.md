@@ -2,7 +2,7 @@
 
 Entrenamiento, composición corporal, nutrición y carga semanal en una app de escritorio local-first.
 
-Versión actual: **0.9.6**.
+Versión actual: **0.9.7**.
 
 [Read in English](README.md)
 
@@ -14,7 +14,7 @@ Better Tracker se compila y publica para Linux, Windows y Android.
 | --- | --- | --- |
 | Linux x86_64 | `.AppImage`, `.deb`, `.rpm` | Solo AppImage. `.deb` y `.rpm` se actualizan instalando el paquete nuevo. |
 | Windows 10/11 x64 | NSIS `.exe` (instalación por usuario), `.msi` | NSIS. |
-| Android (arm64) | `.apk` firmada | La app descarga y verifica la APK, la guarda en `Descargas/BetterTracker` y el usuario la instala manualmente. |
+| Android (arm64) | `.apk` firmada | Requiere Android 13 o superior (minSdk 33). La app descarga y verifica la APK, la guarda en `Descargas/BetterTracker` y el usuario la instala manualmente. |
 
 En Linux la app usa GTK/WebKit y funciona en Wayland de forma nativa. Si un driver propietario provoca fallos de renderizado, iníciala con `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
 
@@ -75,10 +75,10 @@ En Linux la app usa GTK/WebKit y funciona en Wayland de forma nativa. Si un driv
 
 - No hay cuentas, dependencia de la nube, telemetría ni sincronización LAN/P2P.
 - La bóveda es una carpeta elegida por ti. Todos los datos de la app viven en `<bóveda>/omega`. Cada evento nuevo se guarda como archivo propio (`omega/devices/<id>/events/<event-id>.json`); los `events.jsonl` antiguos se siguen leyendo y se deduplican por `id`.
-- En Android la bóveda se elige con el selector de carpetas del sistema (SAF) y el permiso de lectura/escritura se conserva entre reinicios.
-- La app crea una copia de `omega` al día en `<bóveda>/Longlife/<dispositivo>/<AAAA-MM-DD>` y conserva las 7 más recientes **de cada dispositivo**, sin tocar las de los demás. Las copias antiguas en `<bóveda>/Longlife/<AAAA-MM-DD>` se siguen mostrando como legado.
+- En Android la bóveda se elige con el selector de carpetas del sistema (SAF) y el permiso de lectura/escritura se conserva entre reinicios. Las copias diarias se guardan en `longlife/<dispositivo>/<fecha>`; la heredada `Longlife` se migra al abrir la bóveda (escritorio) y se sigue leyendo como legado hasta que el usuario la renombre en SAF.
+- La app crea una copia de `omega` al día en `<bóveda>/longlife/<dispositivo>/<AAAA-MM-DD>` y conserva las 7 más recientes **de cada dispositivo**, sin tocar las de los demás. Las copias antiguas en `<bóveda>/longlife/<AAAA-MM-DD>` se siguen mostrando como legado.
 - En **Ajustes → Copias de seguridad** puedes crear una copia, ver la fecha, el dispositivo y el tamaño de cada una, y **restaurar** sin riesgo: solo se importan los eventos que falten en `omega/devices/restored-<copia>-<marca>/`, sin borrar ni sobrescribir nada. Cada copia guarda un manifiesto con archivos y bytes: si una sincronización la deja a medias, aparece como **dañada** y la copia del día se rehace sola.
-- Los ajustes incluyen una acción de alto riesgo para borrar todas las copias de `Longlife`. Pide confirmación, no se puede deshacer y la copia diaria no se recrea hasta el día siguiente.
+- Los ajustes incluyen una acción de alto riesgo para borrar todas las copias de `longlife`. Pide confirmación, no se puede deshacer y la copia diaria no se recrea hasta el día siguiente.
 - Si el número de eventos baja respecto al último visto en esa bóveda, la app avisa: una bóveda append-only no debe decrecer (suele indicar que FolderSync u otro equipo ha revertido archivos). Si sincronizas con FolderSync, usa modo copia incremental del móvil al PC (sin propagar borrados) y nunca subas una copia antigua del PC sobre el móvil.
 - El escáner pide el permiso de cámara antes de abrirla, muestra el error real si algo falla y ofrece un botón para abrir los ajustes de Android. Los códigos UPC-A/EAN-13/GTIN se prueban en sus variantes (con y sin ceros iniciales, 12/13/14 dígitos) tanto en la app como en Open Food Facts.
 - No hay cifrado. No se guardan fotos ni archivos: el pegado se limita a texto plano.

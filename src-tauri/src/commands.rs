@@ -396,8 +396,9 @@ fn publish_apk(app: &AppHandle, temp_path: &Path, version: &str) -> Result<Strin
     let relative_path = format!("{PUBLIC_SUBDIR}/{public_name}");
     let api = app.android_fs();
 
-    // Android 9 y anteriores necesitan WRITE_EXTERNAL_STORAGE para MediaStore.
-    // En Android 10+ esta llamada devuelve `true` sin mostrar ningún diálogo.
+    // La app exige Android 13 (minSdk 33), donde publicar en Descargas con
+    // MediaStore no necesita permisos de almacenamiento; esta llamada
+    // comprueba el caso heredado y devuelve `true` al instante en 10+.
     if !api
         .public_storage()
         .request_permission()

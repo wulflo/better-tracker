@@ -114,7 +114,7 @@ export default function UpdatePanel({
           </div>
           <div className="update-sub">
             {android
-              ? 'Se comprueba solo cuando lo pides. La APK se descarga y se guarda en Descargas sin bloquear la app; la instalación es manual. En Android 9 o anterior se pedirá permiso de almacenamiento.'
+              ? 'Se comprueba solo cuando lo pides. La APK se descarga y se guarda en Descargas sin bloquear la app; la instalación es manual.'
               : packageFormat
                 ? `Se comprueba solo cuando lo pides. El paquete .${packageFormat} se descarga en streaming, se verifica con SHA-256 y se abre con el instalador del sistema.`
                 : 'Se comprueba solo cuando lo pides. El manifiesto se consulta sin caché y el paquete se verifica antes de instalarse.'}

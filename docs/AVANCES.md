@@ -1,5 +1,9 @@
 # Avances recientes
 
+## Cierres de la app en Android (causa raíz)
+- **Diagnóstico**: reqwest 0.13 con la feature `rustls` activa `rustls-platform-verifier`, que exige inicialización JNI (`android::init_with_env`) que Tauri no hace. Al construir el cliente HTTPS entra en panic y, con `panic = "abort"` del perfil release, la app muere al instante. Eso causaba los cierres al **comprobar actualizaciones** (`fetch_update_manifest`) y al **escanear** (buscar el producto en Open Food Facts usa la misma pila). Escritorio no se ve afectado porque ahí el verificador sí se inicializa.
+- **Fix**: el backend pasa a `reqwest 0.12` con `rustls-tls-webpki-roots` (raíces de Mozilla, igual que `tauri-plugin-http`, que funciona en Android sin ese verificador).
+
 ## Bóveda
 - Todos los datos viven en `<bóveda>/omega`; cada evento nuevo se guarda como archivo propio en `omega/devices/<id>/events/<event-id>.json`.
 - Los `events.jsonl` antiguos se siguen leyendo; todos los eventos se deduplican por `id`.
@@ -9,9 +13,10 @@
 - Eliminada por completo la sincronización LAN/P2P: no quedan módulos, comandos ni interfaz.
 
 ## Copias de seguridad
-- Copia de `omega` al día y por dispositivo en `<bóveda>/Longlife/<dispositivo>/<AAAA-MM-DD>`.
+- La carpeta pasa a llamarse `longlife` (minúsculas) para no crear dos copias al sincronizar bóvedas entre sistemas con distinción de mayúsculas. En escritorio `Longlife` se renombra automáticamente al abrir la bóveda; en SAF se siguen leyendo ambas y las copias nuevas se crean en `longlife/`.
+- Copia de `omega` al día y por dispositivo en `<bóveda>/longlife/<dispositivo>/<AAAA-MM-DD>`.
 - `snapshot.json` con dispositivo, plataforma, fecha y versión; así el PC identifica las copias creadas en Android.
-- Las copias antiguas en `Longlife/<AAAA-MM-DD>` se siguen listando como legado.
+- Las copias antiguas en `longlife/<AAAA-MM-DD>` se siguen listando como legado.
 - Retención de las 7 copias más recientes **por dispositivo**.
 - Marcador `.backup-complete` para detectar y reemplazar copias interrumpidas.
 - Estado, copia manual, listado con fecha/dispositivo/tamaño y **Restaurar** en Ajustes.
@@ -20,6 +25,7 @@
 - El borrado de todas las copias es una acción de alto riesgo con confirmación y no se recrea hasta el día siguiente.
 
 ## Android
+- **Compatibilidad cerrada a Android 13 o superior** (minSdk 33 vía `bundle.android.minSdkVersion` en `tauri.conf.json`). Se elimina la feature `legacy-storage-permission` de `tauri-plugin-android-fs` y el parche que añadía `WRITE/READ_EXTERNAL_STORAGE` con `maxSdkVersion="28"`: MediaStore en Descargas no pide permisos desde Android 10.
 - Actualizaciones híbridas: `latest.json` incluye `android-aarch64` con URL, tamaño y SHA-256.
 - La APK se descarga con el plugin HTTP nativo, se verifica y se guarda en `Descargas/BetterTracker` mediante MediaStore. La instalación es manual.
 - Iconos: master único en `src-tauri/icons/app-icon.png`; `npm run icons` regenera escritorio y mipmaps (legacy + adaptativos) y los copia al proyecto `gen/`. Antes solo se hacía en CI, así que los builds locales mostraban el icono genérico de Tauri.
@@ -39,5 +45,5 @@
 - Sin marcas; valores por 100 g/ml.
 
 ## Pendiente / posible
-- Las copias Longlife no están cifradas.
+- Las copias longlife no están cifradas.
 - En SAF, borrar copias deja carpetas vacías porque el plugin no expone borrado de directorios.
