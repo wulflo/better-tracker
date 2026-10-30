@@ -123,11 +123,13 @@ adb logcat -d | grep -iE "better|panic|Fatal|SIGABRT|AndroidRuntime"
   NO debe cerrarse al encontrar el código (ese cierre era `lookup_barcode`).
 - [ ] Escáner sin red: debe leer el código y fallar la búsqueda con un error
   correcto (no cierre). Con la bóveda ya vale, sin abrir la app de nuevo.
-- [ ] Actualizaciones: Ajustes → Buscar actualizaciones. Con la app 0.9.6
-  instalada y la última release 0.9.6 publicada debe responder «ya está
-  actualizado» (sin cierre). Cuando exista una 0.9.7 en el release: descargar
-  (`Descargas/BetterTracker/BetterTracker-0.9.7.apk`), comprobar el tamaño
-  (~72 MB), instalar a mano y comprobar que abre.
+- [ ] Actualizaciones: Ajustes → Buscar actualizaciones.
+  - Con la app 0.9.7 instalada y la release 0.9.7 como última publicada, debe
+    responder «Ya tienes la última versión» sin cerrarse.
+  - Instalando la 0.9.7 sobre una 0.9.6 (o sobre una futura 0.9.8 al
+    publicarse): muestra la versión disponible, descarga
+    `Descargas/BetterTracker/BetterTracker-<VERSION>.apk`, tamaño ~72 MB,
+    instalación manual y la app sigue abierta.
 - [ ] Instalación desde una bóveda de SAF: copia creada en el móvil restaurada
   desde el PC (pendiente histórico de la checklist de cámara).
 - [ ] minSdk: probar de instalar el APK en un Android 12 o anterior → el sistema
