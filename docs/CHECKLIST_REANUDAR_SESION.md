@@ -141,16 +141,24 @@ Análisis completo en `docs/REVISION_APPS_LIBRES_ESCANER.md`. La conclusión del
 estudio: estamos en paridad (o por encima) de Waistline, OpenNutriTracker y
 Food You; los huecos reales, por orden de valor/coste:
 
-- [ ] **(a) Checksum EAN/UPC antes de consultar** (barato): validar dígito de
+- [x] **(a) Checksum EAN/UPC antes de consultar** (barato): validar dígito de
   control GTIN mod 10 en `normalizeBarcode` (`src/foodDb.ts`) + aviso y opción
   de continuar en `handleBarcode` (`src/components/FoodLog.tsx`). Prueba
-  unitaria con códigos de `src/barcodeCatalog.json`.
-- [ ] **(b) Vibración al detectar el código** (barato): llamar `vibrate()` del
+  unitaria con códigos de `src/barcodeCatalog.json`. — **HECHO** en 0.9.8
+  (`validBarcodeChecksum` + `isGtinLength` en `foodDb.ts`, aviso con «Buscar
+  igual / Descartar» en `FoodLog.tsx`, 5 pruebas nuevas contra el export de
+  OFF, 97,2 % pasa el mod 10).
+- [x] **(b) Vibración al detectar el código** (barato): llamar `vibrate()` del
   plugin en `BarcodeScanner.tsx` al recibir el resultado nativo, con catch
-  silencioso. Hoy no se llama en ningún lado.
-- [ ] **(c) Escribir/pegar el código a mano en el modal del escáner** (barato):
+  silencioso. Hoy no se llama en ningún lado. — **HECHO** en 0.9.8: el cliente
+  JS 2.5.3 no exporta `vibrate`, así que se invoca directo
+  `plugin:barcode-scanner|vibrate` (el plugin local lo registra; permiso
+  `allow-vibrate` en `default.toml`), con respaldo `navigator.vibrate` en
+  navegador y cámara + imagen.
+- [x] **(c) Escribir/pegar el código a mano en el modal del escáner** (barato):
   input numérico en `BarcodeScanner.tsx` que reutilice `onResult` (pasa por el
-  mismo `handleBarcode`), como hace OpenNutriTracker.
+  mismo `handleBarcode`), como hace OpenNutriTracker. — **HECHO** en 0.9.8
+  (form dentro del modal, mismo flujo con checksum incluido).
 - [ ] **(d) Rationale del permiso de cámara** (barato): en `prompt-with-rationale`
   mostrar antes un texto corto («solo para leer el código del envase; nada sale
   del equipo») en vez de pedir el permiso directo.
@@ -162,8 +170,9 @@ Food You; los huecos reales, por orden de valor/coste:
 - **Vigilancia** (no aplicar hoy): credenciales de OFF si algún día se usa búsqueda
   por nombre (Food You 3.4.7 las necesitó); sin contribuir productos a OFF; nada
   de GS1 DataBar en UI mientras Android no lo soporte.
-- Sugerencia de partida de la revisión: **a + b + c en un mismo commit** (tocan
-  `FoodLog.tsx`, `BarcodeScanner.tsx` y `foodDb.ts`), luego d, luego e con red.
+- Sugerencia de partida de la revisión: ~~a + b + c en un mismo commit~~
+  **LLEVADO A CABO** en 0.9.8 antes de publicar; quedan d (rationale) y e
+  (torch, con red).
 
 ## 6. Comandos de verificación local (sin internet)
 

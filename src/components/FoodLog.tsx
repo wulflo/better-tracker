@@ -9,10 +9,12 @@ import {
   findFoodByBarcode,
   foodUnits,
   mealTotals,
+  isGtinLength,
   normalizeBarcode,
   resizeFoodLogItem,
   searchFoods,
   unitLabel,
+  validBarcodeChecksum,
 } from '../foodDb';
 import { lookupBarcode } from '../vault';
 import { lookupBarcodeCatalog } from '../barcodeCatalog';
@@ -57,6 +59,7 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
   const [scanBusy, setScanBusy] = useState(false);
   const [scanNotice, setScanNotice] = useState<string | null>(null);
   const [scannedFood, setScannedFood] = useState<Food | null>(null);
+  const [checksumHold, setChecksumHold] = useState<string | null>(null);
   const [custom, setCustom] = useState({
     name: '',
     category: 'otro' as FoodCategory,
@@ -135,15 +138,8 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
     setEditingId(null);
   };
 
-  const handleBarcode = async (raw: string) => {
-    const code = normalizeBarcode(raw);
-    setScannerOpen(false);
-    if (!code) {
-      setError('El lector no devolvió un código válido.');
-      return;
-    }
-    setError('');
-
+  const processBarcode = async (code: string) => {
+    setChecksumHold(null);
     const local = findFoodByBarcode(foods, code);
     if (local) {
       chooseFood(local);
@@ -189,6 +185,35 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
     } finally {
       setScanBusy(false);
     }
+  };
+
+  /**
+   * Puerta de entrada del código leído o tecleado: filtra por dígito de
+   * control GTIN antes de consultar servicios (el aviso ofrece continuar).
+   */
+  const handleBarcode = async (raw: string) => {
+    const code = normalizeBarcode(raw);
+    setScannerOpen(false);
+    setChecksumHold(null);
+    if (!code) {
+      setError('El lector no devolvió un código válido.');
+      return;
+    }
+    setError('');
+
+    if (isGtinLength(code) && !validBarcodeChecksum(code)) {
+      setChecksumHold(code);
+      setScanNotice(`El código ${code} no es válido (dígito de control): revisa los dígitos. Si estás seguro de que está bien escrito, puedes buscarlo igual.`);
+      return;
+    }
+    await processBarcode(code);
+  };
+
+  const searchChecksumHold = async () => {
+    const code = checksumHold;
+    if (!code) return;
+    setScanNotice(`Buscando el código ${code} aunque su dígito de control no cuadre…`);
+    await processBarcode(code);
   };
 
   const createCustom = async () => {
@@ -300,6 +325,16 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
           <div className="notice notice-info food-scan-notice">
             <Icon name="scan" size={16} />
             <span>{scanNotice}</span>
+            {checksumHold && (
+              <div className="row wrap" style={{ marginTop: 8 }}>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => void searchChecksumHold()}>
+                  Buscar igual
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setChecksumHold(null)}>
+                  Descartar
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

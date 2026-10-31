@@ -45,6 +45,7 @@
 
 ## Escáner en escritorio
 - Nueva alternativa a la webcam: «Cargar imagen del código». La imagen se valida localmente (tipos MIME de imagen rasterizada cerrada —sin SVG, por scripting—, máximo 10 MB), se convierte en data URL dentro del propio WebView y se decodifica con ZXing; nada se envía a ningún servidor.
+- El escáner valida el dígito de control GTIN antes de consultar la red y avisa con «Buscar igual / Descartar» si no cuadra; al detectar un código vibra (plugin nativo, respaldo `navigator.vibrate`); el modal incluye campo para escribir/pegar el código a mano cuando la cámara falla.
 
 ## Datos nutricionales
 - Base de alimentos ampliada a 521 entradas.

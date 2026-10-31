@@ -746,6 +746,27 @@ export function normalizeBarcode(code: string): string {
   return String(code ?? '').replace(/\D/g, '');
 }
 
+/** Longitudes estándar de GTIN: EAN-8, UPC-A, EAN-13 y GTIN-14. */
+export function isGtinLength(code: string): boolean {
+  return [8, 12, 13, 14].includes(normalizeBarcode(code).length);
+}
+
+/**
+ * Dígito de control GTIN (mod 10), el mismo para EAN-8, UPC-A, EAN-13 y
+ * GTIN-14 según el estándar GS1. Valida el número tal como llegó, sin
+ * relleno: añadir ceros a la izquierda no cambia el resultado, así que unas
+ * mismas cifras pasan o fallan en cualquiera de sus formas.
+ */
+export function validBarcodeChecksum(code: string): boolean {
+  const digits = normalizeBarcode(code);
+  if (digits.length < 2) return false;
+  let sum = 0;
+  for (let i = digits.length - 2, weight = 3; i >= 0; i--, weight = weight === 3 ? 1 : 3) {
+    sum += weight * Number(digits[i]);
+  }
+  return (10 - (sum % 10)) % 10 === Number(digits[digits.length - 1]);
+}
+
 export function barcodeVariants(code: string): string[] {
   const clean = normalizeBarcode(code);
   if (clean.length < 6 || clean.length > 14) return [];

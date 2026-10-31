@@ -6,11 +6,13 @@ import {
   calcFood,
   findFoodByBarcode,
   foodUnits,
+  isGtinLength,
   mealGrams,
   mealTotals,
   reduceCustomFoods,
   resizeFoodLogItem,
   searchFoods,
+  validBarcodeChecksum,
 } from './foodDb';
 
 function event(kind: string, payload: Record<string, unknown>, timestamp = '2026-01-01T00:00:00.000Z'): VaultEvent {
@@ -147,5 +149,56 @@ describe('food database', () => {
       },
     ];
     expect(mealGrams(items)).toBe(308);
+  });
+});
+
+describe('checksum GTIN (mod 10) de códigos de barras', () => {
+  it('valida códigos reales de cada formato estándar', () => {
+    expect(validBarcodeChecksum('4006381333931')).toBe(true); // EAN-13 (ejemplo de GS1)
+    expect(validBarcodeChecksum('73513537')).toBe(true); // EAN-8
+    expect(validBarcodeChecksum('036000291452')).toBe(true); // UPC-A de 12 dígitos
+  });
+
+  it('rechaza dígitos de control o códigos mal tecleados', () => {
+    expect(validBarcodeChecksum('4006381333932')).toBe(false); // check alternado
+    expect(validBarcodeChecksum('036000291453')).toBe(false); // +1 en el último
+    expect(validBarcodeChecksum('73513538')).toBe(false);
+    // Dígitos transpuestos fallan el mod 10: el modo típico de teclear mal.
+    expect(validBarcodeChecksum('4006381339331')).toBe(false);
+    // Formas no estándar: cortas o vacías no pasan la puerta.
+    expect(validBarcodeChecksum('')).toBe(false);
+    expect(validBarcodeChecksum('7')).toBe(false);
+  });
+
+  it('es estable ante el relleno de ceros y la presentación', () => {
+    // UPC-A → EAN-13 → GTIN-14: ceros a la izquierda no cambian el resultado.
+    expect(validBarcodeChecksum('0036000291452')).toBe(true);
+    expect(validBarcodeChecksum('00036000291452')).toBe(true);
+    // Espacios y guiones se limpian antes de validar.
+    expect(validBarcodeChecksum('4006 3813 33931')).toBe(true);
+    expect(validBarcodeChecksum('735135-37')).toBe(true);
+    // Sin relleno y sin dígito completo, obviamente no cierra.
+    expect(validBarcodeChecksum('03600029145')).toBe(false);
+  });
+
+  it('solo aplica la puerta a longitudes GTIN estándar', () => {
+    expect(isGtinLength('4006381333931')).toBe(true); // 13
+    expect(isGtinLength('036000291452')).toBe(true); // 12
+    expect(isGtinLength('73513537')).toBe(true); // 8
+    // Code 128 interno u otras longitudes: no se exige checksum y no hay aviso.
+    expect(isGtinLength('1234567')).toBe(false);
+    expect(isGtinLength('12345')).toBe(false);
+  });
+
+  it('valida códigos reales del export de Open Food Facts', async () => {
+    // El catálogo viene de OFF; el ~97 % pasa el mod 10 y el resto son
+    // códigos internos o erratas del export, que en la UI avisan y permiten
+    // «Buscar igual».
+    const rows = (await import('./data/barcodeCatalog.json')).default as string[][];
+    const codes = rows.map((row) => row[0]);
+    const valid = codes.filter((code) => validBarcodeChecksum(code)).length;
+    expect(valid / codes.length).toBeGreaterThan(0.9);
+    // Un producto real del catálogo queda runnable sin el aviso.
+    expect(validBarcodeChecksum('1000000040258')).toBe(true);
   });
 });

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { BarcodeFormat, DecodeHintType } from '@zxing/library';
+import { invoke } from '@tauri-apps/api/core';
 import {
   Format,
   cancel,
@@ -69,6 +70,25 @@ function decodeHints(): Map<DecodeHintType, unknown> {
   return hints;
 }
 
+/**
+ * Confirmación háptica al detectar un código: el patrón de las apps libres
+ * comparadas (Waistline, OpenNutriTracker, Food You). El cliente JS 2.5.3 no
+ * expone `vibrate`, pero el plugin local sí registra el comando, así que se
+ * invoca directo; en navegador se usa `navigator.vibrate` si existe. Todo con
+ * fallo silencioso: si el equipo no vibra, no hay nada que reportar.
+ */
+function vibrateDetected(): void {
+  try {
+    if (isTauri()) {
+      void invoke('plugin:barcode-scanner|vibrate').catch(() => undefined);
+    } else if (typeof navigator.vibrate === 'function') {
+      navigator.vibrate(25);
+    }
+  } catch {
+    // Confirmación háptica omitida: no afecta al flujo del escaneo.
+  }
+}
+
 export default function BarcodeScanner({ onResult, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -78,6 +98,7 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
   const [decoding, setDecoding] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
+  const [manual, setManual] = useState('');
   const mobile = nativeMobile();
 
   useEffect(() => {
@@ -93,6 +114,7 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
 
     const emit = (code: string) => {
       if (cancelled) return;
+      vibrateDetected();
       resultRef.current(code);
       setRunning(false);
     };
@@ -211,6 +233,7 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
       const reader = new BrowserMultiFormatReader(decodeHints());
       const result = await reader.decodeFromImageUrl(dataUrl);
       if (result?.getText()) {
+        vibrateDetected();
         resultRef.current(result.getText());
       } else {
         setError('No se detectó ningún código de barras en la imagen. Prueba con una foto más nítida, centrada y con buena luz.');
@@ -291,6 +314,35 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
           </span>
         </div>
       )}
+      <form
+        className="row wrap"
+        style={{ marginTop: 8 }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          const code = manual.trim();
+          if (!code) return;
+          // Pasa por el mismo flujo que la cámara (handleBarcode): dedup,
+          // checksum, catálogo local y Open Food Facts.
+          vibrateDetected();
+          resultRef.current(code);
+          setManual('');
+        }}
+      >
+        <input
+          className="input"
+          style={{ maxWidth: 240, flex: '1 1 200px' }}
+          inputMode="numeric"
+          autoComplete="off"
+          placeholder="Escribir/pegar el código a mano"
+          value={manual}
+          onChange={(event) => setManual(event.target.value.replace(/\D/g, '').slice(0, 24))}
+          aria-label="Escribe un código de barras a mano"
+        />
+        <button type="submit" className="btn btn-ghost btn-sm" disabled={!manual.trim()}>
+          Buscar
+        </button>
+        <span className="hint">Alternativa cuando la cámara falla o no hay webcam.</span>
+      </form>
       <div className="row between wrap" style={{ marginTop: 8 }}>
         <span className="hint">EAN-13, EAN-8, UPC-A, UPC-E, Code 128 o QR.</span>
         {onClose && (
