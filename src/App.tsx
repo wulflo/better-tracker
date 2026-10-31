@@ -22,6 +22,7 @@ import TrainingView from './TrainingView';
 import HistoryView from './HistoryView';
 import BodyView from './BodyView';
 import WellnessView from './WellnessView';
+import Select from './components/Select';
 import { Icon, LogoMark } from './components/Icons';
 import { useLanguage, t } from './i18n';
 import UpdatePanel from './components/UpdatePanel';
@@ -565,10 +566,15 @@ export default function App() {
               </div>
               <div className="settings-row">
                 <span className="muted">{t('language', lang)}</span>
-                <select className="select" value={lang} onChange={e => setLang(e.target.value as any)}>
-                  <option value="es">Español</option>
-                  <option value="en">English</option>
-                </select>
+                <Select
+                  className="settings-select"
+                  value={lang}
+                  onChange={(value) => setLang(value as any)}
+                  options={[
+                    { value: 'es', label: 'Español' },
+                    { value: 'en', label: 'English' },
+                  ]}
+                />
               </div>
               <div className="settings-row">
                 <span className="muted">Formato instalado</span>

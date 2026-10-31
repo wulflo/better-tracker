@@ -12,6 +12,11 @@ import {
 import { platform } from '@tauri-apps/plugin-os';
 import { errorText } from '../errors';
 import { isTauri } from '../vault';
+import {
+  BARCODE_IMAGE_ACCEPT,
+  readAsDataUrl,
+  validateBarcodeImage,
+} from '../barcodeImage';
 
 interface Props {
   onResult: (code: string) => void;
@@ -56,11 +61,21 @@ function nativeMobile(): boolean {
 const CAMERA_SETTINGS_HINT =
   'Abre Ajustes de Android → Aplicaciones → Better Tracker → Permisos → Cámara y elige «Permitir».';
 
+/** Hints compartidos por el escaneo con cámara y con imagen. */
+function decodeHints(): Map<DecodeHintType, unknown> {
+  const hints = new Map<DecodeHintType, unknown>();
+  hints.set(DecodeHintType.POSSIBLE_FORMATS, ZXING_FORMATS);
+  hints.set(DecodeHintType.TRY_HARDER, true);
+  return hints;
+}
+
 export default function BarcodeScanner({ onResult, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const resultRef = useRef(onResult);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [decoding, setDecoding] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const mobile = nativeMobile();
@@ -139,10 +154,7 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
     const startWeb = async () => {
       try {
         if (!videoRef.current) return;
-        const hints = new Map();
-        hints.set(DecodeHintType.POSSIBLE_FORMATS, ZXING_FORMATS);
-        hints.set(DecodeHintType.TRY_HARDER, true);
-        const reader = new BrowserMultiFormatReader(hints);
+        const reader = new BrowserMultiFormatReader(decodeHints());
         controls = await reader.decodeFromVideoDevice(undefined, videoRef.current, (result) => {
           if (result) emit(result.getText());
         });
@@ -183,6 +195,38 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
     }
   };
 
+  const decodeFromImage = async (file: File | undefined | null) => {
+    if (!file || decoding) return;
+    const problem = validateBarcodeImage(file);
+    if (problem) {
+      setError(problem);
+      return;
+    }
+    setError(null);
+    setDecoding(true);
+    try {
+      // Data URL generada en el propio equipo: la imagen no se sube a ningún
+      // servidor y no necesita `URL.revokeObjectURL`.
+      const dataUrl = await readAsDataUrl(file);
+      const reader = new BrowserMultiFormatReader(decodeHints());
+      const result = await reader.decodeFromImageUrl(dataUrl);
+      if (result?.getText()) {
+        resultRef.current(result.getText());
+      } else {
+        setError('No se detectó ningún código de barras en la imagen. Prueba con una foto más nítida, centrada y con buena luz.');
+      }
+    } catch (e) {
+      const message = errorText(e);
+      if (/notfound|no code|BarcodeNotFound/i.test(message)) {
+        setError('No se detectó ningún código de barras en la imagen. Prueba con una foto más nítida, centrada y con buena luz.');
+      } else {
+        setError(`No se pudo leer la imagen: ${message}`);
+      }
+    } finally {
+      setDecoding(false);
+    }
+  };
+
   return (
     <div className="barcode-scanner">
       {!mobile && (
@@ -219,6 +263,34 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
         </div>
       )}
       {!running && !error && !mobile && <span className="hint">Iniciando cámara…</span>}
+      {!mobile && (
+        <div className="row wrap" style={{ marginTop: 8 }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={BARCODE_IMAGE_ACCEPT}
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              // Resetea el input para que volver a elegir el mismo archivo
+              // dispare `onChange` otra vez.
+              e.target.value = '';
+              void decodeFromImage(file);
+            }}
+          />
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={decoding}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {decoding ? 'Analizando imagen…' : 'Cargar imagen del código'}
+          </button>
+          <span className="hint">
+            Si la webcam no funciona bien, sube una foto del código. Solo se procesa en tu equipo; no se envía a ningún servidor.
+          </span>
+        </div>
+      )}
       <div className="row between wrap" style={{ marginTop: 8 }}>
         <span className="hint">EAN-13, EAN-8, UPC-A, UPC-E, Code 128 o QR.</span>
         {onClose && (

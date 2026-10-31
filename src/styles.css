@@ -1085,11 +1085,11 @@ input[type='checkbox'] {
   right: 0;
   max-height: 280px;
   overflow: auto;
-  padding: 6px;
+  padding: 4px;
   border-radius: var(--radius-md);
-  background: #221c2f;
-  border: 1px solid rgba(208, 188, 255, 0.16);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  background: var(--surface-2);
+  border: 1px solid var(--outline-variant);
+  box-shadow: var(--shadow-2);
   animation: menu-in 0.14s ease;
 }
 
@@ -1110,13 +1110,14 @@ input[type='checkbox'] {
   align-items: flex-start;
   gap: 2px;
   width: 100%;
-  padding: 9px 10px;
+  padding: 7px 9px;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--on-surface);
   text-align: left;
   font-size: 13px;
+  min-height: 0;
 }
 
 .select-option:hover,
@@ -1754,6 +1755,13 @@ input[type='checkbox'] {
   border-bottom: 0;
 }
 
+/* El selector de idioma vive en una .settings-row: ancho acotado para que no
+   coma toda la fila. */
+.settings-row .settings-select {
+  width: 180px;
+  flex: none;
+}
+
 .settings-row .value {
   color: var(--on-surface-variant);
   text-align: right;
@@ -2010,18 +2018,20 @@ input[type='checkbox'] {
   display: inline-block;
 }
 
-/* Evita el aspecto nativo blanco en cualquier select residual */
+/* Guarda: los select nativos residuales tampoco deben salir blancos. Los
+   menús reales de la app son el componente `components/Select.tsx`, que se
+   pinta con el tema (`.select-menu`). */
 select {
   color-scheme: dark;
-  background: rgba(10, 8, 15, 0.55);
+  background: var(--surface-1);
   color: var(--on-surface);
-  border: 1px solid rgba(208, 188, 255, 0.13);
+  border: 1px solid var(--outline-variant);
   border-radius: var(--radius-md);
   padding: 9px 12px;
 }
 
 option {
-  background: #221c2f;
+  background: var(--surface-2);
   color: var(--on-surface);
 }
 

@@ -195,59 +195,87 @@ class BarcodeScannerPlugin(private val activity: Activity) : Plugin(activity),
         return null
     }
 
+    /**
+     * Falla controlada de un escaneo iniciado: rechaza la promesa pendiente y
+     * restablece la actividad (vista previa desmontada y fondo restaurado).
+     *
+     * Los cuerpos que se ejecutan dentro de `runOnUiThread` (o en listeners de
+     * CameraX) son asíncronos respecto de `scan()`: si lanzan ahí, la excepción
+     * NO la captura el try/catch de `scan()` y aterriza sin capturar en el
+     * hilo principal — con `panic = "abort"` en Rust y un JvmError, la app se
+     * cierra en cuanto se concede el permiso. Hay que convertir cualquier
+     * fallo de configuración en un `reject()` del invoke pendiente.
+     */
+    private fun failScan(message: String, e: Exception? = null) {
+        Logger.error(
+            Logger.tags("BarcodeScanner"),
+            message,
+            e
+        )
+        activity.runOnUiThread {
+            savedInvoke?.reject(message)
+            savedInvoke = null
+            destroy()
+        }
+    }
+
     private fun setupCamera(cameraDirection: String, windowed: Boolean) {
         activity
             .runOnUiThread {
-                // Si la WebView del plugin ya no está en pantalla (ventana
-                // cerrada), se trabaja con la que sí lo está.
-                webView = visibleWebView()
+                try {
+                    // Si la WebView del plugin ya no está en pantalla (ventana
+                    // cerrada), se trabaja con la que sí lo está.
+                    webView = visibleWebView()
 
-                val previewView = PreviewView(activity)
-                previewView.layoutParams = FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-                this.previewView = previewView
+                    val previewView = PreviewView(activity)
+                    previewView.layoutParams = FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    this.previewView = previewView
 
-                val graphicOverlay = GraphicOverlay(activity)
-                graphicOverlay.layoutParams = FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-                this.graphicOverlay = graphicOverlay
+                    val graphicOverlay = GraphicOverlay(activity)
+                    graphicOverlay.layoutParams = FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    this.graphicOverlay = graphicOverlay
 
-                val parent = cameraContainer()
-                previewContainer = parent
-                parent.addView(previewView)
-                parent.addView(graphicOverlay)
+                    val parent = cameraContainer()
+                    previewContainer = parent
+                    parent.addView(previewView)
+                    parent.addView(graphicOverlay)
 
-                this.windowed = windowed
-                if (windowed) {
-                    webView.bringToFront()
-                    webViewBackground = webView.background
-                    webView.setBackgroundColor(Color.TRANSPARENT)
-                    backgroundOverridden = true
+                    this.windowed = windowed
+                    if (windowed) {
+                        webView.bringToFront()
+                        webViewBackground = webView.background
+                        webView.setBackgroundColor(Color.TRANSPARENT)
+                        backgroundOverridden = true
+                    }
+
+                    val cameraProviderFuture = ProcessCameraProvider.getInstance(activity)
+                    cameraProviderFuture.addListener(
+                        {
+                            try {
+                                val cameraProvider = cameraProviderFuture.get()
+                                bindPreview(
+                                    cameraProvider,
+                                    if (cameraDirection == "front") CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK
+                                )
+                                this.cameraProvider = cameraProvider
+                            } catch (e: InterruptedException) {
+                                failScan("No se pudo iniciar la cámara (interrumpida)", e)
+                            } catch (e: ExecutionException) {
+                                failScan("No se pudo iniciar la cámara", e)
+                            }
+                        },
+                        ContextCompat.getMainExecutor(activity)
+                    )
+                    this.cameraProviderFuture = cameraProviderFuture
+                } catch (e: Exception) {
+                    failScan("No se pudo preparar la vista previa de la cámara", e)
                 }
-
-                val cameraProviderFuture = ProcessCameraProvider.getInstance(activity)
-                cameraProviderFuture.addListener(
-                    {
-                        try {
-                            val cameraProvider = cameraProviderFuture.get()
-                            bindPreview(
-                                cameraProvider,
-                                if (cameraDirection == "front") CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK
-                            )
-                            this.cameraProvider = cameraProvider
-                        } catch (e: InterruptedException) {
-                            // ignored
-                        } catch (_: ExecutionException) {
-                            // ignored
-                        }
-                    },
-                    ContextCompat.getMainExecutor(activity)
-                )
-                this.cameraProviderFuture = cameraProviderFuture
             }
     }
 
@@ -275,7 +303,9 @@ class BarcodeScannerPlugin(private val activity: Activity) : Plugin(activity),
                         imageAnalysis
                     )
                 } catch (e: Exception) {
-                    // TODO
+                    // Sin este catch la excepción muere en el hilo principal y
+                    // la app se cierra al abrir la cámara.
+                    failScan("No se pudo iniciar la cámara del dispositivo", e)
                 }
             }
     }
@@ -331,34 +361,41 @@ class BarcodeScannerPlugin(private val activity: Activity) : Plugin(activity),
     private fun configureCamera(formats: List<Int>) {
         activity
             .runOnUiThread {
-                // El servicio de vibración no existe en todos los dispositivos.
-                // Antes el cast a `Vibrator` lanzaba un NPE de `getClass()`.
-                val vibrator =
-                    activity.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-                this.vibrator = vibrator
-                if (vibrator == null) {
-                    Logger.error(
-                        Logger.tags("BarcodeScanner"),
-                        "El dispositivo no expone el servicio de vibración",
-                        null
-                    )
-                }
-                if (previewView == null) {
-                    throw Exception("No se pudo preparar la vista previa de la cámara")
-                }
+                try {
+                    // El servicio de vibración no existe en todos los dispositivos.
+                    // Antes el cast a `Vibrator` lanzaba un NPE de `getClass()`.
+                    val vibrator =
+                        activity.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                    this.vibrator = vibrator
+                    if (vibrator == null) {
+                        Logger.error(
+                            Logger.tags("BarcodeScanner"),
+                            "El dispositivo no expone el servicio de vibración",
+                            null
+                        )
+                    }
+                    if (previewView == null) {
+                        throw Exception("No se pudo preparar la vista previa de la cámara")
+                    }
 
-                if (formats.isNotEmpty()) {
-                    val mappedFormats = mapFormats(formats)
-                    val options =
-                        BarcodeScannerOptions.Builder()
-                            .setBarcodeFormats(Barcode.FORMAT_QR_CODE, *mappedFormats).build()
-                    scannerOptions = options
-                    scanner = BarcodeScanning.getClient(options)
-                } else {
-                    val options = BarcodeScannerOptions.Builder()
-                        .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS).build()
-                    scannerOptions = options
-                    scanner = BarcodeScanning.getClient(options)
+                    if (formats.isNotEmpty()) {
+                        val mappedFormats = mapFormats(formats)
+                        val options =
+                            BarcodeScannerOptions.Builder()
+                                .setBarcodeFormats(Barcode.FORMAT_QR_CODE, *mappedFormats).build()
+                        scannerOptions = options
+                        scanner = BarcodeScanning.getClient(options)
+                    } else {
+                        val options = BarcodeScannerOptions.Builder()
+                            .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS).build()
+                        scannerOptions = options
+                        scanner = BarcodeScanning.getClient(options)
+                    }
+                } catch (e: Exception) {
+                    // Antes esto escapes por el hilo principal (`scan()` ya ha
+                    // devuelto el control) y cerraba la app en cuanto se
+                    // concedía el permiso de cámara.
+                    failScan("No se pudo configurar el escáner de códigos", e)
                 }
             }
     }

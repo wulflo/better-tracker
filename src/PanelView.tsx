@@ -714,18 +714,19 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
 
             <label className="field">
               <span className="field-label">Nivel de actividad física</span>
-              <select
-                className="select"
+              {/* Selector personalizado: el popup de un <select> nativo se
+                  dibuja con el tema del sistema (padding grande y colores que
+                  no combinan). El menú propio usa el tema de la app y añade la
+                  descripción de cada nivel como texto de apoyo. */}
+              <Select
                 value={activity}
-                onChange={(event) => void changeActivity(event.target.value as ActivityLevel)}
-              >
-                {[AUTO_ACTIVITY, ...ACTIVITY_LEVELS].map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                    {option.multiplier > 0 ? ` · ×${option.multiplier}` : ' · según entrenamiento'}
-                  </option>
-                ))}
-              </select>
+                onChange={(value) => void changeActivity(value as ActivityLevel)}
+                options={[AUTO_ACTIVITY, ...ACTIVITY_LEVELS].map((option) => ({
+                  value: option.id,
+                  label: `${option.label} · ${option.multiplier > 0 ? `×${option.multiplier}` : 'según entrenamiento'}`,
+                  hint: option.description,
+                }))}
+              />
               <span className="hint">{activityOption(activity).description}</span>
             </label>
 

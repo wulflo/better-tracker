@@ -35,10 +35,16 @@
 - Escáner arreglado: el plugin 2.5.3 se quedaba con la WebView del splash (cerrada al arrancar) y `webView.parent as ViewGroup` lanzaba `attempt to invoke virtual method 'java.lang.Class java.lang.Object.getClass()' on a null object reference`; además dejaba la capa de cámara montada al fallar. Ahora vive en `src-tauri/plugins/barcode-scanner` con la WebView visible, vibrador opcional, limpieza al fallar y ML Kit empaquetado (funciona sin Google Play Services). Ver `UPSTREAM.md`.
 - Búsqueda de producto por variantes UPC/EAN/GTIN (exacto, sin ceros, 12/13/14 dígitos) en Rust y en navegador; el producto guarda el código escaneado original.
 - `tauri-plugin-android-fs` 30.2.0 con `compileSdk = 36`: la APK vuelve a compilar en CI sin parches manuales del registro de Cargo. Las rutas SAF guardadas por 2.x se siguen leyendo.
+- El plugin ya no deja escapar excepciones al hilo principal: `failScan()` rechaza la promesa del escaneo y desmonta la vista previa ante cualquier fallo de configuración de cámara (antes, un error dentro de `runOnUiThread` cerraba la app al conceder el permiso de cámara). Ver `docs/CHECKLIST_REANUDAR_SESION.md` §5.1; falta compilar el parche y verificarlo en un Android físico.
 
 ## Interfaz y marca
 - Logo actualizado a mancuernas moradas (`public/logo.png`, iconos Tauri y Android).
 - Soporte de idioma inglés (selector en Ajustes, persistencia en `localStorage`).
+- Los menús desplegables usan en todos lados el componente `components/Select.tsx` con su propio menú temático; los `<select>` nativos (nivel de actividad, frecuencia de hábitos, idioma) dibujaban el popup del sistema operativo con padding grande y colores ajenos al tema.
+- El menú del selector (`.select-menu`) se pinta con variables del tema (`--surface-2`, `--outline-variant`, `--shadow-2`) y densidad menor, en vez de colores prefijados.
+
+## Escáner en escritorio
+- Nueva alternativa a la webcam: «Cargar imagen del código». La imagen se valida localmente (tipos MIME de imagen rasterizada cerrada —sin SVG, por scripting—, máximo 10 MB), se convierte en data URL dentro del propio WebView y se decodifica con ZXing; nada se envía a ningún servidor.
 
 ## Datos nutricionales
 - Base de alimentos ampliada a 521 entradas.
@@ -47,3 +53,6 @@
 ## Pendiente / posible
 - Las copias longlife no están cifradas.
 - En SAF, borrar copias deja carpetas vacías porque el plugin no expone borrado de directorios.
+- Compilar y verificar el parche `failScan()` del escáner en un Android físico: **compilado con éxito** (2026-10-31, ver `docs/CHECKLIST_REANUDAR_SESION.md` §5.1); queda probarlo en el dispositivo.
+- Brechas del escáner detectadas al comparar con apps libres (checksum EAN/UPC, vibración al detectar, código manual en el modal, permiso con *rationale*): lista y orden sugerido en `docs/REVISION_APPS_LIBRES_ESCANER.md` y `docs/CHECKLIST_REANUDAR_SESION.md` §5.5.
+- Opcional: arrastrar y soltar la imagen sobre el modal del escáner (hoy solo hay botón).

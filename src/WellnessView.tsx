@@ -15,6 +15,7 @@ import {
   wellnessDigest,
 } from './wellness';
 import { Stat } from './components/Fields';
+import Select from './components/Select';
 import { Icon } from './components/Icons';
 import { ProgressBar } from './components/Charts';
 import { formatShort, todayISO } from './metrics';
@@ -353,15 +354,15 @@ export default function WellnessView({ deviceId, events, onRefresh, notify }: Pr
                 </label>
                 <label className="field">
                   <span className="field-label">Frecuencia</span>
-                  <select
-                    className="select"
+                  <Select
                     value={form.frequency}
-                    onChange={(event) => updateForm('frequency', event.target.value as HabitFrequency)}
-                  >
-                    <option value="daily">Diario</option>
-                    <option value="weekly">Semanal</option>
-                    <option value="monthly">Mensual</option>
-                  </select>
+                    onChange={(value) => updateForm('frequency', value as HabitFrequency)}
+                    options={[
+                      { value: 'daily', label: 'Diario' },
+                      { value: 'weekly', label: 'Semanal' },
+                      { value: 'monthly', label: 'Mensual' },
+                    ]}
+                  />
                 </label>
                 <label className="field">
                   <span className="field-label">Puntos</span>
