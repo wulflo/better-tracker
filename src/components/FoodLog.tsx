@@ -22,7 +22,6 @@ import { errorText } from '../errors';
 import Select from './Select';
 import { NumberInput } from './Fields';
 import { Icon } from './Icons';
-import BarcodeScanner from './BarcodeScanner';
 
 interface Props {
   foods: Food[];
@@ -55,9 +54,10 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
   const [editQuantity, setEditQuantity] = useState(1);
   const [editUnit, setEditUnit] = useState('g');
   const [editMeal, setEditMeal] = useState<MealSlot>('desayuno');
-  const [scannerOpen, setScannerOpen] = useState(false);
-  const [scanBusy, setScanBusy] = useState(false);
-  const [scanNotice, setScanNotice] = useState<string | null>(null);
+  const [barcodeInput, setBarcodeInput] = useState('');
+  const [barcodeBusy, setBarcodeBusy] = useState(false);
+  const [barcodeError, setBarcodeError] = useState('');
+  const [barcodeNotice, setBarcodeNotice] = useState<string | null>(null);
   const [scannedFood, setScannedFood] = useState<Food | null>(null);
   const [checksumHold, setChecksumHold] = useState<string | null>(null);
   const [custom, setCustom] = useState({
@@ -140,15 +140,16 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
 
   const processBarcode = async (code: string) => {
     setChecksumHold(null);
+    setBarcodeError('');
     const local = findFoodByBarcode(foods, code);
     if (local) {
       chooseFood(local);
-      setScanNotice(`Producto ya guardado: ${local.name} (${code}).`);
+      setBarcodeNotice(`Producto ya guardado: ${local.name} (${code}).`);
       return;
     }
 
-    setScanBusy(true);
-    setScanNotice(`Buscando el código ${code} en el catálogo local…`);
+    setBarcodeBusy(true);
+    setBarcodeNotice(`Buscando el código ${code} en el catálogo local…`);
     try {
       // 1) Catálogo local AR/PE/MX: disponible sin conexión. Los macros son
       // una aproximación por categoría, así que se avisa en el resultado.
@@ -157,62 +158,74 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
         setScannedFood(catalogFood);
         await onCreateFood(catalogFood);
         chooseFood(catalogFood);
-        setScanNotice(
+        setBarcodeNotice(
           `Producto del catálogo local: ${catalogFood.name}. Macros estimados por categoría; ajusta la cantidad o edítalo con la etiqueta si necesitas precisión.`,
         );
         return;
       }
 
       // 2) Open Food Facts: datos exactos si el producto existe y hay red.
-      setScanNotice(`Buscando el código ${code} en Open Food Facts…`);
+      setBarcodeNotice(`Buscando el código ${code} en Open Food Facts…`);
       const product = await lookupBarcode(code);
       if (product) {
         setScannedFood(product);
         await onCreateFood(product);
         chooseFood(product);
-        setScanNotice(`Producto encontrado y guardado en tu base: ${product.name}.`);
+        setBarcodeNotice(`Producto encontrado y guardado en tu base: ${product.name}.`);
       } else {
         setCustom((value) => ({ ...value, barcode: code }));
         setCustomOpen(true);
-        setScanNotice(
+        setBarcodeNotice(
           `El código ${code} no está en el catálogo local ni en Open Food Facts o no tiene macros. Revisa la etiqueta y guárdalo manualmente: el código quedará asociado.`,
         );
       }
     } catch (e) {
       setCustom((value) => ({ ...value, barcode: code }));
       setCustomOpen(true);
-      setScanNotice(`No se pudo consultar el producto (${errorText(e)}). Puedes guardarlo manualmente con este código.`);
+      setBarcodeNotice(`No se pudo consultar el producto (${errorText(e)}). Puedes guardarlo manualmente con este código.`);
     } finally {
-      setScanBusy(false);
+      setBarcodeBusy(false);
     }
   };
 
   /**
-   * Puerta de entrada del código leído o tecleado: filtra por dígito de
-   * control GTIN antes de consultar servicios (el aviso ofrece continuar).
+   * Puerta de entrada del código tecleado o enviado por un lector físico:
+   * normaliza, comprueba longitud y dígito de control GTIN antes de consultar
+   * servicios (el aviso ofrece continuar si el checksum no cuadra).
    */
   const handleBarcode = async (raw: string) => {
     const code = normalizeBarcode(raw);
-    setScannerOpen(false);
     setChecksumHold(null);
+    setBarcodeError('');
+    setBarcodeNotice(null);
     if (!code) {
-      setError('El lector no devolvió un código válido.');
+      setBarcodeError('Escribe los dígitos del código de barras.');
       return;
     }
-    setError('');
-
+    if (code.length < 6 || code.length > 14) {
+      setBarcodeError('El código debe tener entre 6 y 14 dígitos.');
+      return;
+    }
     if (isGtinLength(code) && !validBarcodeChecksum(code)) {
       setChecksumHold(code);
-      setScanNotice(`El código ${code} no es válido (dígito de control): revisa los dígitos. Si estás seguro de que está bien escrito, puedes buscarlo igual.`);
+      setBarcodeNotice(`El código ${code} no es válido (dígito de control): revisa los dígitos. Si estás seguro de que está bien escrito, puedes buscarlo igual.`);
       return;
     }
+    setBarcodeInput('');
     await processBarcode(code);
+  };
+
+  const submitBarcode = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (barcodeBusy) return;
+    void handleBarcode(barcodeInput);
   };
 
   const searchChecksumHold = async () => {
     const code = checksumHold;
     if (!code) return;
-    setScanNotice(`Buscando el código ${code} aunque su dígito de control no cuadre…`);
+    setBarcodeInput('');
+    setBarcodeNotice(`Buscando el código ${code} aunque su dígito de control no cuadre…`);
     await processBarcode(code);
   };
 
@@ -286,18 +299,47 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
             placeholder={`${foods.length} alimentos: pollo, arroz, plátano...`}
             aria-label="Buscar alimento"
           />
-          <button
-            type="button"
-            className="btn btn-tonal btn-sm food-scan-button"
-            onClick={() => {
-              setScanNotice(null);
-              setScannerOpen(true);
-            }}
-            disabled={scanBusy}
-          >
-            <Icon name="scan" size={15} /> {scanBusy ? 'Buscando…' : 'Escanear código'}
-          </button>
         </div>
+        <form className="food-barcode-row" onSubmit={submitBarcode}>
+          <label className="field food-barcode-field">
+            <span className="field-label">Código de barras</span>
+            <input
+              className="input"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              autoComplete="off"
+              enterKeyHint="search"
+              maxLength={14}
+              placeholder="Ej. 8412345678905"
+              value={barcodeInput}
+              onChange={(event) => {
+                setBarcodeInput(normalizeBarcode(event.target.value).slice(0, 14));
+                if (barcodeError) setBarcodeError('');
+                if (checksumHold) {
+                  setChecksumHold(null);
+                  setBarcodeNotice(null);
+                }
+              }}
+              aria-label="Escribe los dígitos del código de barras"
+            />
+          </label>
+          <button
+            type="submit"
+            className="btn btn-tonal btn-sm food-barcode-submit"
+            disabled={barcodeBusy || !barcodeInput.trim()}
+          >
+            <Icon name="scan" size={15} /> {barcodeBusy ? 'Buscando…' : 'Buscar'}
+          </button>
+          <span className="hint food-barcode-hint">
+            Escribe o pega 6–14 dígitos. También sirve un lector USB/Bluetooth que termine en Enter.
+          </span>
+        </form>
+        {barcodeError && (
+          <div className="notice notice-error">
+            <Icon name="alert" size={16} />
+            <span>{barcodeError}</span>
+          </div>
+        )}
         <div className="food-results" role="listbox" aria-label="Resultados de alimentos">
           {results.length === 0 ? (
             <div className="food-result-empty">
@@ -321,10 +363,10 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
             ))
           )}
         </div>
-        {scanNotice && (
-          <div className="notice notice-info food-scan-notice">
+        {barcodeNotice && (
+          <div className="notice notice-info food-barcode-notice">
             <Icon name="scan" size={16} />
-            <span>{scanNotice}</span>
+            <span>{barcodeNotice}</span>
             {checksumHold && (
               <div className="row wrap" style={{ marginTop: 8 }}>
                 <button type="button" className="btn btn-ghost btn-sm" onClick={() => void searchChecksumHold()}>
@@ -585,28 +627,6 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
           </div>
         )}
       </div>
-
-      {scannerOpen && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Escanear código de barras">
-          <div className="modal" style={{ width: 'min(520px, 100%)' }}>
-            <div className="modal-header">
-              <div>
-                <div className="modal-title">Escanear producto</div>
-                <div className="card-sub">EAN/UPC del envase. Se busca primero en tu base y en el catálogo local AR/PE/MX; si no aparece, podrás crearlo manualmente.</div>
-              </div>
-              <button className="btn-icon" aria-label="Cerrar escáner" onClick={() => setScannerOpen(false)}>
-                <Icon name="close" size={16} />
-              </button>
-            </div>
-            <div className="modal-body">
-              <BarcodeScanner
-                onResult={(code) => void handleBarcode(code)}
-                onClose={() => setScannerOpen(false)}
-              />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

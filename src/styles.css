@@ -2421,7 +2421,7 @@ option {
 }
 
 /* ------------------------------------------------------------------ */
-/* Escáner de códigos de barras                                       */
+/* Código de barras manual                                            */
 /* ------------------------------------------------------------------ */
 .food-search-row {
   display: flex;
@@ -2434,28 +2434,29 @@ option {
   min-width: 0;
 }
 
-.food-scan-button {
+.food-barcode-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.food-barcode-field {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.food-barcode-submit {
   flex: none;
   white-space: nowrap;
 }
 
-.food-scan-notice {
+.food-barcode-hint {
+  flex: 1 1 100%;
+}
+
+.food-barcode-notice {
   margin-top: 8px;
-}
-
-.barcode-scanner {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.barcode-video {
-  width: 100%;
-  max-width: 480px;
-  border-radius: 14px;
-  background: #000;
-  aspect-ratio: 4 / 3;
-  object-fit: cover;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2953,7 +2954,12 @@ option {
     align-items: stretch;
   }
 
-  .food-scan-button {
+  .food-barcode-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .food-barcode-submit {
     width: 100%;
     justify-content: center;
   }

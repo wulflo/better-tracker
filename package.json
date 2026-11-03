@@ -7,15 +7,12 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "icons": "node scripts/generate-icons.mjs",
-    "android:manifest": "node scripts/patch-android-manifest.mjs",
-    "android:prepare": "npm run icons && npm run android:manifest",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
-    "@tauri-apps/plugin-barcode-scanner": "^2.5.3",
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "@tauri-apps/plugin-fs": "^2.4.0",
     "@tauri-apps/plugin-http": "^2.5.0",
@@ -23,8 +20,6 @@
     "@tauri-apps/plugin-os": "^2.4.0",
     "@tauri-apps/plugin-process": "^2.4.0",
     "@tauri-apps/plugin-updater": "^2.14.0",
-    "@zxing/browser": "^0.2.1",
-    "@zxing/library": "^0.23.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

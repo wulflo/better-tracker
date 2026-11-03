@@ -1,5 +1,9 @@
 # Checklist: cámara, escaneo y recuperación de snapshots
 
+> **Nota (2026-11-03):** checklist **histórica**. La cámara y la carga de
+> imágenes se retiraron; el código de barras se introduce a mano. Ver
+> `docs/CHECKLIST_CODIGO_MANUAL.md`.
+
 > Estado: **implementado y compilado; falta verificación en un Android real**.
 > Build local del APK verificado con `CAMERA` presente (2026-10-28).
 > Fecha de inicio: 2026-10-28. Última actualización: 2026-10-28.

@@ -29,7 +29,6 @@ pub fn run() {
     {
         builder = builder
             .plugin(tauri_plugin_android_fs::init())
-            .plugin(tauri_plugin_barcode_scanner::init())
             .plugin(tauri_plugin_http::init());
     }
 

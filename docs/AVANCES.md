@@ -29,13 +29,7 @@
 - Actualizaciones híbridas: `latest.json` incluye `android-aarch64` con URL, tamaño y SHA-256.
 - La APK se descarga con el plugin HTTP nativo, se verifica y se guarda en `Descargas/BetterTracker` mediante MediaStore. La instalación es manual.
 - Iconos: master único en `src-tauri/icons/app-icon.png`; `npm run icons` regenera escritorio y mipmaps (legacy + adaptativos) y los copia al proyecto `gen/`. Antes solo se hacía en CI, así que los builds locales mostraban el icono genérico de Tauri.
-- Escáner: el frontend comprueba y solicita el permiso `CAMERA`, muestra el error real (sin `[object Object]`) y ofrece **Abrir ajustes** si está denegado.
-- `scripts/patch-android-manifest.mjs` añade `CAMERA` y `uses-feature` de forma idempotente al manifiesto generado; CI lo ejecuta tras `tauri android init`.
-- Formatos nativos sin `QRCode` explícito para evitar el formato inválido `0` de `mapFormats`; el plugin añade QR internamente.
-- Escáner arreglado: el plugin 2.5.3 se quedaba con la WebView del splash (cerrada al arrancar) y `webView.parent as ViewGroup` lanzaba `attempt to invoke virtual method 'java.lang.Class java.lang.Object.getClass()' on a null object reference`; además dejaba la capa de cámara montada al fallar. Ahora vive en `src-tauri/plugins/barcode-scanner` con la WebView visible, vibrador opcional, limpieza al fallar y ML Kit empaquetado (funciona sin Google Play Services). Ver `UPSTREAM.md`.
-- Búsqueda de producto por variantes UPC/EAN/GTIN (exacto, sin ceros, 12/13/14 dígitos) en Rust y en navegador; el producto guarda el código escaneado original.
 - `tauri-plugin-android-fs` 30.2.0 con `compileSdk = 36`: la APK vuelve a compilar en CI sin parches manuales del registro de Cargo. Las rutas SAF guardadas por 2.x se siguen leyendo.
-- El plugin ya no deja escapar excepciones al hilo principal: `failScan()` rechaza la promesa del escaneo y desmonta la vista previa ante cualquier fallo de configuración de cámara (antes, un error dentro de `runOnUiThread` cerraba la app al conceder el permiso de cámara). Ver `docs/CHECKLIST_REANUDAR_SESION.md` §5.1; falta compilar el parche y verificarlo en un Android físico.
 
 ## Interfaz y marca
 - Logo actualizado a mancuernas moradas (`public/logo.png`, iconos Tauri y Android).
@@ -43,9 +37,11 @@
 - Los menús desplegables usan en todos lados el componente `components/Select.tsx` con su propio menú temático; los `<select>` nativos (nivel de actividad, frecuencia de hábitos, idioma) dibujaban el popup del sistema operativo con padding grande y colores ajenos al tema.
 - El menú del selector (`.select-menu`) se pinta con variables del tema (`--surface-2`, `--outline-variant`, `--shadow-2`) y densidad menor, en vez de colores prefijados.
 
-## Escáner en escritorio
-- Nueva alternativa a la webcam: «Cargar imagen del código». La imagen se valida localmente (tipos MIME de imagen rasterizada cerrada —sin SVG, por scripting—, máximo 10 MB), se convierte en data URL dentro del propio WebView y se decodifica con ZXing; nada se envía a ningún servidor.
-- El escáner valida el dígito de control GTIN antes de consultar la red y avisa con «Buscar igual / Descartar» si no cuadra; al detectar un código vibra (plugin nativo, respaldo `navigator.vibrate`); el modal incluye campo para escribir/pegar el código a mano cuando la cámara falla.
+## Código de barras
+- Reemplazado el escáner por cámara/imagen por un **campo manual** siempre visible en Ingesta: se escriben o pegan 6–14 dígitos y se pulsa «Buscar» (o Enter). Un lector USB/Bluetooth que teclea el código y termina en Enter funciona sin configuración.
+- Se retiraron `@tauri-apps/plugin-barcode-scanner`, `@zxing/browser`, `@zxing/library`, la copia local del plugin, el permiso `CAMERA`, la carga de imágenes y el parche del manifiesto de Android. La app ya no solicita permisos de cámara.
+- La búsqueda mantiene el flujo local → catálogo local AR/PE/MX → Open Food Facts → formulario manual con el código rellenado.
+- El dígito de control GTIN se valida antes de consultar la red y, si no cuadra, se avisa con «Buscar igual / Descartar».
 
 ## Datos nutricionales
 - Base de alimentos ampliada a 521 entradas.
@@ -54,6 +50,4 @@
 ## Pendiente / posible
 - Las copias longlife no están cifradas.
 - En SAF, borrar copias deja carpetas vacías porque el plugin no expone borrado de directorios.
-- Compilar y verificar el parche `failScan()` del escáner en un Android físico: **compilado con éxito** (2026-10-31, ver `docs/CHECKLIST_REANUDAR_SESION.md` §5.1); queda probarlo en el dispositivo.
-- Brechas del escáner detectadas al comparar con apps libres (checksum EAN/UPC, vibración al detectar, código manual en el modal, permiso con *rationale*): lista y orden sugerido en `docs/REVISION_APPS_LIBRES_ESCANER.md` y `docs/CHECKLIST_REANUDAR_SESION.md` §5.5.
-- Opcional: arrastrar y soltar la imagen sobre el modal del escáner (hoy solo hay botón).
+- Probar la entrada manual y un lector físico USB/Bluetooth en un Android real.

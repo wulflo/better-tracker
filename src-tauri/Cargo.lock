@@ -252,7 +252,6 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-android-fs",
- "tauri-plugin-barcode-scanner",
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
  "tauri-plugin-http",
@@ -4207,18 +4206,6 @@ dependencies = [
  "tauri",
  "tauri-plugin",
  "tauri-plugin-fs",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "tauri-plugin-barcode-scanner"
-version = "2.5.3"
-dependencies = [
- "log",
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin",
  "thiserror 2.0.21",
 ]
 

@@ -1,5 +1,11 @@
 # Checklist de reanudación tras corte de internet
 
+> **Nota (2026-11-03):** el escáner por cámara/imagen fue retirado. El código de
+> barras se introduce a mano en Ingesta y ya no existen el plugin
+> `barcode-scanner`, ZXing ni el permiso `CAMERA`. Las referencias al escáner de
+> este documento son **históricas**; para el estado actual y el trabajo de
+> reemplazo, ver `docs/CHECKLIST_CODIGO_MANUAL.md`.
+
 > Objetivo: poder retomar las tareas de esta sesión **sin internet y sin romper
 > nada**. Está escrito para volver a pegarlo en conversación con el asistente
 > (o en una nueva sesión) y continuar desde aquí mismo.

@@ -251,8 +251,6 @@ jobs:
           test -f src-tauri/gen/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
           test -f src-tauri/gen/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
           echo "App icons: logo propio aplicado" >> "$GITHUB_STEP_SUMMARY"
-      - name: Patch Android manifest (camera)
-        run: node scripts/patch-android-manifest.mjs
       - name: Patch Android signing config
         run: |
           python3 - <<'PY'
@@ -372,10 +370,6 @@ jobs:
             fi
             if ! grep -q "package: name='com.bettertracker.desktop'" <<<"$BADGING"; then
               echo "::error::Paquete inesperado en $apk (se esperaba com.bettertracker.desktop)."
-              exit 1
-            fi
-            if ! grep -q "uses-permission: name='android.permission.CAMERA'" <<<"$BADGING"; then
-              echo "::error::Falta el permiso CAMERA en $apk."
               exit 1
             fi
           done

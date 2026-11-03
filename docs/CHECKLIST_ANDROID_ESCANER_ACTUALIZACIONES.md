@@ -1,5 +1,9 @@
 # Checklist: cierres en Android (escáner + actualizaciones), longlife y Android 13+
 
+> **Nota (2026-11-03):** checklist **histórica** en lo relativo al escáner. La
+> cámara y la carga de imágenes se retiraron; el código de barras se introduce a
+> mano. Ver `docs/CHECKLIST_CODIGO_MANUAL.md`.
+
 > Estado: **causa raíz corregida y verificada en la máquina local; falta verificar en un Android físico**.
 > Fecha: 2026-10-30. Versión de partida: 0.9.6.
 > Objetivo: documentar todo lo hecho y lo que falta, de forma que se pueda seguir

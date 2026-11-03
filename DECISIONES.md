@@ -51,16 +51,14 @@ Los datos de versiones anteriores en `<bóveda>/devices` se migran una vez a `<b
 ## Entrada de datos
 El pegado y el arrastre se interceptan globalmente. Solo se acepta `text/plain`; en campos de una línea se eliminan los saltos de línea. No se aceptan archivos, HTML enriquecido ni imágenes.
 
-## Escáner de códigos de barras
-- Android usa `tauri-plugin-barcode-scanner` con permiso `CAMERA`. Como `src-tauri/gen/` está en `.gitignore`, `scripts/patch-android-manifest.mjs` añade el permiso y `uses-feature` de forma idempotente; CI y los builds locales deben ejecutarlo tras `tauri android init`.
-- El plugin no solicita el permiso por sí solo: el frontend comprueba, solicita si hace falta y, si queda denegado, explica cómo activarlo y ofrece **Abrir ajustes**.
-- A la lista nativa de formatos no se le pasa `QRCode`: `mapFormats` del plugin convierte QR en `0` y el nativo vuelve a añadir QR; pasar QR explícitamente puede generar un formato inválido y romper `scan()`.
+## Código de barras
+- La app **no usa cámara ni lee imágenes**. El código se escribe o pega a mano en Ingesta (6–14 dígitos) y se envía con «Buscar» o con Enter. Un lector USB/Bluetooth que teclea los dígitos y termina en Enter funciona sin configuración adicional.
+- Se retiraron el plugin `tauri-plugin-barcode-scanner`, el permiso `CAMERA`, la copia local del plugin, ZXing y la carga de imágenes. Así se eliminan los fallos de permisos y de vista previa que sufría el escáner en Android.
+- La búsqueda prueba variantes del código (exacto, sin ceros iniciales y relleno a 12/13/14 dígitos) en Rust y en el modo navegador. El producto se guarda con el código introducido para que la siguiente búsqueda haga match local.
+- Antes de consultar la red se valida el dígito de control GTIN (mod 10) cuando la longitud es 8, 12, 13 o 14. Si no cuadra, la interfaz avisa y ofrece «Buscar igual» o «Descartar».
+- Si el producto no está en la base local, el catálogo local ni Open Food Facts, se abre el formulario de alimento nuevo con el código ya rellenado para asociarlo manualmente.
 - Los rechazos de Tauri se convierten con `errorText` (`src/errors.ts`) para no mostrar `[object Object]`.
-- El plugin vive en `src-tauri/plugins/barcode-scanner` (copia de la 2.5.3 con arreglos propios; ver `UPSTREAM.md`). Causa del fallo `attempt to invoke virtual method 'java.lang.Class java.lang.Object.getClass()' on a null object reference`: Tauri entrega a `load()` la primera WebView creada y aquí la primera ventana es `splash`, que se cierra al arrancar; el plugin se quedaba con esa WebView desmontada y `webView.parent as ViewGroup` lanzaba un NPE (R8 compila esa comprobación como `Object.getClass()`). La copia local busca la WebView visible, trata el vibrador como opcional, desmonta la cámara si algo falla (antes quedaba la capa transparente y **Reintentar** no recuperaba la app) y usa ML Kit empaquetado (`com.google.mlkit:barcode-scanning`), que decodifica sin Google Play Services. Se vuelve a la dependencia de crates.io cuando upstream publique estos arreglos.
-- La búsqueda prueba variantes del código (exacto, sin ceros iniciales y relleno a 12/13/14 dígitos) en Rust y en el modo navegador. El producto se guarda con el código escaneado original para que el siguiente escaneo haga match local.
 - Los menús desplegables (nivel de actividad, frecuencia de hábitos, idioma) usan el componente `components/Select.tsx` con menú propio temático: los `<select>` nativos dibujan el popup del sistema operativo con colores y padding ajenos al tema.
-- «Cargar imagen del código» (escritorio): lista cerrada de MIME de imagen rasterizada (sin SVG, porque admite scripting), máximo 10 MB, archivos vacíos rechazados; la imagen se lee como data URL local con `FileReader` y ZXing decodifica en memoria. Nada se envía a ningún servidor.
-- Fallos de configuración de cámara en Android: la copia del plugin rechaza el `invoke` y desmonta la vista (`failScan`), mostrando «Reintentar / Abrir ajustes» en vez de permitir que una excepción dentro de `runOnUiThread` mate el proceso al conceder el permiso.
 
 ## Actualizaciones
 - Escritorio: plugin oficial `tauri-plugin-updater` + `tauri-plugin-process`.

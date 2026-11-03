@@ -80,9 +80,9 @@ En Linux la app usa GTK/WebKit y funciona en Wayland de forma nativa. Si un driv
 - En **Ajustes → Copias de seguridad** puedes crear una copia, ver la fecha, el dispositivo y el tamaño de cada una, y **restaurar** sin riesgo: solo se importan los eventos que falten en `omega/devices/restored-<copia>-<marca>/`, sin borrar ni sobrescribir nada. Cada copia guarda un manifiesto con archivos y bytes: si una sincronización la deja a medias, aparece como **dañada** y la copia del día se rehace sola.
 - Los ajustes incluyen una acción de alto riesgo para borrar todas las copias de `longlife`. Pide confirmación, no se puede deshacer y la copia diaria no se recrea hasta el día siguiente.
 - Si el número de eventos baja respecto al último visto en esa bóveda, la app avisa: una bóveda append-only no debe decrecer (suele indicar que FolderSync u otro equipo ha revertido archivos). Si sincronizas con FolderSync, usa modo copia incremental del móvil al PC (sin propagar borrados) y nunca subas una copia antigua del PC sobre el móvil.
-- El escáner pide el permiso de cámara antes de abrirla, muestra el error real si algo falla y ofrece un botón para abrir los ajustes de Android. Los códigos UPC-A/EAN-13/GTIN se prueban en sus variantes (con y sin ceros iniciales, 12/13/14 dígitos) tanto en la app como en Open Food Facts. En escritorio, si no hay webcam, se puede cargar una imagen del código y se decodifica localmente (sin subir nada a ningún servidor).
+- El código de barras se introduce a mano en Ingesta: escribe o pega entre 6 y 14 dígitos y pulsa «Buscar» (o usa un lector USB/Bluetooth que termine en Enter). Los códigos UPC-A/EAN-13/GTIN se prueban en sus variantes (con y sin ceros iniciales, 12/13/14 dígitos) tanto en la app como en Open Food Facts. La app no pide permiso de cámara ni lee imágenes.
 - No hay cifrado. No se guardan fotos ni archivos: el pegado se limita a texto plano.
-- Las únicas conexiones de red son la comprobación **manual** de actualizaciones y la consulta opcional a Open Food Facts al escanear un código. No se ejecutan en segundo plano.
+- Las únicas conexiones de red son la comprobación **manual** de actualizaciones y la consulta opcional a Open Food Facts al buscar un código de barras. No se ejecutan en segundo plano.
 - En escritorio las actualizaciones se firman con minisign y se verifican antes de instalar. En Android se descarga la APK de la release, se verifica su SHA-256 publicado y se guarda en Descargas para instalarla manualmente.
 - Al ser eventos JSON inmutables (con los JSONL antiguos aún legibles), los datos siguen siendo legibles y portables sin la app.
 
@@ -102,10 +102,10 @@ Para desarrollo: `npm run tauri dev`.
 En Android, tras `npx tauri android init`, ejecuta una vez:
 
 ```bash
-npm run android:prepare
+npm run icons
 ```
 
-Ese comando genera los iconos desde `src-tauri/icons/app-icon.png` (escritorio y mipmaps de Android) y añade el permiso `CAMERA` al manifiesto. Ambos pasos son idempotentes y el workflow de release ya los ejecuta.
+Ese comando genera los iconos desde `src-tauri/icons/app-icon.png` (escritorio y mipmaps de Android). Es idempotente y el workflow de release ya lo ejecuta. La app no pide permiso de cámara: el código de barras se introduce a mano.
 
 La versión vive en `VERSION`. Después de cambiarla:
 

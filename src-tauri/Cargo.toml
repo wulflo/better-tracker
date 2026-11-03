@@ -45,8 +45,6 @@ tauri-plugin-process = "2"
 # de almacenamiento desde Android 10 y WRITE/READ_EXTERNAL solo existiría
 # para Android 9 o anterior.
 tauri-plugin-android-fs = { version = "30.2" }
-# Copia local con los arreglos del escáner (ver plugins/barcode-scanner/UPSTREAM.md).
-tauri-plugin-barcode-scanner = { path = "plugins/barcode-scanner" }
 # GitHub no envía cabeceras CORS en los assets de release; el plugin HTTP usa
 # el cliente nativo de Android y respeta el scope de `capabilities/mobile.json`.
 tauri-plugin-http = "2"
