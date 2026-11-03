@@ -81,8 +81,8 @@ On Linux the app uses GTK/WebKit and runs natively on Wayland. If a proprietary 
 - Settings includes a high-risk action to delete every `longlife` backup. It asks for confirmation, cannot be undone, and the daily backup is not recreated until the next day.
 - If the event count drops below the last count seen for that vault, the app warns: an append-only vault should never shrink (this usually means FolderSync or another machine reverted files). If you sync with FolderSync, use incremental copy mode from the phone to the PC (do not propagate deletions) and never sync an old PC copy back over the phone.
 - Barcodes are entered by hand in Intake: type or paste 6–14 digits and press "Search" (or use a USB/Bluetooth scanner that ends with Enter). UPC-A/EAN-13/GTIN codes are tried in their zero-padded and unpadded forms (12/13/14 digits), both in the app and against Open Food Facts. The app does not request camera permission and does not read images.
-- There is no encryption. Photos and files are not stored; pasted content is limited to plain text.
-- The only network connections are the **manual** update check and the optional Open Food Facts barcode lookup when searching a code. They do not run in the background.
+- **There is no encryption:** the vault is stored as plain JSON under `<vault>/omega`, and backups under `<vault>/longlife`. Do not sync it to a cloud service or share the machine without encrypting it yourself. Photos and files are not stored; pasted content is limited to plain text.
+- The only network connections are the **manual** update check and the optional Open Food Facts barcode lookup when searching a code. The searched barcode is sent to `world.openfoodfacts.org`; nothing is sent in the background.
 - Desktop updates are signed with minisign and verified before installation. Android downloads a release APK with a published SHA-256 hash, verifies it, and saves it to Downloads for manual installation.
 - Because events are immutable JSON files (legacy JSONL is still readable), the data remains readable and portable without the app.
 

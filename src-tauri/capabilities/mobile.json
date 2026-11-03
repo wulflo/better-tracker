@@ -1,14 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/v2/capability",
   "identifier": "mobile",
-  "description": "Android: plataforma, enlaces externos y actualización de la APK descargada y verificada en Rust.",
+  "description": "Android: solo las APIs core. Los enlaces externos, la APK y la bóveda pasan por comandos Rust.",
   "platforms": ["android"],
   "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "dialog:default",
-    "opener:default",
-    "opener:allow-open-url",
-    "os:allow-platform"
-  ]
+  "permissions": ["core:default"]
 }

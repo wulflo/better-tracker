@@ -1,9 +1,12 @@
 use crate::vault;
 use crate::version;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+use std::sync::Mutex;
 use std::time::Duration;
 use tauri::AppHandle;
 use tauri::Emitter;
@@ -12,10 +15,40 @@ use tauri::Manager;
 const UPDATE_MANIFEST_URL: &str =
     "https://github.com/wulflo/better-tracker/releases/latest/download/latest.json";
 const RELEASE_PREFIX: &str = "https://github.com/wulflo/better-tracker/releases/";
+/// Clave pública minisign del updater, en el mismo formato que
+/// `plugins.updater.pubkey` de `tauri.conf.json` (base64 de `minisign.pub`).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const UPDATER_PUBKEY_B64: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDAzNzg0OTE2MEI1MUVCNDYKUldSRzYxRUxGa2w0QTZmQnJLVkJ2M3RpMlRtN2hDUU1HbGZ5c2o2WDhnTVhBV2d6Y3NOeGdrMW8K";
+/// Primera versión que exige firma minisign también para `.deb`/`.rpm`. Las
+/// releases anteriores sin firma se aceptan con el SHA-256 y un aviso.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const SIGNED_LINUX_PACKAGES_FROM: &str = "0.9.10";
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 const MAX_APK_BYTES: u64 = 180 * 1024 * 1024;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const MAX_PACKAGE_BYTES: u64 = 300 * 1024 * 1024;
+
+/// Última ruta descargada y verificada por el actualizador. `open_update_file`
+/// solo puede abrir exactamente esa ruta, de modo que el webview no pueda
+/// pedir que se ejecute un archivo arbitrario del disco.
+#[derive(Default)]
+pub struct UpdateState {
+    last_download: Mutex<Option<PathBuf>>,
+}
+
+impl UpdateState {
+    fn remember(&self, path: &Path) {
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        *self.last_download.lock().unwrap_or_else(|e| e.into_inner()) = Some(canonical);
+    }
+
+    fn last_download(&self) -> Option<PathBuf> {
+        self.last_download
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+}
 
 fn update_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
@@ -42,6 +75,86 @@ fn validate_release_url(url: &str) -> Result<(), String> {
 fn validate_sha256(value: &str) -> Result<(), String> {
     if value.len() != 64 || !value.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err("El SHA-256 publicado no es válido.".into());
+    }
+    Ok(())
+}
+
+fn decode_base64_text(value: &str, label: &str) -> Result<String, String> {
+    let bytes = BASE64
+        .decode(value.trim())
+        .map_err(|_| format!("{label} no está codificada en base64."))?;
+    String::from_utf8(bytes).map_err(|_| format!("{label} no contiene texto UTF-8 válido."))
+}
+
+fn signed_version(trusted_comment: &str) -> Option<&str> {
+    trusted_comment
+        .split('\t')
+        .find_map(|field| field.strip_prefix("version:"))
+}
+
+/// Verifica la firma minisign del paquete con la misma clave pública que usa
+/// el updater de Tauri. Se hace en streaming para no cargar en memoria un
+/// `.deb`/`.rpm` de hasta 300 MB.
+fn verify_package_signature(
+    path: &Path,
+    signature_b64: &str,
+    announced_version: &str,
+) -> Result<(), String> {
+    verify_package_signature_with_key(path, signature_b64, announced_version, UPDATER_PUBKEY_B64)
+}
+
+fn verify_package_signature_with_key(
+    path: &Path,
+    signature_b64: &str,
+    announced_version: &str,
+    public_key_b64: &str,
+) -> Result<(), String> {
+    use minisign_verify::{PublicKey, Signature};
+    use std::io::Read;
+
+    let public_key_text = decode_base64_text(public_key_b64, "La clave pública del updater")?;
+    let public_key = PublicKey::decode(&public_key_text)
+        .map_err(|error| format!("La clave pública del updater no es válida: {error}"))?;
+    let signature_text = decode_base64_text(signature_b64, "La firma del paquete")?;
+    let signature = Signature::decode(&signature_text)
+        .map_err(|error| format!("La firma del paquete no es válida: {error}"))?;
+
+    match public_key.verify_stream(&signature) {
+        Ok(mut verifier) => {
+            let mut file = std::fs::File::open(path)
+                .map_err(|error| format!("No se pudo leer el paquete para verificar la firma: {error}"))?;
+            let mut buffer = vec![0u8; 1024 * 1024];
+            loop {
+                let read = file
+                    .read(&mut buffer)
+                    .map_err(|error| format!("No se pudo leer el paquete para verificar la firma: {error}"))?;
+                if read == 0 {
+                    break;
+                }
+                verifier.update(&buffer[..read]);
+            }
+            verifier
+                .finalize()
+                .map_err(|error| format!("La firma del paquete no es válida: {error}"))?;
+        }
+        Err(minisign_verify::Error::UnsupportedLegacyMode) => {
+            // El CLI de Tauri firma en modo pre-hasheado; este camino solo
+            // cubre paquetes antiguos firmados con minisign clásico.
+            let data = std::fs::read(path)
+                .map_err(|error| format!("No se pudo leer el paquete para verificar la firma: {error}"))?;
+            public_key
+                .verify(&data, &signature, true)
+                .map_err(|error| format!("La firma del paquete no es válida: {error}"))?;
+        }
+        Err(error) => return Err(format!("La firma del paquete no es válida: {error}")),
+    }
+
+    if let Some(signed) = signed_version(signature.trusted_comment()) {
+        if version::compare_versions(signed, announced_version) != 0 {
+            return Err(format!(
+                "La firma corresponde a la versión {signed}, no a la {announced_version} anunciada."
+            ));
+        }
     }
     Ok(())
 }
@@ -215,15 +328,42 @@ fn safe_version(value: &str) -> String {
     }
 }
 
+/// Intenta primero una ruta absoluta conocida y, si no existe, el nombre para
+/// que el sistema lo resuelva por `PATH`. Así una instalación normal no depende
+/// de un `PATH` modificado.
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
+fn resolve_program(candidates: &[&'static str]) -> &'static str {
+    candidates
+        .iter()
+        .find(|candidate| Path::new(**candidate).is_file())
+        .copied()
+        .unwrap_or_else(|| candidates.last().copied().unwrap_or(""))
+}
+
 fn open_with_system(path: &Path) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
-        let attempts: [(&str, Vec<&std::ffi::OsStr>); 2] = [
-            ("xdg-open", vec![path.as_os_str()]),
-            ("gio", vec![std::ffi::OsStr::new("open"), path.as_os_str()]),
+        // `xdg-open` no documenta `--`; pasar la ruta absoluta ya evita que
+        // empiece por `-`. `gio` sí acepta el terminador de opciones.
+        let opening: [(&str, Vec<&std::ffi::OsStr>); 2] = [
+            (
+                resolve_program(&["/usr/bin/xdg-open", "/bin/xdg-open", "xdg-open"]),
+                vec![path.as_os_str()],
+            ),
+            (
+                resolve_program(&["/usr/bin/gio", "/bin/gio", "gio"]),
+                vec![
+                    std::ffi::OsStr::new("open"),
+                    std::ffi::OsStr::new("--"),
+                    path.as_os_str(),
+                ],
+            ),
         ];
         let mut last_error = String::new();
-        for (program, args) in attempts {
+        for (program, args) in opening {
+            if program.is_empty() {
+                continue;
+            }
             match std::process::Command::new(program).args(args).spawn() {
                 Ok(_) => return Ok(()),
                 Err(error) => last_error = format!("{program}: {error}"),
@@ -235,15 +375,34 @@ fn open_with_system(path: &Path) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", &path.to_string_lossy()])
-            .spawn()
+        // Sin `cmd /C start`: la ruta se pasa como argumento directo, así que
+        // caracteres como `&` no pueden encadenar comandos. Los `.msi` se
+        // abren con msiexec; el resto de instaladores son ejecutables.
+        let is_msi = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.eq_ignore_ascii_case("msi"))
+            .unwrap_or(false);
+        let result = if is_msi {
+            let msiexec = std::env::var_os("SystemRoot")
+                .map(PathBuf::from)
+                .map(|root| root.join("System32").join("msiexec.exe"))
+                .filter(|candidate| candidate.is_file())
+                .unwrap_or_else(|| PathBuf::from("msiexec.exe"));
+            std::process::Command::new(msiexec)
+                .arg("/i")
+                .arg(path)
+                .spawn()
+        } else {
+            std::process::Command::new(path).spawn()
+        };
+        result
             .map(|_| ())
             .map_err(|error| format!("No se pudo abrir el instalador: {error}"))
     }
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open")
+        std::process::Command::new(resolve_program(&["/usr/bin/open", "/bin/open", "open"]))
             .arg(path)
             .spawn()
             .map(|_| ())
@@ -256,14 +415,16 @@ fn open_with_system(path: &Path) -> Result<(), String> {
     }
 }
 
-/// Descarga un `.deb`/`.rpm` publicado, verifica su SHA-256 y lo abre con el
-/// instalador del sistema. El paquete se guarda en Descargas con un nombre
-/// único para no chocar con descargas anteriores.
+/// Descarga un `.deb`/`.rpm` publicado, verifica su SHA-256 y firma minisign,
+/// y lo abre con el instalador del sistema. El paquete se guarda en Descargas
+/// con un nombre único para no chocar con descargas anteriores.
 #[tauri::command]
 pub async fn download_and_install_linux_package(
     app: AppHandle,
+    state: tauri::State<'_, UpdateState>,
     url: String,
     sha256: String,
+    signature: Option<String>,
     size: Option<u64>,
     version: String,
 ) -> Result<String, String> {
@@ -297,25 +458,75 @@ pub async fn download_and_install_linux_package(
             &mut on_progress,
         )
         .await?;
+
+        match signature.as_deref().filter(|value| !value.trim().is_empty()) {
+            Some(signature) => {
+                if let Err(error) = verify_package_signature(&path, signature, &version) {
+                    let _ = std::fs::remove_file(&path);
+                    return Err(error);
+                }
+            }
+            None => {
+                if version::compare_versions(&version, SIGNED_LINUX_PACKAGES_FROM) >= 0 {
+                    let _ = std::fs::remove_file(&path);
+                    return Err(
+                        "La release no publica una firma minisign para este paquete; no se abrirá el instalador."
+                            .into(),
+                    );
+                }
+                eprintln!(
+                    "Aviso: la release {version} es anterior a {SIGNED_LINUX_PACKAGES_FROM} y no incluye firma; se acepta solo la comprobación SHA-256."
+                );
+            }
+        }
+
+        state.remember(&path);
         open_with_system(&path)?;
         Ok(path.to_string_lossy().to_string())
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (app, url, sha256, size, version);
+        let _ = (app, state, url, sha256, signature, size, version);
         Err("La instalación de paquetes .deb/.rpm solo está disponible en Linux.".into())
     }
 }
 
-/// Abre un archivo de actualización ya descargado. Solo se permiten las
-/// extensiones que genera la release.
+/// Abre un archivo de actualización ya descargado. Solo se permite la última
+/// ruta que el propio actualizador descargó y verificó, canonicalizada y con
+/// una extensión admitida.
 #[tauri::command]
-pub fn open_update_file(path: String) -> Result<(), String> {
-    let candidate = PathBuf::from(&path);
-    if !candidate.exists() {
+pub fn open_update_file(state: tauri::State<'_, UpdateState>, path: String) -> Result<(), String> {
+    let expected = state
+        .last_download()
+        .ok_or_else(|| "No hay ningún instalador descargado por la app.".to_string())?;
+    let canonical = validate_update_file_path(&path, &expected)?;
+    open_with_system(&canonical)
+}
+
+fn validate_update_file_path(path: &str, expected: &Path) -> Result<PathBuf, String> {
+    let candidate = PathBuf::from(path);
+    if !candidate.is_absolute()
+        || candidate
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err("La ruta del instalador no es válida.".into());
+    }
+    #[cfg(windows)]
+    {
+        // Rechaza rutas UNC (\\servidor\recurso) y las que empiezan por \\?\.
+        if path.starts_with(r"\\") || path.starts_with("//") {
+            return Err("La ruta del instalador no es válida.".into());
+        }
+    }
+
+    let canonical = candidate
+        .canonicalize()
+        .map_err(|_| "El archivo de actualización ya no existe.".to_string())?;
+    if !canonical.is_file() {
         return Err("El archivo de actualización ya no existe.".into());
     }
-    let extension = candidate
+    let extension = canonical
         .extension()
         .and_then(|value| value.to_str())
         .unwrap_or("")
@@ -324,7 +535,10 @@ pub fn open_update_file(path: String) -> Result<(), String> {
     if !allowed.contains(&extension.as_str()) {
         return Err("El archivo no es un instalador admitido.".into());
     }
-    open_with_system(&candidate)
+    if canonical != expected {
+        return Err("Solo se puede abrir el instalador que descargó la app.".into());
+    }
+    Ok(canonical)
 }
 
 /// Descarga la APK en Rust, verifica tamaño y SHA-256 y la publica en
@@ -474,6 +688,39 @@ fn publish_apk(app: &AppHandle, temp_path: &Path, version: &str) -> Result<Strin
     Ok(format!("Descargas/{PUBLIC_SUBDIR}/{file_name}"))
 }
 
+/// Abre un enlace externo solo si pertenece al repositorio oficial. Se ejecuta
+/// desde Rust para que el webview no necesite `opener:allow-open-url` y no
+/// pueda abrir dominios arbitrarios.
+#[tauri::command]
+pub fn open_external(app: AppHandle, url: String) -> Result<(), String> {
+    validate_external_url(&url)?;
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(url, None::<String>)
+        .map_err(|error| format!("No se pudo abrir el enlace: {error}"))
+}
+
+fn validate_external_url(value: &str) -> Result<(), String> {
+    const REPOSITORY: &str = "https://github.com/wulflo/better-tracker";
+    let url = value.trim();
+    if url.is_empty()
+        || url
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace() || c == '\\')
+        || url.contains("..")
+    {
+        return Err("El enlace no es válido.".into());
+    }
+    let rest = url
+        .strip_prefix(REPOSITORY)
+        .ok_or_else(|| "El enlace no pertenece a Better Tracker.".to_string())?;
+    if rest.is_empty() || rest == "/" || rest == "/releases" || rest.starts_with("/releases/") {
+        Ok(())
+    } else {
+        Err("El enlace no pertenece a Better Tracker.".into())
+    }
+}
+
 #[tauri::command]
 pub fn get_app_info() -> version::AppInfo {
     version::app_info()
@@ -588,5 +835,87 @@ mod tests {
         assert_eq!(safe_version("../../etc/passwd"), "....etcpasswd");
         assert_eq!(safe_version(""), "update");
         assert!(safe_version(&"9".repeat(100)).len() <= 32);
+    }
+
+    #[test]
+    fn allows_only_official_external_links() {
+        assert!(validate_external_url("https://github.com/wulflo/better-tracker").is_ok());
+        assert!(validate_external_url("https://github.com/wulflo/better-tracker/").is_ok());
+        assert!(validate_external_url(
+            "https://github.com/wulflo/better-tracker/releases"
+        )
+        .is_ok());
+        assert!(validate_external_url(
+            "https://github.com/wulflo/better-tracker/releases/tag/v0.9.9"
+        )
+        .is_ok());
+        assert!(validate_external_url("https://github.com/wulflo/better-tracker.evil").is_err());
+        assert!(validate_external_url("https://github.com/wulflo/better-tracker/releases-evil")
+            .is_err());
+        assert!(validate_external_url("https://github.com/evil/better-tracker").is_err());
+        assert!(validate_external_url("http://github.com/wulflo/better-tracker").is_err());
+        assert!(validate_external_url("javascript:alert(1)").is_err());
+        assert!(validate_external_url("https://github.com/wulflo/better-tracker/../../evil")
+            .is_err());
+    }
+
+    #[test]
+    fn opens_only_the_file_downloaded_by_the_updater() {
+        let dir = std::env::temp_dir().join(format!(
+            "better-tracker-update-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let installer = dir.join("BetterTracker-0.9.10.deb");
+        std::fs::write(&installer, b"deb").unwrap();
+        let other = dir.join("other.deb");
+        std::fs::write(&other, b"deb").unwrap();
+        let text = dir.join("notes.txt");
+        std::fs::write(&text, b"notes").unwrap();
+
+        let canonical = installer.canonicalize().unwrap();
+        assert_eq!(
+            validate_update_file_path(&installer.to_string_lossy(), &canonical).unwrap(),
+            canonical
+        );
+        assert!(validate_update_file_path(&other.to_string_lossy(), &canonical).is_err());
+        assert!(validate_update_file_path(&text.to_string_lossy(), &canonical).is_err());
+        assert!(validate_update_file_path("relative.deb", &canonical).is_err());
+        assert!(validate_update_file_path("/tmp/../tmp/x.deb", &canonical).is_err());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn verifies_minisign_signatures() {
+        // Vector público de `minisign-verify`: la firma cubre exactamente "test".
+        const PUBLIC_KEY: &str = "untrusted comment: minisign public key E7620F1842B4E81F\nRWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3";
+        const SIGNATURE: &str = "untrusted comment: signature from minisign secret key\nRUQf6LRCGA9i559r3g7V1qNyJDApGip8MfqcadIgT9CuhV3EMhHoN1mGTkUidF/z7SrlQgXdy8ofjb7bNJJylDOocrCo8KLzZwo=\ntrusted comment: timestamp:1633700835\tfile:test\tprehashed\nwLMDjy9FLAuxZ3q4NlEvkgtyhrr0gtTu6KC4KBJdITbbOeAi1zBIYo0v4iTgt8jJpIidRJnp94ABQkJAgAooBQ==";
+        let dir = std::env::temp_dir().join(format!(
+            "better-tracker-signature-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("package.deb");
+        std::fs::write(&file, b"test").unwrap();
+
+        let public_key_b64 = BASE64.encode(PUBLIC_KEY);
+        let signature_b64 = BASE64.encode(SIGNATURE);
+        assert!(
+            verify_package_signature_with_key(&file, &signature_b64, "1.2.3", &public_key_b64)
+                .is_ok()
+        );
+
+        std::fs::write(&file, b"tampered").unwrap();
+        assert!(
+            verify_package_signature_with_key(&file, &signature_b64, "1.2.3", &public_key_b64)
+                .is_err()
+        );
+        assert!(
+            verify_package_signature_with_key(&file, "not-base64!", "1.2.3", &public_key_b64)
+                .is_err()
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -12,9 +12,8 @@ pub mod version;
 pub fn run() {
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        .manage(commands::UpdateState::default());
 
     // El actualizador nativo y el relanzado solo existen en escritorio. En
     // Android el frontend descarga el APK y el backend lo publica en Descargas.
@@ -27,9 +26,7 @@ pub fn run() {
 
     #[cfg(target_os = "android")]
     {
-        builder = builder
-            .plugin(tauri_plugin_android_fs::init())
-            .plugin(tauri_plugin_http::init());
+        builder = builder.plugin(tauri_plugin_android_fs::init());
     }
 
     builder
@@ -56,6 +53,7 @@ pub fn run() {
             commands::get_build_info,
             commands::get_version,
             commands::frontend_ready,
+            commands::open_external,
             commands::get_device_id,
             commands::list_events,
             commands::append_event,

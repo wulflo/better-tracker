@@ -32,6 +32,8 @@ export interface AndroidAsset {
   url: string;
   size?: number;
   sha256: string;
+  /** Firma minisign del paquete. Obligatoria en .deb/.rpm desde 0.9.10. */
+  signature?: string;
 }
 
 export interface AndroidUpdate {
@@ -179,6 +181,7 @@ export async function installUpdate(
       const path = await invoke<string>('download_and_install_linux_package', {
         url: asset.url,
         sha256: asset.sha256,
+        signature: asset.signature ?? null,
         size: asset.size ?? null,
         version: target.update.version,
       });
@@ -236,10 +239,18 @@ function validateAsset(rawAsset: ManifestAsset | undefined, label: string): Andr
   if (!/^[a-f0-9]{64}$/i.test(rawAsset.sha256)) {
     throw new Error(`El manifiesto incluye un SHA-256 no válido para ${label}.`);
   }
+  if (
+    rawAsset.signature !== undefined &&
+    (typeof rawAsset.signature !== 'string' ||
+      !/^[A-Za-z0-9+/=\s]+$/.test(rawAsset.signature))
+  ) {
+    throw new Error(`El manifiesto incluye una firma no válida para ${label}.`);
+  }
   return {
     url: rawAsset.url,
     size: typeof rawAsset.size === 'number' && rawAsset.size > 0 ? rawAsset.size : undefined,
     sha256: rawAsset.sha256.toLowerCase(),
+    signature: rawAsset.signature?.trim() || undefined,
   };
 }
 

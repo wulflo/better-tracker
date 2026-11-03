@@ -38,6 +38,10 @@ const SNAPSHOT_META: &str = "snapshot.json";
 pub const BACKUP_RETENTION: usize = 7;
 #[cfg(target_os = "android")]
 const MAX_SAF_DEPTH: usize = 64;
+/// Límites de la lectura local: evita bucles por symlinks, árboles absurdos y
+/// archivos gigantes sincronizados por error.
+const MAX_LOCAL_DEPTH: usize = 16;
+const MAX_LOCAL_EVENT_BYTES: u64 = 8 * 1024 * 1024;
 
 /// Serializa las escrituras dentro del proceso para que dos comandos no
 /// compitan por el mismo archivo de evento o por la copia diaria.
@@ -76,6 +80,24 @@ fn config_path(app: &AppHandle) -> PathBuf {
     app_data_dir(app).join("config.json")
 }
 
+/// Restringe los datos locales al usuario actual. En sistemas de archivos sin
+/// permisos POSIX (exFAT/NTFS) el cambio puede fallar: se registra y se sigue,
+/// porque la app debe funcionar igual en una carpeta sincronizada.
+#[cfg(unix)]
+fn harden_permissions(path: &Path, is_dir: bool) {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = if is_dir { 0o700 } else { 0o600 };
+    if let Err(error) = fs::set_permissions(path, fs::Permissions::from_mode(mode)) {
+        eprintln!(
+            "No se pudieron ajustar los permisos de {}: {error}",
+            path.display()
+        );
+    }
+}
+
+#[cfg(not(unix))]
+fn harden_permissions(_path: &Path, _is_dir: bool) {}
+
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct Config {
     pub vault_path: Option<String>,
@@ -102,10 +124,13 @@ fn save_config(app: &AppHandle, cfg: &Config) -> Result<(), String> {
     if let Some(parent) = p.parent() {
         fs::create_dir_all(parent)
             .map_err(|error| format!("No se pudo preparar la configuración: {error}"))?;
+        harden_permissions(parent, true);
     }
     let text = serde_json::to_string_pretty(cfg)
         .map_err(|error| format!("No se pudo serializar la configuración: {error}"))?;
-    fs::write(&p, text).map_err(|error| format!("No se pudo guardar la configuración: {error}"))
+    fs::write(&p, text).map_err(|error| format!("No se pudo guardar la configuración: {error}"))?;
+    harden_permissions(&p, false);
+    Ok(())
 }
 
 pub fn device_id(app: &AppHandle) -> String {
@@ -386,6 +411,7 @@ fn ensure_local_layout(root: &Path) -> Result<(), String> {
                             fs::copy(entry.path(), &fallback).map_err(|e| {
                                 format!("No se pudo conservar un dato antiguo de la bóveda: {e}")
                             })?;
+                            harden_permissions(&fallback, false);
                         }
                     }
                     continue;
@@ -398,6 +424,7 @@ fn ensure_local_layout(root: &Path) -> Result<(), String> {
                         fs::copy(entry.path(), &target).map_err(|e| {
                             format!("No se pudo migrar un dato antiguo de la bóveda: {e}")
                         })?;
+                        harden_permissions(&target, false);
                     }
                 }
             }
@@ -407,6 +434,8 @@ fn ensure_local_layout(root: &Path) -> Result<(), String> {
 
     fs::create_dir_all(&omega_devices)
         .map_err(|e| format!("No se pudo crear la carpeta de eventos: {e}"))?;
+    harden_permissions(&omega, true);
+    harden_permissions(&omega_devices, true);
     Ok(())
 }
 
@@ -471,8 +500,13 @@ fn write_local_event(
         .join(EVENTS_DIR);
     fs::create_dir_all(&dir)
         .map_err(|e| format!("No se pudo crear la carpeta del dispositivo: {e}"))?;
+    if let Some(device_dir) = dir.parent() {
+        harden_permissions(device_dir, true);
+    }
+    harden_permissions(&dir, true);
     let file = dir.join(file_name);
     if file.is_file() {
+        harden_permissions(&file, false);
         return Ok(());
     }
 
@@ -482,6 +516,7 @@ fn write_local_event(
     {
         let mut handle = fs::File::create(&tmp)
             .map_err(|e| format!("No se pudo abrir el archivo de eventos: {e}"))?;
+        harden_permissions(&tmp, false);
         handle
             .write_all(payload)
             .map_err(|e| format!("No se pudo escribir el evento: {e}"))?;
@@ -539,14 +574,44 @@ fn parse_event_content(content: &str, out: &mut Vec<Event>) {
     }
 }
 
+fn read_event_file(path: &Path, events: &mut Vec<Event>) {
+    // `symlink_metadata` no sigue enlaces: un symlink a un archivo enorme o
+    // circular se descarta igual que cualquier otro enlace.
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return;
+    };
+    if !metadata.file_type().is_file() || metadata.len() > MAX_LOCAL_EVENT_BYTES {
+        return;
+    }
+    if let Ok(content) = fs::read_to_string(path) {
+        parse_event_content(&content, events);
+    }
+}
+
 fn read_local_events_from_dir(dir: &Path, events: &mut Vec<Event>) {
+    read_local_events_at_depth(dir, events, 0);
+}
+
+fn read_local_events_at_depth(dir: &Path, events: &mut Vec<Event>, depth: usize) {
+    if depth > MAX_LOCAL_DEPTH {
+        return;
+    }
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_symlink() {
+            continue;
+        }
         let path = entry.path();
-        if path.is_dir() {
-            read_local_events_from_dir(&path, events);
+        if file_type.is_dir() {
+            read_local_events_at_depth(&path, events, depth + 1);
+            continue;
+        }
+        if !file_type.is_file() {
             continue;
         }
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
@@ -556,9 +621,7 @@ fn read_local_events_from_dir(dir: &Path, events: &mut Vec<Event>) {
             continue;
         }
         if name == EVENTS_FILE || name.ends_with(".json") {
-            if let Ok(content) = fs::read_to_string(&path) {
-                parse_event_content(&content, events);
-            }
+            read_event_file(&path, events);
         }
     }
 }
@@ -570,7 +633,30 @@ fn read_local_events(root: &Path) -> Result<Vec<Event>, String> {
     if !devices_dir.is_dir() {
         return Ok(events);
     }
-    read_local_events_from_dir(&devices_dir, &mut events);
+
+    // La estructura esperada es `omega/devices/<id>/events/` (más el
+    // `events.jsonl` heredado directamente bajo `<id>`). No se recorre
+    // cualquier subcarpeta arbitraria de la bóveda.
+    let Ok(entries) = fs::read_dir(&devices_dir) else {
+        return Ok(events);
+    };
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_dir() || file_type.is_symlink() {
+            continue;
+        }
+        let device_dir = entry.path();
+        read_event_file(&device_dir.join(EVENTS_FILE), &mut events);
+        let events_dir = device_dir.join(EVENTS_DIR);
+        if fs::symlink_metadata(&events_dir)
+            .map(|metadata| metadata.file_type().is_dir())
+            .unwrap_or(false)
+        {
+            read_local_events_from_dir(&events_dir, &mut events);
+        }
+    }
     dedup_events(&mut events);
     Ok(events)
 }
@@ -692,6 +778,7 @@ fn snapshot_meta(device_id: &str, files: u64, bytes: u64) -> SnapshotMeta {
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(u64, u64), String> {
     fs::create_dir_all(dst).map_err(|e| format!("No se pudo crear la copia: {e}"))?;
+    harden_permissions(dst, true);
     let mut files = 0u64;
     let mut bytes = 0u64;
 
@@ -701,6 +788,11 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(u64, u64), String> {
             Ok(file_type) => file_type,
             Err(_) => continue,
         };
+        // Los enlaces simbólicos no se copian: evita bucles y archivos fuera
+        // de la bóveda.
+        if file_type.is_symlink() {
+            continue;
+        }
         let source = entry.path();
         let target = dst.join(entry.file_name());
 
@@ -718,6 +810,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(u64, u64), String> {
                         .unwrap_or("archivo")
                 )
             })?;
+            harden_permissions(&target, false);
             files += 1;
             bytes += fs::metadata(&source).map(|meta| meta.len()).unwrap_or(0);
         }
@@ -1107,6 +1200,9 @@ pub fn run_daily_backup(app: &AppHandle, force: bool) -> Result<BackupRunResult,
                     }
                     fs::create_dir_all(&day)
                         .map_err(|e| format!("No se pudo crear la copia: {e}"))?;
+                    harden_permissions(&root.join(BACKUP_DIR), true);
+                    harden_permissions(&root.join(BACKUP_DIR).join(&device), true);
+                    harden_permissions(&day, true);
                     let (copied_files, copied_bytes) = copy_dir_recursive(&omega, &day)?;
                     let meta = serde_json::to_vec_pretty(&snapshot_meta(
                         &device,
@@ -1114,10 +1210,14 @@ pub fn run_daily_backup(app: &AppHandle, force: bool) -> Result<BackupRunResult,
                         copied_bytes,
                     ))
                     .map_err(|e| format!("No se pudo describir la copia: {e}"))?;
-                    fs::write(day.join(SNAPSHOT_META), meta)
+                    let meta_path = day.join(SNAPSHOT_META);
+                    fs::write(&meta_path, meta)
                         .map_err(|e| format!("No se pudo describir la copia: {e}"))?;
-                    fs::write(day.join(BACKUP_MARKER), b"ok\n")
+                    harden_permissions(&meta_path, false);
+                    let marker_path = day.join(BACKUP_MARKER);
+                    fs::write(&marker_path, b"ok\n")
                         .map_err(|e| format!("No se pudo cerrar la copia: {e}"))?;
+                    harden_permissions(&marker_path, false);
                     prune_local_device_backups(&root, &device)?;
                 }
             }
@@ -1199,13 +1299,16 @@ fn restore_local_snapshot(root: &Path, id: &str) -> Result<RestoreResult, String
     let restore_dir = root.join(DATA_DIR).join(DEVICES_DIR).join(&folder);
     fs::create_dir_all(&restore_dir)
         .map_err(|e| format!("No se pudo preparar la restauración: {e}"))?;
+    harden_permissions(&restore_dir, true);
     let mut content = String::new();
     for event in missing {
         content.push_str(&serde_json::to_string(&event).map_err(|e| e.to_string())?);
         content.push('\n');
     }
-    fs::write(restore_dir.join(EVENTS_FILE), content)
+    let events_path = restore_dir.join(EVENTS_FILE);
+    fs::write(&events_path, content)
         .map_err(|e| format!("No se pudo guardar la restauración: {e}"))?;
+    harden_permissions(&events_path, false);
     Ok(RestoreResult {
         folder: format!("omega/{DEVICES_DIR}/{folder}"),
         ..result
@@ -2139,6 +2242,72 @@ mod tests {
         let info = snapshot_info(&dir);
         assert!(info.complete && !info.damaged);
         assert_eq!(info.expected_files, None);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn ignores_symlinks_circular_dirs_and_oversized_files() {
+        let root = temp_dir("symlinks");
+        let event = sample_event("valid");
+        write_sample_event(&root, &event);
+
+        let events_dir = root
+            .join(DATA_DIR)
+            .join(DEVICES_DIR)
+            .join("device-a")
+            .join(EVENTS_DIR);
+
+        // Archivo grande (disperso) que supera el límite de lectura.
+        let huge = events_dir.join("huge.json");
+        let big = fs::File::create(&huge).unwrap();
+        big.set_len(MAX_LOCAL_EVENT_BYTES + 1).unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            // Bucle: la carpeta de eventos se enlaza a sí misma.
+            symlink(&events_dir, events_dir.join("loop")).unwrap();
+            // Enlace a un archivo fuera de la estructura esperada.
+            let external = root.join("external.json");
+            fs::write(&external, b"{\"id\":\"external\"}").unwrap();
+            symlink(&external, events_dir.join("external.json")).unwrap();
+            // Un dispositivo entero enlazado tampoco se sigue.
+            symlink(
+                root.join(DATA_DIR).join(DEVICES_DIR).join("device-a"),
+                root.join(DATA_DIR).join(DEVICES_DIR).join("linked-device"),
+            )
+            .unwrap();
+        }
+
+        let events = read_local_events(&root).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].id, "valid");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hardens_vault_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_dir("permissions");
+        let event = sample_event("permissions");
+        write_sample_event(&root, &event);
+
+        let omega = root.join(DATA_DIR);
+        let devices = omega.join(DEVICES_DIR);
+        let device = devices.join("device-a");
+        let events_dir = device.join(EVENTS_DIR);
+        let event_file = events_dir.join("permissions.json");
+
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&omega), 0o700);
+        assert_eq!(mode(&devices), 0o700);
+        assert_eq!(mode(&device), 0o700);
+        assert_eq!(mode(&events_dir), 0o700);
+        assert_eq!(mode(&event_file), 0o600);
 
         let _ = fs::remove_dir_all(root);
     }

@@ -116,7 +116,7 @@ export default function UpdatePanel({
             {android
               ? 'Se comprueba solo cuando lo pides. La APK se descarga y se guarda en Descargas sin bloquear la app; la instalación es manual.'
               : packageFormat
-                ? `Se comprueba solo cuando lo pides. El paquete .${packageFormat} se descarga en streaming, se verifica con SHA-256 y se abre con el instalador del sistema.`
+                ? `Se comprueba solo cuando lo pides. El paquete .${packageFormat} se descarga en streaming, se verifica con SHA-256 y firma minisign, y se abre con el instalador del sistema.`
                 : 'Se comprueba solo cuando lo pides. El manifiesto se consulta sin caché y el paquete se verifica antes de instalarse.'}
           </div>
         </div>
@@ -172,7 +172,7 @@ export default function UpdatePanel({
                   ? 'Guardando la APK en Descargas…'
                   : 'Descargando y verificando el APK…'
                 : packageFormat
-                  ? `Descargando y verificando el paquete .${packageFormat}…`
+                  ? `Descargando y verificando el paquete .${packageFormat} (SHA-256 y firma)…`
                   : 'Descargando y verificando la firma…'}
             </span>
             <span>

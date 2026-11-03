@@ -1,16 +1,26 @@
 [advisories]
-vulnerability = "deny"
-unmaintained = "warn"
+yanked = "deny"
+unmaintained = "workspace"
 
 [licenses]
-unlicensed = "deny"
-allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "Unicode-DFS-2016", "Zlib"]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-3-Clause",
+  "ISC",
+  "MPL-2.0",
+  "CDLA-Permissive-2.0",
+  "Unicode-DFS-2016",
+  "Unicode-3.0",
+  "Zlib",
+]
 
 [bans]
 multiple-versions = "warn"
+# Evita introducir un segundo cliente HTTP distinto del que ya usa la app.
+# reqwest/hyper no se deniegan porque son las dependencias reales de tauri.
 deny = [
-  { name = "reqwest" },
-  { name = "hyper" },
   { name = "ureq" },
   { name = "surf" },
   { name = "isahc" },

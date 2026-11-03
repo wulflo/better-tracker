@@ -8,6 +8,56 @@ const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
 const data = JSON.parse(readFileSync(manifestPath, 'utf8'));
 
 const errors = [];
+
+// `latest.json` no usa el esquema de `release-manifest.json`: cada plataforma
+// lleva su URL, tamaño, SHA-256 y firma minisign. Aquí se comprueba que los
+// paquetes .deb/.rpm que abre el instalador del sistema nunca vayan sin firma.
+if (data && typeof data === 'object' && data.platforms && typeof data.platforms === 'object') {
+  if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(String(data.version || ''))) {
+    errors.push('/version: expected strict SemVer X.Y.Z');
+  }
+  const signatureRequired = ['linux-deb-x86_64', 'linux-rpm-x86_64'];
+  const sha256Required = [...signatureRequired, 'android-aarch64'];
+  for (const [key, entry] of Object.entries(data.platforms)) {
+    if (!entry || typeof entry !== 'object') {
+      errors.push(`/platforms/${key}: expected object`);
+      continue;
+    }
+    if (typeof entry.url !== 'string' || !/^https:\/\/github\.com\//.test(entry.url)) {
+      errors.push(`/platforms/${key}/url: expected official GitHub URL`);
+    }
+    if (sha256Required.includes(key)) {
+      if (typeof entry.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(entry.sha256)) {
+        errors.push(`/platforms/${key}/sha256: expected 64 lowercase hex chars`);
+      }
+    } else if (
+      entry.sha256 !== undefined &&
+      (typeof entry.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(entry.sha256))
+    ) {
+      errors.push(`/platforms/${key}/sha256: expected 64 lowercase hex chars`);
+    }
+    if (signatureRequired.includes(key)) {
+      if (
+        typeof entry.signature !== 'string' ||
+        !entry.signature.trim() ||
+        !/^[A-Za-z0-9+/=\s]+$/.test(entry.signature)
+      ) {
+        errors.push(`/platforms/${key}/signature: missing or invalid minisign signature`);
+      }
+    }
+  }
+  for (const key of signatureRequired) {
+    if (!data.platforms[key]) errors.push(`/platforms/${key}: missing`);
+  }
+  if (errors.length) {
+    console.error('Updater manifest validation FAILED:');
+    for (const e of errors) console.error('  ' + e);
+    process.exit(1);
+  }
+  console.log('Updater manifest validation OK');
+  process.exit(0);
+}
+
 function typeOf(v) {
   if (v === null) return 'null';
   if (Array.isArray(v)) return 'array';

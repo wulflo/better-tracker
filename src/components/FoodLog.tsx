@@ -331,7 +331,8 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
             <Icon name="scan" size={15} /> {barcodeBusy ? 'Buscando…' : 'Buscar'}
           </button>
           <span className="hint food-barcode-hint">
-            Escribe o pega 6–14 dígitos. También sirve un lector USB/Bluetooth que termine en Enter.
+            Escribe o pega 6–14 dígitos. También sirve un lector USB/Bluetooth que termine en Enter. Si el producto no
+            está en el catálogo local, el código se envía a Open Food Facts (world.openfoodfacts.org) para buscarlo.
           </span>
         </form>
         {barcodeError && (

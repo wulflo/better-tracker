@@ -112,16 +112,31 @@ for (const { extension, key } of linuxPackages) {
   }
   const chosen =
     candidates.find((file) => /x86_64|amd64/i.test(basename(file))) ?? candidates[0];
+  const sigPath = `${chosen}.sig`;
+  let signature = '';
+  if (existsSync(sigPath)) {
+    signature = readFileSync(sigPath, 'utf8').trim();
+    if (!signature || !/^[A-Za-z0-9+/=\s]+$/.test(signature)) {
+      console.error(`Invalid minisign signature for ${basename(chosen)}`);
+      if (requireAll) process.exit(1);
+      signature = '';
+    }
+  } else if (requireAll) {
+    console.error(`Missing minisign signature for ${basename(chosen)} (${sigPath})`);
+    process.exit(1);
+  } else {
+    console.warn(`No signature found for ${basename(chosen)}; publishing SHA-256 only.`);
+  }
   const bytes = readFileSync(chosen);
   platforms[key] = {
-    // El updater de escritorio deserializa todas las entradas con `signature`.
-    // Para .deb/.rpm la verificación es SHA-256 + el propio gestor de paquetes.
-    signature: '',
+    // La firma minisign permite a Rust verificar el paquete antes de abrir el
+    // instalador. Se mantiene el SHA-256 como comprobación adicional.
+    signature,
     url: assetUrl(chosen),
     size: statSync(chosen).size,
     sha256: createHash('sha256').update(bytes).digest('hex'),
   };
-  console.log(`  ${key} <- ${basename(chosen)} (sha256)`);
+  console.log(`  ${key} <- ${basename(chosen)} (sha256 + signature)`);
 }
 
 // La APK no usa la firma minisign de Tauri: el cliente Android verifica el

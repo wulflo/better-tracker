@@ -81,8 +81,8 @@ En Linux la app usa GTK/WebKit y funciona en Wayland de forma nativa. Si un driv
 - Los ajustes incluyen una acción de alto riesgo para borrar todas las copias de `longlife`. Pide confirmación, no se puede deshacer y la copia diaria no se recrea hasta el día siguiente.
 - Si el número de eventos baja respecto al último visto en esa bóveda, la app avisa: una bóveda append-only no debe decrecer (suele indicar que FolderSync u otro equipo ha revertido archivos). Si sincronizas con FolderSync, usa modo copia incremental del móvil al PC (sin propagar borrados) y nunca subas una copia antigua del PC sobre el móvil.
 - El código de barras se introduce a mano en Ingesta: escribe o pega entre 6 y 14 dígitos y pulsa «Buscar» (o usa un lector USB/Bluetooth que termine en Enter). Los códigos UPC-A/EAN-13/GTIN se prueban en sus variantes (con y sin ceros iniciales, 12/13/14 dígitos) tanto en la app como en Open Food Facts. La app no pide permiso de cámara ni lee imágenes.
-- No hay cifrado. No se guardan fotos ni archivos: el pegado se limita a texto plano.
-- Las únicas conexiones de red son la comprobación **manual** de actualizaciones y la consulta opcional a Open Food Facts al buscar un código de barras. No se ejecutan en segundo plano.
+- **No hay cifrado:** la bóveda se guarda como JSON en claro en `<bóveda>/omega` y las copias en `<bóveda>/longlife`. No la sincronices con la nube ni compartas el equipo sin cifrarla tú mismo. No se guardan fotos ni archivos: el pegado se limita a texto plano.
+- Las únicas conexiones de red son la comprobación **manual** de actualizaciones y la consulta opcional a Open Food Facts al buscar un código de barras. El código buscado se envía a `world.openfoodfacts.org`; nada se envía en segundo plano.
 - En escritorio las actualizaciones se firman con minisign y se verifican antes de instalar. En Android se descarga la APK de la release, se verifica su SHA-256 publicado y se guarda en Descargas para instalarla manualmente.
 - Al ser eventos JSON inmutables (con los JSONL antiguos aún legibles), los datos siguen siendo legibles y portables sin la app.
 
