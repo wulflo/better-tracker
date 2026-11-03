@@ -58,6 +58,15 @@ interface Props {
 
 const DAY_NAMES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
+type PanelTab = 'summary' | 'body' | 'nutrition' | 'reminders';
+
+const PANEL_TABS: Array<[PanelTab, string]> = [
+  ['summary', 'Resumen'],
+  ['body', 'Cuerpo'],
+  ['nutrition', 'Nutrición'],
+  ['reminders', 'Recordatorios'],
+];
+
 function emptyNutrition(date: string): NutritionEntry {
   return { date, kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, water: 0 };
 }
@@ -67,6 +76,7 @@ function emptyMacros(date: string): Pick<NutritionEntry, 'date' | 'kcal' | 'prot
 }
 
 export default function PanelView({ deviceId, events, exercises, onRefresh, notify, onNavigate }: Props) {
+  const [tab, setTab] = useState<PanelTab>('summary');
   const lastMeas = latestMeasurement(events);
   const lastMeasEventId = [...events].reverse().find((e) => e.kind === 'measurement.saved')?.id;
   const [measForm, setMeasForm] = useState<MeasurementEntry>({
@@ -381,7 +391,7 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
         <div>
           <h1 className="page-title">Panel</h1>
           <p className="page-sub">
-            Tu centro diario: peso, composición, macros, agua, saciedad dual y carga de entrenamiento.
+            Resumen diario, composición corporal, nutrición y recordatorios en una sola sección.
           </p>
         </div>
         <div className="page-actions">
@@ -391,32 +401,43 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
         </div>
       </header>
 
-      <div className="grid grid-4">
-        <Stat
-          label="Peso actual"
-          value={currentWeight ? `${currentWeight.toFixed(1)} kg` : '—'}
-          caption={weights.length ? `Último registro ${weights[weights.length - 1].date}` : 'Registra tu peso abajo'}
-        />
-        <Stat
-          label="IMC"
-          value={bmi ? bmi.toFixed(1) : '—'}
-          caption={bmi ? (bmi < 18.5 ? 'Bajo peso' : bmi < 25 ? 'Rango normal' : bmi < 30 ? 'Sobrepeso' : 'Obesidad') : 'Faltan peso y altura'}
-        />
-        <Stat
-          label="% grasa estimado"
-          value={fatAvg !== null ? `${fatAvg.toFixed(1)}%` : '—'}
-          caption={comp.methods.length ? `${comp.methods.length} método(s) disponibles` : 'Añade cintura, cuello o edad'}
-        />
-        <Stat
-          label="Sesiones esta semana"
-          value={exerciseSummary.weekSessions}
-          caption={`${minutesLabel(exerciseSummary.weekMinutes)} · ${exerciseSummary.weekSets} series`}
-        />
+      <div className="tabs" role="tablist" aria-label="Secciones del panel">
+        {PANEL_TABS.map(([id, label]) => (
+          <button key={id} type="button" role="tab" aria-selected={tab === id} className={`tab ${tab === id ? 'active' : ''}`} onClick={() => setTab(id)}>
+            {label}
+          </button>
+        ))}
       </div>
 
+      {tab === 'summary' && (
+        <div className="grid grid-4">
+          <Stat
+            label="Peso actual"
+            value={currentWeight ? `${currentWeight.toFixed(1)} kg` : '—'}
+            caption={weights.length ? `Último registro ${weights[weights.length - 1].date}` : 'Regístralo en la pestaña Cuerpo'}
+          />
+          <Stat
+            label="IMC"
+            value={bmi ? bmi.toFixed(1) : '—'}
+            caption={bmi ? (bmi < 18.5 ? 'Bajo peso' : bmi < 25 ? 'Rango normal' : bmi < 30 ? 'Sobrepeso' : 'Obesidad') : 'Faltan peso y altura'}
+          />
+          <Stat
+            label="% grasa estimado"
+            value={fatAvg !== null ? `${fatAvg.toFixed(1)}%` : '—'}
+            caption={comp.methods.length ? `${comp.methods.length} método(s) disponibles` : 'Añade cintura, cuello o edad'}
+          />
+          <Stat
+            label="Sesiones esta semana"
+            value={exerciseSummary.weekSessions}
+            caption={`${minutesLabel(exerciseSummary.weekMinutes)} · ${exerciseSummary.weekSets} series`}
+          />
+        </div>
+      )}
+
       <div className="grid grid-2">
-        <section
-          className={`card water-banner span-2 ${waterOver ? 'water-banner-over' : ''}`}
+        {tab === 'summary' && (
+          <section
+            className={`card water-banner span-2 ${waterOver ? 'water-banner-over' : ''}`}
           aria-label="Control de agua"
           aria-live="polite"
         >
@@ -490,7 +511,10 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
             </div>
           </div>
         </section>
+        )}
 
+        {tab === 'body' && (
+        <>
         <section className="card span-2">
           <div className="card-header">
             <div>
@@ -645,54 +669,12 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
             </p>
           </div>
         </section>
+        </>
+        )}
 
+        {tab === 'nutrition' && (
+        <>
         <section className="card span-2">
-          <div className="card-header">
-            <div>
-              <div className="card-title"><Icon name="bowl" /> Recetas recomendadas</div>
-              <div className="card-sub">
-                {goalLabel(goalMode)} · elige una receta y añade sus ingredientes al diario con los mismos macros
-                de la base de alimentos.
-              </div>
-            </div>
-            <span className="badge badge-muted">Basado en evidencia</span>
-          </div>
-          <div className="card-body stack">
-            <div className="recipe-grid">
-              {recipeSuggestions.map((recipe) => (
-                <article key={recipe.id} className="recipe-card">
-                  <div className="row between wrap">
-                    <strong>{recipe.name}</strong>
-                    <span className={`badge ${recipe.fit === 'excellent' ? 'badge-success' : recipe.fit === 'good' ? 'badge-primary' : 'badge-muted'}`}>
-                      {recipe.fit === 'excellent' ? 'Encaje alto' : recipe.fit === 'good' ? 'Buen encaje' : 'Alternativa'}
-                    </span>
-                  </div>
-                  <p className="small muted">{recipe.description}</p>
-                  <div className="chips">
-                    <span className="chip active">{recipe.macros.kcal} kcal</span>
-                    <span className="chip active">{recipe.macros.protein} g proteína</span>
-                    <span className="chip">{recipe.macros.carbs} g carbos</span>
-                    <span className="chip">{recipe.macros.fat} g grasa</span>
-                    <span className="chip">{recipe.macros.fiber} g fibra</span>
-                  </div>
-                  <p className="hint small"><strong>Por qué:</strong> {recipe.science}</p>
-                  <div className="row between wrap">
-                    <span className="hint small">{recipe.minutes} min · {recipe.meal} · {recipe.macros.grams} g</span>
-                    <button className="btn btn-tonal btn-sm" onClick={() => addRecipe(recipe)}>
-                      <Icon name="plus" size={14} /> Añadir al diario
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-            <p className="hint">
-              En déficit se prioriza proteína y fibra por caloría; en superávit, densidad energética y carbohidratos
-              alrededor del entrenamiento. Ajusta las porciones a tu hambre y a tus objetivos.
-            </p>
-          </div>
-        </section>
-
-        <section className="card">
           <div className="card-header">
             <div>
               <div className="card-title"><Icon name="target" /> Macros y agua</div>
@@ -894,6 +876,56 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
           </div>
         </section>
 
+        <section className="card span-2">
+          <div className="card-header">
+            <div>
+              <div className="card-title"><Icon name="bowl" /> Recetas recomendadas</div>
+              <div className="card-sub">
+                {goalLabel(goalMode)} · elige una receta y añade sus ingredientes al diario con los mismos macros
+                de la base de alimentos.
+              </div>
+            </div>
+            <span className="badge badge-muted">Basado en evidencia</span>
+          </div>
+          <div className="card-body stack">
+            <div className="recipe-grid">
+              {recipeSuggestions.map((recipe) => (
+                <article key={recipe.id} className="recipe-card">
+                  <div className="row between wrap">
+                    <strong>{recipe.name}</strong>
+                    <span className={`badge ${recipe.fit === 'excellent' ? 'badge-success' : recipe.fit === 'good' ? 'badge-primary' : 'badge-muted'}`}>
+                      {recipe.fit === 'excellent' ? 'Encaje alto' : recipe.fit === 'good' ? 'Buen encaje' : 'Alternativa'}
+                    </span>
+                  </div>
+                  <p className="small muted">{recipe.description}</p>
+                  <div className="chips">
+                    <span className="chip active">{recipe.macros.kcal} kcal</span>
+                    <span className="chip active">{recipe.macros.protein} g proteína</span>
+                    <span className="chip">{recipe.macros.carbs} g carbos</span>
+                    <span className="chip">{recipe.macros.fat} g grasa</span>
+                    <span className="chip">{recipe.macros.fiber} g fibra</span>
+                  </div>
+                  <p className="hint small"><strong>Por qué:</strong> {recipe.science}</p>
+                  <div className="row between wrap">
+                    <span className="hint small">{recipe.minutes} min · {recipe.meal} · {recipe.macros.grams} g</span>
+                    <button className="btn btn-tonal btn-sm" onClick={() => addRecipe(recipe)}>
+                      <Icon name="plus" size={14} /> Añadir al diario
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <p className="hint">
+              En déficit se prioriza proteína y fibra por caloría; en superávit, densidad energética y carbohidratos
+              alrededor del entrenamiento. Ajusta las porciones a tu hambre y a tus objetivos.
+            </p>
+          </div>
+        </section>
+        </>
+        )}
+
+        {tab === 'summary' && (
+        <>
         <section className="card">
           <div className="card-header">
             <div>
@@ -953,8 +985,11 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
             {alerts.length > 5 && <button className="btn btn-ghost btn-sm" onClick={() => onNavigate('training')}>Ver todas</button>}
           </div>
         </section>
+        </>
+        )}
 
-        <section className="card">
+        {tab === 'reminders' && (
+        <section className="card span-2">
           <div className="card-header">
             <div>
               <div className="card-title"><Icon name="clock" /> Recordatorios</div>
@@ -991,6 +1026,7 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
             )}
           </div>
         </section>
+        )}
       </div>
 
       <div className="row between wrap">

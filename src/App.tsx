@@ -407,6 +407,8 @@ export default function App() {
               type="button"
               className={`nav-item ${view === item.id ? 'active' : ''}`}
               aria-current={view === item.id ? 'page' : undefined}
+              aria-label={t(`nav.${item.id}`, lang)}
+              title={t(`nav.${item.id}`, lang)}
               onClick={() => setView(item.id)}
             >
               <span className="nav-icon"><Icon name={item.icon} size={19} /></span>
@@ -420,18 +422,25 @@ export default function App() {
         <div className="sidebar-footer">
           <div className="vault-chip" title={vault ?? undefined}>
             <span className="status-dot" />
-            <span>{vaultName}</span>
+            <span className="vault-chip-name">{vaultName}</span>
           </div>
-          <button type="button" className="settings-btn" onClick={() => setSettingsOpen(true)}>
-            <Icon name="settings" size={17} /> {t('settings', lang)}
+          <button
+            type="button"
+            className="settings-btn"
+            aria-label={t('settings', lang)}
+            title={t('settings', lang)}
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Icon name="settings" size={17} /> <span className="sidebar-footer-label">{t('settings', lang)}</span>
           </button>
           <button
             type="button"
             className="settings-btn"
+            aria-label="Repositorio"
             onClick={() => void openRepository().catch((e) => notify(errorText(e), 'error'))}
             title={REPOSITORY_URL}
           >
-            <Icon name="repo" size={17} /> Repositorio
+            <Icon name="repo" size={17} /> <span className="sidebar-footer-label">Repositorio</span>
           </button>
         </div>
       </aside>

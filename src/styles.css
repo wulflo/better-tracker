@@ -2826,6 +2826,78 @@ option {
 }
 
 /* ------------------------------------------------------------------ */
+/* Sidebar compacta: solo iconos en ventanas estrechas de escritorio   */
+/* ------------------------------------------------------------------ */
+@media (min-width: 821px) and (max-width: 1024px) {
+  .app-shell {
+    grid-template-columns: 78px minmax(0, 1fr);
+  }
+
+  .sidebar {
+    align-items: center;
+    padding: 18px 10px 14px;
+  }
+
+  .brand {
+    justify-content: center;
+    padding: 6px 0 20px;
+  }
+
+  .brand-logo {
+    width: 38px;
+    height: 38px;
+  }
+
+  .brand-text {
+    display: none;
+  }
+
+  .sidebar-nav {
+    width: 100%;
+    align-items: center;
+    padding-right: 0;
+  }
+
+  .nav-item {
+    justify-content: center;
+    gap: 0;
+    padding: 12px 0;
+  }
+
+  .nav-label {
+    display: none;
+  }
+
+  .nav-icon {
+    width: 22px;
+    height: 22px;
+    opacity: 1;
+  }
+
+  .sidebar-footer {
+    width: 100%;
+    align-items: center;
+  }
+
+  .vault-chip {
+    justify-content: center;
+    width: 100%;
+    padding: 9px 0;
+  }
+
+  .vault-chip-name,
+  .sidebar-footer-label {
+    display: none;
+  }
+
+  .settings-btn {
+    justify-content: center;
+    gap: 0;
+    padding: 10px 0;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Navegación inferior móvil                                          */
 /* ------------------------------------------------------------------ */
 .bottom-nav {
