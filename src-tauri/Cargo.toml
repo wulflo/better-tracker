@@ -1,6 +1,6 @@
 [package]
 name = "better-tracker"
-version = "0.9.9"
+version = "0.9.10"
 description = "Better Tracker"
 authors = ["better-tracker"]
 license = "MIT"
