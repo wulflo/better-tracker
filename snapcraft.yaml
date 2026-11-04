@@ -1,0 +1,46 @@
+# Snap de Better Tracker.
+#
+# El binario, los iconos y el .desktop se toman del .deb que genera
+# `tauri build --bundles deb` (ver .github/workflows/package-linux.yml y
+# scripts/package-linux.sh). Así el snap usa exactamente el mismo ejecutable
+# que los demás instaladores de Linux y no se recompila Rust aquí.
+#
+# La extensión `gnome` aporta GTK 3, WebKitGTK 4.1 y el resto de dependencias
+# desde el snap de plataforma gnome-42-2204.
+name: better-tracker
+base: core22
+version: '0.9.10'
+summary: Entrenamiento, composición corporal y nutrición local-first
+description: |
+  Better Tracker reúne entrenamiento, composición corporal, nutrición y carga
+  semanal en una app de escritorio local-first.
+
+  Registra entrenamientos, peso, medidas, comidas y agua; consulta el progreso
+  de grasa, los macros y la carga muscular semanal. Todos los datos se guardan
+  en una bóveda local, sin cuentas ni nube.
+grade: stable
+confinement: strict
+compression: lzo
+license: MIT
+website: https://github.com/wulflo/better-tracker
+icon: snap/gui/better-tracker.png
+
+apps:
+  better-tracker:
+    command: usr/bin/better-tracker
+    extensions: [gnome]
+    plugs:
+      # La bóveda vive en el directorio personal del usuario.
+      - home
+      # La app usa red para buscar productos y comprobar actualizaciones.
+      - network
+      # Permite elegir bóvedas en discos externos montados en /media o /mnt.
+      # Es un plug manual: el usuario debe conectarlo con
+      # `sudo snap connect better-tracker:removable-media`.
+      - removable-media
+
+parts:
+  better-tracker:
+    # El contenido ya está compilado: plugin dump solo copia archivos.
+    plugin: dump
+    source: packaging/linux/deb-root

@@ -92,6 +92,9 @@ interface UpdateManifest {
 export function canUseUpdater(installFormat?: string): boolean {
   if (!isTauri()) return false;
   if (installFormat === 'apk') return true;
+  // Snap y Flatpak se actualizan desde su tienda: el updater de Tauri no puede
+  // reemplazar esos paquetes (son de solo lectura y no usan dpkg).
+  if (installFormat === 'snap' || installFormat === 'flatpak') return false;
   // Linux empaquetado (.deb/.rpm) se actualiza con Descargas + instalador del
   // sistema; AppImage y Windows usan el plugin nativo. Un binario portable sin
   // formato detectable no puede reemplazarse solo.
@@ -108,6 +111,12 @@ export function canUseUpdater(installFormat?: string): boolean {
 
 export function updaterUnavailableReason(installFormat?: string): string {
   if (!isTauri()) return 'La actualización está disponible solo en la app nativa.';
+  if (installFormat === 'snap') {
+    return 'Esta versión se actualiza desde la Snap Store. No hace falta buscar actualizaciones aquí.';
+  }
+  if (installFormat === 'flatpak') {
+    return 'Esta versión se actualiza desde Flatpak. No hace falta buscar actualizaciones aquí.';
+  }
   if (installFormat === 'linux') {
     return 'No se pudo detectar si la app se instaló como .deb o .rpm. Descarga el paquete nuevo desde GitHub Releases.';
   }
@@ -117,6 +126,9 @@ export function updaterUnavailableReason(installFormat?: string): string {
 export async function checkForUpdate(installFormat?: string): Promise<AvailableUpdate | null> {
   if (!isTauri()) {
     throw new Error('La actualización solo está disponible en la app nativa.');
+  }
+  if (installFormat === 'snap' || installFormat === 'flatpak') {
+    throw new Error(updaterUnavailableReason(installFormat));
   }
   if (installFormat === 'apk') {
     return checkAndroidUpdate();

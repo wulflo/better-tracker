@@ -1,0 +1,48 @@
+# Flatpak de Better Tracker.
+#
+# Empaqueta el contenido del .deb generado por `tauri build --bundles deb`
+# (ver .github/workflows/package-linux.yml y scripts/package-linux.sh). El
+# runtime org.gnome.Platform ya incluye GTK 3, WebKitGTK 4.1 y el resto de
+# dependencias que necesita un binario Tauri v2.
+#
+# Este .flatpak está pensado para adjuntarse a GitHub Releases. Para Flathub
+# hay que compilar desde fuente dentro del SDK y usar un APP_ID verificable
+# (por ejemplo io.github.wulflo.BetterTracker).
+id: com.bettertracker.desktop
+runtime: org.gnome.Platform
+runtime-version: '48'
+sdk: org.gnome.Sdk
+command: better-tracker
+
+finish-args:
+  # Ventana y renderizado WebKit.
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+
+  # La bóveda puede estar en cualquier carpeta del directorio personal.
+  - --filesystem=home
+
+  # Búsqueda de productos y comprobación de actualizaciones.
+  - --share=network
+
+modules:
+  - name: better-tracker
+    buildsystem: simple
+    sources:
+      # Raíz del .deb extraído: usr/bin, iconos, .desktop...
+      - type: dir
+        path: ../linux/deb-root
+      - type: file
+        path: com.bettertracker.desktop.metainfo.xml
+    build-commands:
+      - install -Dm755 usr/bin/better-tracker /app/bin/better-tracker
+
+      # El .desktop del .deb se llama como productName: "Better Tracker.desktop".
+      - install -Dm644 "usr/share/applications/Better Tracker.desktop" /app/share/applications/com.bettertracker.desktop.desktop
+      - sed -i 's/^Icon=.*/Icon=com.bettertracker.desktop/' /app/share/applications/com.bettertracker.desktop.desktop
+      - sed -i 's/^Categories=.*/Categories=Utility;/' /app/share/applications/com.bettertracker.desktop.desktop
+
+      - install -Dm644 usr/share/icons/hicolor/512x512/apps/better-tracker.png /app/share/icons/hicolor/512x512/apps/com.bettertracker.desktop.png
+      - install -Dm644 com.bettertracker.desktop.metainfo.xml /app/share/metainfo/com.bettertracker.desktop.metainfo.xml

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.bettertracker.desktop</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Better Tracker</name>
+  <summary>Entrenamiento, composición corporal y nutrición local-first</summary>
+  <description>
+    <p>
+      Better Tracker reúne entrenamiento, composición corporal, nutrición y
+      carga semanal en una app de escritorio local-first.
+    </p>
+    <p>
+      Registra entrenamientos, peso, medidas, comidas y agua; consulta el
+      progreso de grasa, los macros y la carga muscular semanal. Todos los
+      datos se guardan en una bóveda local, sin cuentas ni nube.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.bettertracker.desktop.desktop</launchable>
+  <url type="homepage">https://github.com/wulflo/better-tracker</url>
+  <url type="bugtracker">https://github.com/wulflo/better-tracker/issues</url>
+  <url type="vcs-browser">https://github.com/wulflo/better-tracker</url>
+  <developer id="github.com.wulflo">
+    <name>Alonso</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.9.10" date="2026-11-03"/>
+  </releases>
+</component>

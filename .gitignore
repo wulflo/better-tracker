@@ -52,6 +52,13 @@ env/
 src-tauri/target/
 src-tauri/gen/
 
+# --- Snap / Flatpak ---
+# Raíz extraída del .deb: es intermedia y se regenera.
+packaging/linux/deb-root/
+# Credenciales de la Snap Store (nunca en el repositorio).
+snap-login.txt
+*.snapcraft-credentials
+
 # --- Logs y Temporales ---
 logs
 *.log

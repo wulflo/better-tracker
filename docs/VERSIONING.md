@@ -16,10 +16,11 @@ La app no lee `VERSION` en runtime. `src-tauri/build.rs` incrusta `APP_VERSION`,
 node scripts/sync-version.mjs
 # 3. Comprueba que no queden diferencias
 git diff -- package.json package-lock.json src-tauri/tauri.conf.json \
-  src-tauri/Cargo.toml src-tauri/Cargo.lock
+  src-tauri/Cargo.toml src-tauri/Cargo.lock \
+  snapcraft.yaml packaging/flatpak/com.bettertracker.desktop.metainfo.xml
 ```
 
-`scripts/sync-version.mjs` escribe la misma cadena en `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock` y, si `src-tauri/gen/android/` ya existe, en `src-tauri/gen/android/app/tauri.properties` (lo crea si falta: `tauri android init` no lo genera). Después verifica el resultado. CI ejecuta el script y falla si `git diff` detecta cambios, para que el release no se cree con versiones mezcladas.
+`scripts/sync-version.mjs` escribe la misma cadena en `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `snapcraft.yaml` y en la release del metainfo de Flatpak. Si `src-tauri/gen/android/` ya existe, también actualiza `src-tauri/gen/android/app/tauri.properties` (lo crea si falta: `tauri android init` no lo genera). Después verifica el resultado. CI ejecuta el script y falla si `git diff` detecta cambios, para que el release no se cree con versiones mezcladas.
 
 ## Proceso de release
 
@@ -31,6 +32,7 @@ git diff -- package.json package-lock.json src-tauri/tauri.conf.json \
    - crea un release draft con el tag exacto;
    - compila Linux y Windows;
    - firma los artefactos del updater con la clave de GitHub Secrets;
+   - compila el `.snap` y el `.flatpak` desde el `.deb` y los adjunta al draft;
    - verifica los instaladores y las firmas;
    - sube los assets;
    - genera `latest.json`, `release-manifest.json` y `SHA256SUMS.txt`;
@@ -42,10 +44,10 @@ Los cambios que solo tocan `*.md` o `docs/**` no disparan el workflow por `paths
 
 | Plataforma | Instalador manual | Artefacto del updater | Clave en `latest.json` |
 | --- | --- | --- | --- |
-| Linux x86_64 | `.AppImage`, `.deb`, `.rpm` | El propio `.AppImage` + `.AppImage.sig` | `linux-x86_64` |
+| Linux x86_64 | `.AppImage`, `.deb`, `.rpm`, `.snap`, `.flatpak` | El propio `.AppImage` + `.AppImage.sig` | `linux-x86_64` |
 | Windows x64 | NSIS `.exe`, `.msi` | El `.exe` de NSIS + `.exe.sig` (preferido; MSI como alternativa) | `windows-x86_64` |
 
-Tauri verifica la firma minisign del artefacto del updater antes de instalar. El `.deb` y `.rpm` no son artefactos de actualización automática; se descargan manualmente.
+Tauri verifica la firma minisign del artefacto del updater antes de instalar. El `.deb` y `.rpm` no son artefactos de actualización automática; se descargan manualmente. El `.snap` y el `.flatpak` se actualizan desde su tienda, no desde el updater de la app.
 
 ## `latest.json`
 
@@ -99,4 +101,5 @@ Verificación en el workflow:
 - Si no hay versión nueva, se muestra “Ya tienes la última versión”.
 - Si hay una, se muestra la versión y las notas; el usuario decide instalar.
 - En Linux el botón se desactiva para `.deb`, `.rpm`, binarios portables y formatos desconocidos. Solo AppImage puede autoactualizarse.
+- En Snap y Flatpak el panel indica que la app se actualiza desde la tienda y no ofrece botón de comprobación.
 - Tras instalar, la app se reinicia. En Windows el instalador NSIS se encarga del cierre.

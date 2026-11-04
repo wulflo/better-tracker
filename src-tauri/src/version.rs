@@ -51,6 +51,17 @@ pub fn compare_versions(a: &str, b: &str) -> i8 {
 
 /// Explicit, documented install-format detection. Never infers from file paths.
 pub fn detect_install_format() -> &'static str {
+    // Snap y Flatpak se actualizan desde su tienda. El updater de Tauri
+    // descargaría un AppImage/.deb y lo instalaría con dpkg, algo que no puede
+    // reemplazar un paquete de solo lectura ni actualizaría la revisión.
+    if std::env::var_os("SNAP").is_some() || std::env::var_os("SNAP_NAME").is_some() {
+        return "snap";
+    }
+    if std::env::var_os("FLATPAK_ID").is_some()
+        || std::path::Path::new("/.flatpak-info").exists()
+    {
+        return "flatpak";
+    }
     if std::env::var("APPIMAGE")
         .map(|v| !v.is_empty())
         .unwrap_or(false)

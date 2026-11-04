@@ -40,6 +40,8 @@ export default function UpdatePanel({
   const enabled = canUseUpdater(installFormat);
   const android = installFormat === 'apk';
   const packageFormat = installFormat === 'deb' || installFormat === 'rpm' ? installFormat : null;
+  const storeFormat =
+    installFormat === 'snap' || installFormat === 'flatpak' ? installFormat : null;
   const busy = status === 'checking' || status === 'downloading';
 
   const onCheck = useCallback(async () => {
@@ -113,20 +115,24 @@ export default function UpdatePanel({
             <Icon name="download" size={16} /> Actualizaciones
           </div>
           <div className="update-sub">
-            {android
-              ? 'Se comprueba solo cuando lo pides. La APK se descarga y se guarda en Descargas sin bloquear la app; la instalación es manual.'
-              : packageFormat
-                ? `Se comprueba solo cuando lo pides. El paquete .${packageFormat} se descarga en streaming, se verifica con SHA-256 y firma minisign, y se abre con el instalador del sistema.`
-                : 'Se comprueba solo cuando lo pides. El manifiesto se consulta sin caché y el paquete se verifica antes de instalarse.'}
+            {storeFormat
+              ? updaterUnavailableReason(storeFormat)
+              : android
+                ? 'Se comprueba solo cuando lo pides. La APK se descarga y se guarda en Descargas sin bloquear la app; la instalación es manual.'
+                : packageFormat
+                  ? `Se comprueba solo cuando lo pides. El paquete .${packageFormat} se descarga en streaming, se verifica con SHA-256 y firma minisign, y se abre con el instalador del sistema.`
+                  : 'Se comprueba solo cuando lo pides. El manifiesto se consulta sin caché y el paquete se verifica antes de instalarse.'}
           </div>
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={onCheck} disabled={!enabled || busy}>
-          <Icon name={busy ? 'clock' : 'download'} size={14} />
-          {status === 'checking' ? 'Comprobando…' : 'Buscar actualizaciones'}
-        </button>
+        {!storeFormat && (
+          <button className="btn btn-ghost btn-sm" onClick={onCheck} disabled={!enabled || busy}>
+            <Icon name={busy ? 'clock' : 'download'} size={14} />
+            {status === 'checking' ? 'Comprobando…' : 'Buscar actualizaciones'}
+          </button>
+        )}
       </div>
 
-      {!enabled && (
+      {!enabled && !storeFormat && (
         <div className="notice notice-warn">
           <Icon name="info" size={16} />
           <span>{updaterUnavailableReason(installFormat)}</span>

@@ -12,7 +12,7 @@ Better Tracker is built and published for Linux, Windows and Android.
 
 | System | Artifacts | Built-in updates |
 | --- | --- | --- |
-| Linux x86_64 | `.AppImage`, `.deb`, `.rpm` | AppImage only. `.deb` and `.rpm` are updated by installing the new package. |
+| Linux x86_64 | `.AppImage`, `.deb`, `.rpm`, `.snap`, `.flatpak` | AppImage only. `.deb`/`.rpm` update by installing the new package; `.snap`/`.flatpak` update through their store. |
 | Windows 10/11 x64 | NSIS `.exe` (per-user install), `.msi` | NSIS. |
 | Android (arm64) | Signed `.apk` | Requires Android 13 or later (minSdk 33). The app downloads and verifies the APK, saves it to `Downloads/BetterTracker`, and the user installs it manually. |
 

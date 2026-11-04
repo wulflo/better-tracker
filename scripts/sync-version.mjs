@@ -74,6 +74,38 @@ try {
   console.warn('package-lock.json not found; skipping (run npm install to generate).');
 }
 
+// --- snapcraft.yaml ---
+const snapPath = join(ROOT, 'snapcraft.yaml');
+try {
+  let snap = readFileSync(snapPath, 'utf8');
+  snap = snap.replace(/^version:\s*.*$/m, `version: '${version}'`);
+  writeFileSync(snapPath, snap);
+} catch {
+  console.warn('snapcraft.yaml not found; skipping (Snap packaging not configured).');
+}
+
+// --- metainfo de Flatpak (solo cambia la fecha cuando cambia la versión) ---
+const metainfoPath = join(
+  ROOT,
+  'packaging',
+  'flatpak',
+  'com.bettertracker.desktop.metainfo.xml',
+);
+try {
+  let metainfo = readFileSync(metainfoPath, 'utf8');
+  const release = metainfo.match(/<release version="([^"]*)" date="([^"]*)"/);
+  if (release && release[1] !== version) {
+    const today = new Date().toISOString().slice(0, 10);
+    metainfo = metainfo.replace(
+      /<release version="[^"]*" date="[^"]*"/,
+      `<release version="${version}" date="${today}"`,
+    );
+    writeFileSync(metainfoPath, metainfo);
+  }
+} catch {
+  console.warn('Flatpak metainfo not found; skipping (Flatpak packaging not configured).');
+}
+
 // --- Android generated files (only if `tauri android init` already ran) ---
 // `src-tauri/gen/` está en .gitignore, pero CI lo genera antes de compilar. La
 // CLI de Tauri NO crea `app/tauri.properties` en `android init`: lo escribe al
@@ -174,6 +206,17 @@ try {
   const pl = JSON.parse(readFileSync(packageLockPath, 'utf8'));
   checks.push(['package-lock.json', pl.version]);
   checks.push(['package-lock.json (root)', pl.packages?.['']?.version]);
+} catch {}
+try {
+  const snap = readFileSync(snapPath, 'utf8');
+  checks.push(['snapcraft.yaml', snap.match(/^version:\s*['"]?([^'"\s]+)['"]?/m)?.[1] ?? null]);
+} catch {}
+try {
+  const metainfo = readFileSync(metainfoPath, 'utf8');
+  checks.push([
+    'Flatpak metainfo.xml',
+    metainfo.match(/<release version="([^"]*)"/)?.[1] ?? null,
+  ]);
 } catch {}
 if (androidPropsOk) {
   const props = readFileSync(androidPropsPath, 'utf8');

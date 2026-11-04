@@ -1,0 +1,9 @@
+[Desktop Entry]
+Categories=Utility;
+Comment=Entrenamiento, composición corporal y nutrición local-first
+Exec=better-tracker
+Icon=${SNAP}/meta/gui/better-tracker.png
+Name=Better Tracker
+StartupWMClass=better-tracker
+Terminal=false
+Type=Application

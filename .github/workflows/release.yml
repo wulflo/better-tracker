@@ -34,9 +34,9 @@ jobs:
       - name: Verify version files
         run: |
           node scripts/sync-version.mjs
-          if ! git diff --quiet -- package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock; then
+          if ! git diff --quiet -- package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock snapcraft.yaml packaging/flatpak/com.bettertracker.desktop.metainfo.xml; then
             echo "::error::Version files are out of sync. Run 'node scripts/sync-version.mjs' and commit the result."
-            git diff -- package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+            git diff -- package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock snapcraft.yaml packaging/flatpak/com.bettertracker.desktop.metainfo.xml
             exit 1
           fi
       - name: Read VERSION
@@ -394,9 +394,48 @@ jobs:
           done
           gh release upload "$TAG" "${files[@]}" --clobber
 
+  build-linux-packages:
+    name: Build Linux packages (Snap/Flatpak)
+    needs: [version, draft]
+    uses: ./.github/workflows/package-linux.yml
+    with:
+      # Cambia a true cuando el snap esté registrado y probado en beta.
+      # Con true y el secreto configurado, cada release publica en stable.
+      publish: false
+      channel: stable
+    secrets:
+      SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+
+  attach-linux-packages:
+    name: Attach Snap and Flatpak
+    needs: [version, build-linux-packages]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download package artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: release-*
+          path: packages
+          merge-multiple: true
+
+      - name: Upload to draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.version.outputs.tag }}"
+          shopt -s nullglob
+          files=(packages/*.snap packages/*.flatpak)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No se encontraron .snap ni .flatpak."
+            exit 1
+          fi
+          gh release upload "$TAG" "${files[@]}" --clobber
 
   publish:
-    needs: [version, build, build-android]
+    needs: [version, build, build-android, attach-linux-packages]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
