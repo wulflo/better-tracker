@@ -2,7 +2,7 @@
 
 Training, body composition, nutrition, and weekly load in a local-first desktop app.
 
-Current version: **0.9.7**.
+Current version: **0.9.11**.
 
 [Leer en español](README.es.md)
 
@@ -19,6 +19,8 @@ Better Tracker is built and published for Linux, Windows and Android.
 On Linux the app uses GTK/WebKit and runs natively on Wayland. If a proprietary driver causes rendering issues, start it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
 
 ## Features
+
+- Full interface in Spanish and English, switchable in Settings and stored on the device. Food, recipe, body-zone and metric labels are translated too.
 
 ### Panel
 
