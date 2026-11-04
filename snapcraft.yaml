@@ -10,6 +10,10 @@
 name: better-tracker
 base: core22
 version: '0.9.10'
+title: Better Tracker
+contact: https://github.com/wulflo/better-tracker/issues
+issues: https://github.com/wulflo/better-tracker/issues
+source-code: https://github.com/wulflo/better-tracker
 summary: Entrenamiento, composición corporal y nutrición local-first
 description: |
   Better Tracker reúne entrenamiento, composición corporal, nutrición y carga

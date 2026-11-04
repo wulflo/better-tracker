@@ -399,9 +399,9 @@ jobs:
     needs: [version, draft]
     uses: ./.github/workflows/package-linux.yml
     with:
-      # Cambia a true cuando el snap esté registrado y probado en beta.
-      # Con true y el secreto configurado, cada release publica en stable.
-      publish: false
+      # Cada release publica el snap en la tienda. Si quieres probar antes,
+      # cambia el canal a beta/edge o lanza el workflow a mano.
+      publish: true
       channel: stable
     secrets:
       SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}

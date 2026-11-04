@@ -32,7 +32,9 @@ git diff -- package.json package-lock.json src-tauri/tauri.conf.json \
    - crea un release draft con el tag exacto;
    - compila Linux y Windows;
    - firma los artefactos del updater con la clave de GitHub Secrets;
-   - compila el `.snap` y el `.flatpak` desde el `.deb` y los adjunta al draft;
+   - compila el `.snap` y el `.flatpak` desde el `.deb`, los adjunta al draft y
+     publica el `.snap` en la Snap Store (canal `stable`) si el secreto
+     `SNAPCRAFT_STORE_CREDENTIALS` está configurado;
    - verifica los instaladores y las firmas;
    - sube los assets;
    - genera `latest.json`, `release-manifest.json` y `SHA256SUMS.txt`;
