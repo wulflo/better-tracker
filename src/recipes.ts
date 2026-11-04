@@ -14,6 +14,8 @@
  *  - Superávit: densidad energética moderada-alta y carbohidratos alrededor del
  *    entrenamiento para favorecer la ganancia de peso sin exceso de grasa.
  */
+import type { Lang } from './i18n';
+import { tx } from './i18n';
 import type { Food, FoodLogItem, GoalMode, MealSlot } from './types';
 import { FOODS, calcFood } from './foodDb';
 
@@ -270,6 +272,96 @@ export const RECIPES: Recipe[] = [
 
 const FOOD_MAP = new Map(FOODS.map((food) => [food.id, food]));
 
+interface RecipeTranslation {
+  name: string;
+  description: string;
+  science: string;
+  tags: string[];
+}
+
+const RECIPE_EN: Record<string, RecipeTranslation> = {
+  'cut-chicken-rice': {
+    name: 'Chicken, brown rice and broccoli bowl',
+    description: 'Complete meal with lean protein, whole-grain carbs and high-volume vegetables.',
+    science: 'Lean protein and broccoli fiber increase satiety per calorie; brown rice provides steady energy for training.',
+    tags: ['high protein', 'meal prep'],
+  },
+  'cut-oats-protein': {
+    name: 'Protein oats with strawberries and chia',
+    description: 'Quick, sweet breakfast with enough protein and fiber to get you to lunch.',
+    science: 'Oats and chia provide soluble fiber (beta-glucan) that slows gastric emptying; whey completes the amino acid profile.',
+    tags: ['fiber', 'quick'],
+  },
+  'cut-salmon-potato': {
+    name: 'Baked salmon with potato and spinach',
+    description: 'Filling dinner with omega-3, potassium and leafy greens.',
+    science: 'Salmon provides EPA/DHA and complete protein; boiled potato has a high satiety index thanks to its water and resistant starch.',
+    tags: ['omega-3', 'gluten free'],
+  },
+  'cut-yogurt-bowl': {
+    name: 'Greek yogurt with banana and walnuts',
+    description: 'Snack with protein, potassium and a small portion of healthy fat.',
+    science: 'Greek yogurt has twice the protein of regular yogurt; walnuts add fatty acids and fiber in a controlled portion.',
+    tags: ['snack', 'protein'],
+  },
+  'maintain-pasta-tuna': {
+    name: 'Whole-wheat pasta with tuna and tomato',
+    description: 'Balanced dish with carbs, protein and lycopene.',
+    science: 'Macro split close to 30/40/30: enough protein to maintain lean mass and carbs to replenish glycogen.',
+    tags: ['balanced', 'budget'],
+  },
+  'maintain-turkey-tacos': {
+    name: 'Turkey, bean and avocado tacos',
+    description: 'Three tacos with lean protein, legumes and healthy fat.',
+    science: 'Combining grain and legumes improves the amino acid profile and provides fermentable fiber that benefits the microbiota.',
+    tags: ['fiber', 'mexican'],
+  },
+  'maintain-tofu-quinoa': {
+    name: 'Sautéed tofu with quinoa and pepper',
+    description: 'Complete plant-based option, rich in fiber and cholesterol free.',
+    science: 'Soy is a complete plant protein; quinoa complements it with amino acids and the vegetables add vitamin C and fiber.',
+    tags: ['vegetarian', 'fiber'],
+  },
+  'maintain-tortilla': {
+    name: 'Potato omelette with green salad',
+    description: 'Filling classic with egg, potato and leafy greens.',
+    science: 'Egg has the best reference amino acid profile and boiled potato is one of the highest-satiety foods.',
+    tags: ['egg', 'filling'],
+  },
+  'bulk-shake': {
+    name: 'Oat, banana and peanut shake',
+    description: 'Energy-dense liquid breakfast for high-volume days.',
+    science: 'Liquids let you take in more calories without excessive fullness; oats and banana replenish glycogen and whey adds protein.',
+    tags: ['high calorie', 'post-workout'],
+  },
+  'bulk-beef-rice': {
+    name: 'Rice with beef and avocado',
+    description: 'Dense meal with complete protein, carbs and monounsaturated fat.',
+    science: 'A moderate surplus (≈10%) with 1.6–2.2 g/kg of protein maximizes protein synthesis and limits fat gain.',
+    tags: ['high calorie', 'strength'],
+  },
+  'bulk-pasta-salmon': {
+    name: 'Pasta with salmon and parmesan',
+    description: 'Energetic dinner with omega-3 and high-quality protein.',
+    science: 'Pasta around training supports recovery; salmon provides anti-inflammatory fat and parmesan adds calcium and umami.',
+    tags: ['omega-3', 'recovery'],
+  },
+  'bulk-eggs-toast': {
+    name: 'Eggs, whole-wheat toast and peanut butter',
+    description: 'Solid breakfast with protein, fat and carbs to start with energy.',
+    science: 'Spread protein across 3–4 servings of 0.4 g/kg to stimulate protein synthesis throughout the day; this breakfast covers one.',
+    tags: ['protein', 'quick'],
+  },
+};
+
+/** Devuelve la receta con textos en el idioma activo. */
+export function localizedRecipe(recipe: Recipe, lang: Lang = 'es'): Recipe {
+  if (lang !== 'en') return recipe;
+  const translation = RECIPE_EN[recipe.id];
+  return translation ? { ...recipe, ...translation } : recipe;
+}
+
+
 export function recipeFoods(recipe: Recipe): Array<{ food: Food; grams: number }> {
   return recipe.ingredients
     .map((ingredient) => {
@@ -323,6 +415,7 @@ export function recommendRecipes(
   goal: GoalMode,
   remaining?: Partial<RemainingMacros> | null,
   limit = 4,
+  lang: Lang = 'es',
 ): RecipeSuggestion[] {
   return RECIPES.map((recipe) => {
     const macros = recipeMacros(recipe);
@@ -354,7 +447,7 @@ export function recommendRecipes(
     }
 
     const fit: RecipeSuggestion['fit'] = score >= 82 ? 'excellent' : score >= 62 ? 'good' : 'ok';
-    return { ...recipe, macros, fit, score: Math.round(score) };
+    return { ...localizedRecipe(recipe, lang), macros, fit, score: Math.round(score) };
   })
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(1, limit));
@@ -386,6 +479,8 @@ export function recipeLogItems(recipe: Recipe, meal: MealSlot = recipe.meal): Fo
   });
 }
 
-export function goalLabel(goal: GoalMode): string {
-  return goal === 'cut' ? 'Déficit' : goal === 'bulk' ? 'Superávit' : 'Mantenimiento';
+export function goalLabel(goal: GoalMode, lang: Lang = 'es'): string {
+  if (goal === 'cut') return tx(lang, 'Déficit', 'Cut');
+  if (goal === 'bulk') return tx(lang, 'Superávit', 'Bulk');
+  return tx(lang, 'Mantenimiento', 'Maintenance');
 }

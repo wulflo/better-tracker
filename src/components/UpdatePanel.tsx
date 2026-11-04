@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Icon } from './Icons';
+import { locale, tx, useLanguage } from '../i18n';
 import {
   canUseUpdater,
   checkForUpdate,
@@ -12,12 +13,18 @@ import {
 
 type Status = 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'ready' | 'error';
 
-function readableError(error: unknown): string {
+function readableError(error: unknown, lang: 'es' | 'en'): string {
   const raw = String(error ?? '').replace(/\s+/g, ' ').trim();
   if (/network|connect|dns|timeout|timed out|request/i.test(raw)) {
-    return 'No se pudo consultar el servidor de actualizaciones. Revisa tu conexión e inténtalo de nuevo.';
+    return tx(
+      lang,
+      'No se pudo consultar el servidor de actualizaciones. Revisa tu conexión e inténtalo de nuevo.',
+      'Could not reach the update server. Check your connection and try again.',
+    );
   }
-  return raw.length > 280 ? `${raw.slice(0, 277)}…` : raw || 'Error desconocido al comprobar la actualización.';
+  return raw.length > 280
+    ? `${raw.slice(0, 277)}…`
+    : raw || tx(lang, 'Error desconocido al comprobar la actualización.', 'Unknown error while checking for updates.');
 }
 
 export default function UpdatePanel({
@@ -27,6 +34,7 @@ export default function UpdatePanel({
   installFormat?: string;
   notify: (message: string, tone?: 'success' | 'error' | 'info') => void;
 }) {
+  const { lang } = useLanguage();
   const [status, setStatus] = useState<Status>('idle');
   const [target, setTarget] = useState<AvailableUpdate | null>(null);
   const [error, setError] = useState('');
@@ -51,19 +59,19 @@ export default function UpdatePanel({
     setTarget(null);
     setSavedPath('');
     try {
-      const result = await checkForUpdate(installFormat);
+      const result = await checkForUpdate(installFormat, lang);
       if (!result) {
         setStatus('current');
-        notify('Better Tracker ya está actualizado.', 'success');
+        notify(tx(lang, 'Better Tracker ya está actualizado.', 'Better Tracker is up to date.'), 'success');
         return;
       }
       setTarget(result);
       setStatus('available');
     } catch (e) {
-      setError(readableError(e));
+      setError(readableError(e, lang));
       setStatus('error');
     }
-  }, [busy, enabled, installFormat, notify]);
+  }, [busy, enabled, installFormat, notify, lang]);
 
   const onInstall = useCallback(async () => {
     if (!target || status === 'downloading') return;
@@ -79,19 +87,33 @@ export default function UpdatePanel({
       if (result.kind === 'android') {
         setSavedPath(result.path);
         setStatus('ready');
-        notify('APK guardada. Abre el archivo desde tu gestor de archivos para instalarla.', 'success');
+        notify(
+          tx(
+            lang,
+            'APK guardada. Abre el archivo desde tu gestor de archivos para instalarla.',
+            'APK saved. Open the file from your file manager to install it.',
+          ),
+          'success',
+        );
       } else if (result.kind === 'package') {
         setSavedPath(result.path);
         setStatus('ready');
-        notify('Paquete descargado y verificado. Se ha abierto el instalador del sistema.', 'success');
+        notify(
+          tx(
+            lang,
+            'Paquete descargado y verificado. Se ha abierto el instalador del sistema.',
+            'Package downloaded and verified. The system installer has been opened.',
+          ),
+          'success',
+        );
       } else {
-        notify('Actualización instalada. Reiniciando…', 'success');
+        notify(tx(lang, 'Actualización instalada. Reiniciando…', 'Update installed. Restarting…'), 'success');
       }
     } catch (e) {
-      setError(readableError(e));
+      setError(readableError(e, lang));
       setStatus('error');
     }
-  }, [notify, status, target]);
+  }, [notify, status, target, lang]);
 
   const progressPct =
     progress.total && progress.total > 0
@@ -103,31 +125,45 @@ export default function UpdatePanel({
     try {
       await invoke('open_update_file', { path: savedPath });
     } catch (e) {
-      notify(readableError(e), 'error');
+      notify(readableError(e, lang), 'error');
     }
-  }, [notify, savedPath]);
+  }, [notify, savedPath, lang]);
 
   return (
     <div className="update-panel">
       <div className="update-head">
         <div>
           <div className="update-title">
-            <Icon name="download" size={16} /> Actualizaciones
+            <Icon name="download" size={16} /> {tx(lang, 'Actualizaciones', 'Updates')}
           </div>
           <div className="update-sub">
             {storeFormat
-              ? updaterUnavailableReason(storeFormat)
+              ? updaterUnavailableReason(storeFormat, lang)
               : android
-                ? 'Se comprueba solo cuando lo pides. La APK se descarga y se guarda en Descargas sin bloquear la app; la instalación es manual.'
+                ? tx(
+                    lang,
+                    'Se comprueba solo cuando lo pides. La APK se descarga y se guarda en Descargas sin bloquear la app; la instalación es manual.',
+                    'Checked only when you ask. The APK downloads to Downloads without blocking the app; installation is manual.',
+                  )
                 : packageFormat
-                  ? `Se comprueba solo cuando lo pides. El paquete .${packageFormat} se descarga en streaming, se verifica con SHA-256 y firma minisign, y se abre con el instalador del sistema.`
-                  : 'Se comprueba solo cuando lo pides. El manifiesto se consulta sin caché y el paquete se verifica antes de instalarse.'}
+                  ? tx(
+                      lang,
+                      `Se comprueba solo cuando lo pides. El paquete .${packageFormat} se descarga en streaming, se verifica con SHA-256 y firma minisign, y se abre con el instalador del sistema.`,
+                      `Checked only when you ask. The .${packageFormat} package is streamed, verified with SHA-256 and minisign signature, and opened with the system installer.`,
+                    )
+                  : tx(
+                      lang,
+                      'Se comprueba solo cuando lo pides. El manifiesto se consulta sin caché y el paquete se verifica antes de instalarse.',
+                      'Checked only when you ask. The manifest is fetched without cache and the package is verified before installing.',
+                    )}
           </div>
         </div>
         {!storeFormat && (
           <button className="btn btn-ghost btn-sm" onClick={onCheck} disabled={!enabled || busy}>
             <Icon name={busy ? 'clock' : 'download'} size={14} />
-            {status === 'checking' ? 'Comprobando…' : 'Buscar actualizaciones'}
+            {status === 'checking'
+              ? tx(lang, 'Comprobando…', 'Checking…')
+              : tx(lang, 'Buscar actualizaciones', 'Check for updates')}
           </button>
         )}
       </div>
@@ -135,14 +171,14 @@ export default function UpdatePanel({
       {!enabled && !storeFormat && (
         <div className="notice notice-warn">
           <Icon name="info" size={16} />
-          <span>{updaterUnavailableReason(installFormat)}</span>
+          <span>{updaterUnavailableReason(installFormat, lang)}</span>
         </div>
       )}
 
       {status === 'current' && (
         <div className="notice notice-success">
           <Icon name="check" size={16} />
-          <span>Ya tienes la última versión disponible.</span>
+          <span>{tx(lang, 'Ya tienes la última versión disponible.', 'You already have the latest available version.')}</span>
         </div>
       )}
 
@@ -150,19 +186,23 @@ export default function UpdatePanel({
         <div className="update-card">
           <div className="row between wrap">
             <div>
-              <div className="update-version">Versión {target.info.version} disponible</div>
+              <div className="update-version">
+                {tx(lang, `Versión ${target.info.version} disponible`, `Version ${target.info.version} available`)}
+              </div>
               <div className="update-sub">
-                Instalada: {target.info.currentVersion}
-                {target.info.date ? ` · Publicada: ${new Date(target.info.date).toLocaleDateString('es')}` : ''}
+                {tx(lang, 'Instalada:', 'Installed:')} {target.info.currentVersion}
+                {target.info.date
+                  ? ` · ${tx(lang, 'Publicada:', 'Published:')} ${new Date(target.info.date).toLocaleDateString(locale(lang))}`
+                  : ''}
               </div>
             </div>
             <button className="btn btn-primary btn-sm" onClick={onInstall}>
               <Icon name="download" size={14} />{' '}
               {android
-                ? 'Descargar APK'
+                ? tx(lang, 'Descargar APK', 'Download APK')
                 : packageFormat
-                  ? `Descargar .${packageFormat} e instalar`
-                  : 'Instalar y reiniciar'}
+                  ? tx(lang, `Descargar .${packageFormat} e instalar`, `Download .${packageFormat} and install`)
+                  : tx(lang, 'Instalar y reiniciar', 'Install and restart')}
             </button>
           </div>
           {target.info.body && <div className="update-notes">{target.info.body.slice(0, 900)}</div>}
@@ -175,14 +215,20 @@ export default function UpdatePanel({
             <span>
               {android
                 ? phase === 'save'
-                  ? 'Guardando la APK en Descargas…'
-                  : 'Descargando y verificando el APK…'
+                  ? tx(lang, 'Guardando la APK en Descargas…', 'Saving the APK to Downloads…')
+                  : tx(lang, 'Descargando y verificando el APK…', 'Downloading and verifying the APK…')
                 : packageFormat
-                  ? `Descargando y verificando el paquete .${packageFormat} (SHA-256 y firma)…`
-                  : 'Descargando y verificando la firma…'}
+                  ? tx(
+                      lang,
+                      `Descargando y verificando el paquete .${packageFormat} (SHA-256 y firma)…`,
+                      `Downloading and verifying the .${packageFormat} package (SHA-256 and signature)…`,
+                    )
+                  : tx(lang, 'Descargando y verificando la firma…', 'Downloading and verifying the signature…')}
             </span>
             <span>
-              {progressPct === null ? `${Math.round(progress.downloaded / 1024)} KB` : `${progressPct}%`}
+              {progressPct === null
+                ? tx(lang, `${Math.round(progress.downloaded / 1024)} KB`, `${Math.round(progress.downloaded / 1024)} KB`)
+                : `${progressPct}%`}
             </span>
           </div>
           <div className="progress">
@@ -198,20 +244,30 @@ export default function UpdatePanel({
             <span>
               {android ? (
                 <>
-                  APK guardada en <span className="mono">{savedPath}</span>. Abre el archivo desde un gestor de archivos
-                  para instalar la nueva versión; Android puede pedirte permitir la instalación desde el gestor.
+                  {tx(lang, 'APK guardada en ', 'APK saved to ')}
+                  <span className="mono">{savedPath}</span>
+                  {tx(
+                    lang,
+                    '. Abre el archivo desde un gestor de archivos para instalar la nueva versión; Android puede pedirte permitir la instalación desde el gestor.',
+                    '. Open the file from a file manager to install the new version; Android may ask you to allow installation from the manager.',
+                  )}
                 </>
               ) : (
                 <>
-                  Paquete guardado y verificado en <span className="mono">{savedPath}</span>. Se ha abierto el instalador
-                  del sistema; si no aparece, ábrelo manualmente desde Descargas.
+                  {tx(lang, 'Paquete guardado y verificado en ', 'Package saved and verified at ')}
+                  <span className="mono">{savedPath}</span>
+                  {tx(
+                    lang,
+                    '. Se ha abierto el instalador del sistema; si no aparece, ábrelo manualmente desde Descargas.',
+                    '. The system installer has been opened; if it does not appear, open it manually from Downloads.',
+                  )}
                 </>
               )}
             </span>
             {packageFormat && (
               <div>
                 <button className="btn btn-tonal btn-sm" onClick={onOpenSaved}>
-                  <Icon name="download" size={14} /> Abrir instalador de nuevo
+                  <Icon name="download" size={14} /> {tx(lang, 'Abrir instalador de nuevo', 'Open installer again')}
                 </button>
               </div>
             )}

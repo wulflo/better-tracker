@@ -1,4 +1,6 @@
+import type { Lang } from './i18n';
 import type { Food, FoodCategory, FoodLogItem, MealSlot, VaultEvent } from './types';
+import { foodName } from './data/foodNames.en';
 
 /**
  * Base local de alimentos comunes.
@@ -19,31 +21,55 @@ type FoodRow = [
   units?: Record<string, number>,
 ];
 
-export const FOOD_CATEGORIES: Array<{ id: FoodCategory; label: string }> = [
-  { id: 'fruta', label: 'Frutas' },
-  { id: 'verdura', label: 'Verduras' },
-  { id: 'cereal', label: 'Cereales y tubérculos' },
-  { id: 'legumbre', label: 'Legumbres' },
-  { id: 'carne', label: 'Carnes' },
-  { id: 'pescado', label: 'Pescados y marisco' },
-  { id: 'huevo', label: 'Huevos' },
-  { id: 'lacteo', label: 'Lácteos' },
-  { id: 'fruto_seco', label: 'Frutos secos y semillas' },
-  { id: 'grasa', label: 'Grasas y aceites' },
-  { id: 'bebida', label: 'Bebidas' },
-  { id: 'condimento', label: 'Condimentos y salsas' },
-  { id: 'dulce', label: 'Dulces' },
-  { id: 'procesado', label: 'Preparados y procesados' },
-  { id: 'suplemento', label: 'Suplementos' },
-  { id: 'otro', label: 'Otros' },
+export const FOOD_CATEGORIES: Array<{ id: FoodCategory; label: string; labelEn: string }> = [
+  { id: 'fruta', label: 'Frutas', labelEn: 'Fruit' },
+  { id: 'verdura', label: 'Verduras', labelEn: 'Vegetables' },
+  { id: 'cereal', label: 'Cereales y tubérculos', labelEn: 'Grains and tubers' },
+  { id: 'legumbre', label: 'Legumbres', labelEn: 'Legumes' },
+  { id: 'carne', label: 'Carnes', labelEn: 'Meat' },
+  { id: 'pescado', label: 'Pescados y marisco', labelEn: 'Fish and seafood' },
+  { id: 'huevo', label: 'Huevos', labelEn: 'Eggs' },
+  { id: 'lacteo', label: 'Lácteos', labelEn: 'Dairy' },
+  { id: 'fruto_seco', label: 'Frutos secos y semillas', labelEn: 'Nuts and seeds' },
+  { id: 'grasa', label: 'Grasas y aceites', labelEn: 'Fats and oils' },
+  { id: 'bebida', label: 'Bebidas', labelEn: 'Drinks' },
+  { id: 'condimento', label: 'Condimentos y salsas', labelEn: 'Condiments and sauces' },
+  { id: 'dulce', label: 'Dulces', labelEn: 'Sweets' },
+  { id: 'procesado', label: 'Preparados y procesados', labelEn: 'Prepared and processed foods' },
+  { id: 'suplemento', label: 'Suplementos', labelEn: 'Supplements' },
+  { id: 'otro', label: 'Otros', labelEn: 'Other' },
 ];
 
-export const MEAL_SLOTS: Array<{ id: MealSlot; label: string }> = [
-  { id: 'desayuno', label: 'Desayuno' },
-  { id: 'comida', label: 'Comida' },
-  { id: 'cena', label: 'Cena' },
-  { id: 'snack', label: 'Snack' },
+export const MEAL_SLOTS: Array<{ id: MealSlot; label: string; labelEn: string }> = [
+  { id: 'desayuno', label: 'Desayuno', labelEn: 'Breakfast' },
+  { id: 'comida', label: 'Comida', labelEn: 'Lunch' },
+  { id: 'cena', label: 'Cena', labelEn: 'Dinner' },
+  { id: 'snack', label: 'Snack', labelEn: 'Snack' },
 ];
+
+export function mealSlotLabel(slot: MealSlot, lang: Lang = 'es'): string {
+  const item = MEAL_SLOTS.find((entry) => entry.id === slot);
+  return lang === 'en' ? item?.labelEn ?? slot : item?.label ?? slot;
+}
+
+export function foodCategories(lang: Lang = 'es'): Array<{ id: FoodCategory; label: string }> {
+  return FOOD_CATEGORIES.map((category) => ({
+    id: category.id,
+    label: lang === 'en' ? category.labelEn : category.label,
+  }));
+}
+
+export function mealSlots(lang: Lang = 'es'): Array<{ id: MealSlot; label: string }> {
+  return MEAL_SLOTS.map((slot) => ({
+    id: slot.id,
+    label: lang === 'en' ? slot.labelEn : slot.label,
+  }));
+}
+
+/** Nombre visible del alimento según el idioma. */
+export function localizedFoodName(food: Pick<Food, 'name'>, lang: Lang = 'es'): string {
+  return foodName(food.name, lang);
+}
 
 export const UNIT_LABELS: Record<string, string> = {
   g: 'gramos',
@@ -60,6 +86,23 @@ export const UNIT_LABELS: Record<string, string> = {
   copa: 'copa',
   filete: 'filete',
   punado: 'puñado',
+};
+
+const UNIT_LABELS_EN: Record<string, string> = {
+  g: 'grams',
+  ml: 'milliliters',
+  unidad: 'unit',
+  taza: 'cup',
+  cucharada: 'tablespoon',
+  cucharadita: 'teaspoon',
+  porcion: 'portion',
+  rebanada: 'slice',
+  vaso: 'glass',
+  lata: 'can',
+  botella: 'bottle',
+  copa: 'glass',
+  filete: 'fillet',
+  punado: 'handful',
 };
 
 const UNIT_ORDER = [
@@ -666,8 +709,8 @@ export function foodUnits(food: Food): string[] {
   return UNIT_ORDER.filter((unit) => unit === 'g' || food.units[unit] !== undefined);
 }
 
-export function unitLabel(unit: string): string {
-  return UNIT_LABELS[unit] ?? unit;
+export function unitLabel(unit: string, lang: Lang = 'es'): string {
+  return (lang === 'en' ? UNIT_LABELS_EN[unit] : UNIT_LABELS[unit]) ?? unit;
 }
 
 export function defaultQuantity(unit: string): number {
@@ -822,7 +865,7 @@ export function mealTotals(items: FoodLogItem[]): {
   };
 }
 
-export function searchFoods(foods: Food[], query: string, limit = 10): Food[] {
+export function searchFoods(foods: Food[], query: string, limit = 10, lang: Lang = 'es'): Food[] {
   const normalize = (text: string) =>
     text
       .normalize('NFD')
@@ -833,14 +876,17 @@ export function searchFoods(foods: Food[], query: string, limit = 10): Food[] {
   const tokens = q.split(/\s+/).filter(Boolean);
   return foods
     .filter((food) => {
-      const haystack = normalize(`${food.name} ${food.category} ${food.barcode ?? ''}`);
+      const haystack = normalize(
+        `${food.name} ${localizedFoodName(food, lang)} ${categoryLabel(food.category, lang)} ${food.barcode ?? ''}`,
+      );
       return tokens.every((token) => haystack.includes(token));
     })
     .slice(0, limit);
 }
 
-export function categoryLabel(category: FoodCategory): string {
-  return FOOD_CATEGORIES.find((c) => c.id === category)?.label ?? category;
+export function categoryLabel(category: FoodCategory, lang: Lang = 'es'): string {
+  const item = FOOD_CATEGORIES.find((c) => c.id === category);
+  return (lang === 'en' ? item?.labelEn : item?.label) ?? category;
 }
 
 export function reduceCustomFoods(events: VaultEvent[]): Food[] {

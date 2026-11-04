@@ -1,3 +1,4 @@
+import type { Lang } from './i18n';
 import type { Exercise } from './types';
 
 export type ZoneId =
@@ -130,20 +131,99 @@ export const ZONE_MAP: Record<ZoneId, Zone> = Object.fromEntries(
   ZONES.map((z) => [z.id, z]),
 ) as Record<ZoneId, Zone>;
 
+type ZoneText = { name: string; muscles: string[] };
+
+const ZONE_EN: Record<ZoneId, ZoneText> = {
+  chest: {
+    name: 'Chest',
+    muscles: ['Pectoralis major', 'Pectoralis minor', 'Serratus anterior'],
+  },
+  back: {
+    name: 'Back',
+    muscles: ['Latissimus dorsi', 'Rhomboids', 'Trapezius', 'Spinal erectors'],
+  },
+  shoulders: {
+    name: 'Shoulders',
+    muscles: ['Anterior deltoid', 'Lateral deltoid', 'Posterior deltoid', 'Rotator cuff'],
+  },
+  arms: {
+    name: 'Arms',
+    muscles: ['Biceps brachii', 'Brachialis', 'Triceps brachii', 'Brachioradialis'],
+  },
+  core: {
+    name: 'Core',
+    muscles: ['Rectus abdominis', 'Obliques', 'Transverse abdominis', 'Pelvic floor'],
+  },
+  legs: {
+    name: 'Legs',
+    muscles: ['Quadriceps', 'Hamstrings', 'Glutes', 'Adductors'],
+  },
+  calves: {
+    name: 'Calves',
+    muscles: ['Gastrocnemius', 'Soleus', 'Tibialis anterior'],
+  },
+  cardio: {
+    name: 'Cardio',
+    muscles: ['Heart', 'Lungs', 'Circulatory system'],
+  },
+  mobility: {
+    name: 'Mobility',
+    muscles: ['Joints', 'Tendons', 'Fascia'],
+  },
+  fullbody: {
+    name: 'Full body',
+    muscles: ['All major muscle groups'],
+  },
+};
+
 export const BODY_ZONES = ZONES.filter((z) => z.body);
 
-export const ZONE_OPTIONS = ZONES.map((z) => ({
-  value: z.id,
-  label: z.name,
-  hint: z.muscles.slice(0, 3).join(' · '),
-}));
+export function zoneName(id: ZoneId, lang: Lang = 'es'): string {
+  if (lang === 'en') return ZONE_EN[id]?.name ?? 'Other';
+  return ZONE_MAP[id]?.name ?? 'Otro';
+}
 
-export const TYPE_OPTIONS = [
-  { value: 'fuerza', label: 'Fuerza', hint: 'Series, reps y carga' },
-  { value: 'cardio', label: 'Cardio', hint: 'Duración y pulso' },
-  { value: 'movilidad', label: 'Movilidad', hint: 'Rango articular' },
-  { value: 'calentamiento', label: 'Calentamiento', hint: 'Activación' },
-];
+export function zoneNameOf(zone: Zone, lang: Lang = 'es'): string {
+  return zoneName(zone.id, lang);
+}
+
+export function zoneMuscles(zone: Zone, lang: Lang = 'es'): string[] {
+  return lang === 'en' ? ZONE_EN[zone.id]?.muscles ?? zone.muscles : zone.muscles;
+}
+
+export function zoneOptions(lang: Lang = 'es'): Array<{ value: string; label: string; hint: string }> {
+  return ZONES.map((z) => ({
+    value: z.id,
+    label: zoneName(z.id, lang),
+    hint: zoneMuscles(z, lang).slice(0, 3).join(' · '),
+  }));
+}
+
+export function typeOptions(lang: Lang = 'es'): Array<{ value: string; label: string; hint: string }> {
+  return lang === 'en'
+    ? [
+        { value: 'fuerza', label: 'Strength', hint: 'Sets, reps and load' },
+        { value: 'cardio', label: 'Cardio', hint: 'Duration and heart rate' },
+        { value: 'movilidad', label: 'Mobility', hint: 'Range of motion' },
+        { value: 'calentamiento', label: 'Warm-up', hint: 'Activation' },
+      ]
+    : [
+        { value: 'fuerza', label: 'Fuerza', hint: 'Series, reps y carga' },
+        { value: 'cardio', label: 'Cardio', hint: 'Duración y pulso' },
+        { value: 'movilidad', label: 'Movilidad', hint: 'Rango articular' },
+        { value: 'calentamiento', label: 'Calentamiento', hint: 'Activación' },
+      ];
+}
+
+/** Etiqueta del tipo guardado en los datos (`fuerza`, `cardio`...). */
+export function exerciseTypeLabel(type: string, lang: Lang = 'es'): string {
+  const option = typeOptions(lang).find((item) => item.value === type);
+  return option?.label ?? type;
+}
+
+export const ZONE_OPTIONS = zoneOptions('es');
+
+export const TYPE_OPTIONS = typeOptions('es');
 
 const KEYWORDS: Array<[ZoneId, string[]]> = [
   ['chest', ['pecho', 'pectoral', 'serrato', 'press banca', 'flexion']],
@@ -166,10 +246,6 @@ export function zoneForExercise(ex: Pick<Exercise, 'zone' | 'muscle' | 'type' | 
     if (words.some((w) => text.includes(w))) return zone;
   }
   return 'fullbody';
-}
-
-export function zoneName(id: ZoneId): string {
-  return ZONE_MAP[id]?.name ?? 'Otro';
 }
 
 export function zoneColor(id: ZoneId): string {

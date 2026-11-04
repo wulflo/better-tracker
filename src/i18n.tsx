@@ -41,6 +41,32 @@ export function t(key: string, lang: Lang): string {
   return DICT[lang]?.[key] ?? DICT.es[key] ?? key;
 }
 
+/**
+ * Traducción en línea para textos de interfaz. Mantiene el español como
+ * idioma de referencia y evita una clave intermedia para cada frase corta.
+ */
+export function tx(lang: Lang, es: string, en: string): string {
+  return lang === 'en' ? en : es;
+}
+
+/** Locale usado por `toLocaleDateString` y `toLocaleString`. */
+export function locale(lang: Lang): string {
+  return lang === 'en' ? 'en-US' : 'es-ES';
+}
+
+/** Plural sencillo para contadores de interfaz. */
+export function plural(lang: Lang, n: number, one: string, many: string): string {
+  return n === 1 ? one : many;
+}
+
+/** Formatea un número con separadores del idioma activo. */
+export function formatNumber(value: number, lang: Lang, decimals = 0): string {
+  return value.toLocaleString(locale(lang), {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+
 interface LanguageCtx {
   lang: Lang;
   setLang: (l: Lang) => void;

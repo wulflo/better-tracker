@@ -15,8 +15,10 @@ import type {
   Mesocycle,
   Plan,
 } from './types';
+import type { Lang } from './i18n';
+import { locale, tx } from './i18n';
 import { EMPTY_MEASURES } from './types';
-import { ZONES, ZONE_MAP, type ZoneId, zoneForExercise } from './zones';
+import { ZONES, ZONE_MAP, type ZoneId, zoneForExercise, zoneName } from './zones';
 
 export const DAY_MS = 86_400_000;
 
@@ -42,18 +44,18 @@ export function daysBetween(a: string, b: string): number {
   return Math.round((parseISO(b).getTime() - parseISO(a).getTime()) / DAY_MS);
 }
 
-export function formatShort(date: string): string {
+export function formatShort(date: string, lang: Lang = 'es'): string {
   const d = parseISO(date);
-  return d.toLocaleDateString('es', { day: '2-digit', month: 'short' });
+  return d.toLocaleDateString(locale(lang), { day: '2-digit', month: 'short' });
 }
 
-export function formatLong(date: string): string {
+export function formatLong(date: string, lang: Lang = 'es'): string {
   const d = parseISO(date);
-  return d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
+  return d.toLocaleDateString(locale(lang), { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
-export function monthLabel(d: Date): string {
-  const label = d.toLocaleDateString('es', { month: 'long', year: 'numeric' });
+export function monthLabel(d: Date, lang: Lang = 'es'): string {
+  const label = d.toLocaleDateString(locale(lang), { month: 'long', year: 'numeric' });
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
@@ -152,6 +154,39 @@ export const AUTO_ACTIVITY: ActivityOption = {
   description: 'Se calcula con los minutos de entrenamiento de los últimos 7 días. Elige un nivel si prefieres fijarlo.',
 };
 
+const ACTIVITY_EN: Record<ActivityLevel, { label: string; short: string; description: string }> = {
+  auto: {
+    label: 'Automatic',
+    short: 'Auto',
+    description: 'Calculated from the last 7 days of training minutes. Pick a level if you prefer to set it manually.',
+  },
+  sedentary: {
+    label: 'Sedentary',
+    short: 'Sedentary',
+    description: 'Office job, little movement and no regular training.',
+  },
+  light: {
+    label: 'Light',
+    short: 'Light',
+    description: 'Daily walking, standing job or 1–2 workouts per week.',
+  },
+  moderate: {
+    label: 'Moderate',
+    short: 'Moderate',
+    description: 'Normal daily activity and 3–4 workouts per week.',
+  },
+  high: {
+    label: 'High',
+    short: 'High',
+    description: 'Physical job or 5–6 intense workouts per week.',
+  },
+  very_high: {
+    label: 'Very high',
+    short: 'Very high',
+    description: 'Very physical job, double sessions or competitive sport.',
+  },
+};
+
 export function activityLevelFromEvents(events: VaultEvent[]): ActivityLevel {
   const last = [...events].reverse().find((e) => e.kind === 'activity.level');
   const level = last?.payload?.level;
@@ -159,9 +194,17 @@ export function activityLevelFromEvents(events: VaultEvent[]): ActivityLevel {
   return ACTIVITY_LEVELS.some((option) => option.id === level) ? (level as ActivityLevel) : 'auto';
 }
 
-export function activityOption(level: ActivityLevel): ActivityOption {
-  if (level === 'auto') return AUTO_ACTIVITY;
-  return ACTIVITY_LEVELS.find((option) => option.id === level) ?? AUTO_ACTIVITY;
+export function activityOption(level: ActivityLevel, lang: Lang = 'es'): ActivityOption {
+  const base = level === 'auto'
+    ? AUTO_ACTIVITY
+    : ACTIVITY_LEVELS.find((option) => option.id === level) ?? AUTO_ACTIVITY;
+  if (lang === 'es') return base;
+  const en = ACTIVITY_EN[base.id];
+  return { ...base, label: en.label, short: en.short, description: en.description };
+}
+
+export function activityOptions(lang: Lang = 'es'): ActivityOption[] {
+  return [AUTO_ACTIVITY, ...ACTIVITY_LEVELS].map((option) => activityOption(option.id, lang));
 }
 
 export function historyCutoff(events: VaultEvent[]): string {
@@ -435,6 +478,7 @@ export interface TrainingAlert {
 export function trainingAlerts(
   summary: TrainingSummary,
   now = new Date(),
+  lang: Lang = 'es',
 ): TrainingAlert[] {
   const alerts: TrainingAlert[] = [];
   const nowMs = now.getTime();
@@ -444,22 +488,31 @@ export function trainingAlerts(
     const [, maxSets] = z.weeklySets;
     const [, maxMinutes] = z.weeklyMinutes;
     const isStrength = maxSets > 0;
+    const name = zoneName(z.id, lang);
 
     if (isStrength && load.sets > maxSets) {
       alerts.push({
         id: `${z.id}-sets`,
         severity: 'high',
         zoneId: z.id,
-        title: `${z.name}: volumen semanal alto`,
-        detail: `${load.sets} series en 7 días; el rango recomendado es ${z.weeklySets[0]}–${maxSets}. Reduce series o añade un día de descanso.`,
+        title: tx(lang, `${z.name}: volumen semanal alto`, `${name}: high weekly volume`),
+        detail: tx(
+          lang,
+          `${load.sets} series en 7 días; el rango recomendado es ${z.weeklySets[0]}–${maxSets}. Reduce series o añade un día de descanso.`,
+          `${load.sets} sets in 7 days; the recommended range is ${z.weeklySets[0]}–${maxSets}. Reduce sets or add a rest day.`,
+        ),
       });
     } else if (isStrength && load.sets >= maxSets * 0.85) {
       alerts.push({
         id: `${z.id}-near`,
         severity: 'info',
         zoneId: z.id,
-        title: `${z.name}: cerca del límite`,
-        detail: `${load.sets} series en 7 días. Te quedan ${Math.max(0, maxSets - load.sets)} series antes del máximo recomendado.`,
+        title: tx(lang, `${z.name}: cerca del límite`, `${name}: close to the limit`),
+        detail: tx(
+          lang,
+          `${load.sets} series en 7 días. Te quedan ${Math.max(0, maxSets - load.sets)} series antes del máximo recomendado.`,
+          `${load.sets} sets in 7 days. You have ${Math.max(0, maxSets - load.sets)} sets left before the recommended maximum.`,
+        ),
       });
     }
 
@@ -468,8 +521,12 @@ export function trainingAlerts(
         id: `${z.id}-min`,
         severity: load.minutes > maxMinutes * 1.25 ? 'high' : 'warn',
         zoneId: z.id,
-        title: `${z.name}: tiempo de trabajo excesivo`,
-        detail: `${Math.round(load.minutes)} min en 7 días; el rango recomendado es ${z.weeklyMinutes[0]}–${maxMinutes} min.`,
+        title: tx(lang, `${z.name}: tiempo de trabajo excesivo`, `${name}: excessive working time`),
+        detail: tx(
+          lang,
+          `${Math.round(load.minutes)} min en 7 días; el rango recomendado es ${z.weeklyMinutes[0]}–${maxMinutes} min.`,
+          `${Math.round(load.minutes)} min in 7 days; the recommended range is ${z.weeklyMinutes[0]}–${maxMinutes} min.`,
+        ),
       });
     }
 
@@ -480,8 +537,12 @@ export function trainingAlerts(
           id: `${z.id}-recovery`,
           severity: 'warn',
           zoneId: z.id,
-          title: `${z.name}: recuperación insuficiente`,
-          detail: `Última sesión hace ${Math.max(1, Math.round(hours))} h. Se recomiendan al menos ${z.recoveryHours} h antes de volver a cargar esta zona.`,
+          title: tx(lang, `${z.name}: recuperación insuficiente`, `${name}: insufficient recovery`),
+          detail: tx(
+            lang,
+            `Última sesión hace ${Math.max(1, Math.round(hours))} h. Se recomiendan al menos ${z.recoveryHours} h antes de volver a cargar esta zona.`,
+            `Last session ${Math.max(1, Math.round(hours))} h ago. At least ${z.recoveryHours} h are recommended before loading this zone again.`,
+          ),
         });
       }
     }
@@ -491,8 +552,12 @@ export function trainingAlerts(
     alerts.push({
       id: 'total-minutes',
       severity: 'warn',
-      title: 'Carga semanal total elevada',
-      detail: `${summary.weekMinutes} min de entrenamiento en 7 días. Incluye al menos un día de descanso completo.`,
+      title: tx(lang, 'Carga semanal total elevada', 'High total weekly load'),
+      detail: tx(
+        lang,
+        `${summary.weekMinutes} min de entrenamiento en 7 días. Incluye al menos un día de descanso completo.`,
+        `${summary.weekMinutes} min of training in 7 days. Include at least one full rest day.`,
+      ),
     });
   }
 
@@ -527,23 +592,24 @@ export function computeMacros(
   weeklyMinutes: number,
   goal: GoalMode,
   activityLevel?: ActivityLevel,
+  lang: Lang = 'es',
 ): MacroResult | null {
   if (!m.weight || m.weight <= 0) return null;
   const missing: string[] = [];
   const notes: string[] = [];
   const height = m.height > 0 ? m.height : 170;
   if (m.height <= 0) {
-    missing.push('altura');
-    notes.push('Altura estimada en 170 cm.');
+    missing.push(tx(lang, 'altura', 'height'));
+    notes.push(tx(lang, 'Altura estimada en 170 cm.', 'Height estimated at 170 cm.'));
   }
   const age = m.age > 0 ? m.age : 30;
   if (m.age <= 0) {
-    missing.push('edad');
-    notes.push('Edad estimada en 30 años.');
+    missing.push(tx(lang, 'edad', 'age'));
+    notes.push(tx(lang, 'Edad estimada en 30 años.', 'Age estimated at 30 years.'));
   }
   if (m.sex === 'unspecified') {
-    missing.push('sexo');
-    notes.push('Sexo sin especificar: BMR con constante neutra.');
+    missing.push(tx(lang, 'sexo', 'sex'));
+    notes.push(tx(lang, 'Sexo sin especificar: BMR con constante neutra.', 'Sex not specified: BMR with a neutral constant.'));
   }
 
   const sexConst = m.sex === 'male' ? 5 : m.sex === 'female' ? -161 : -78;
@@ -555,9 +621,13 @@ export function computeMacros(
     // Los multiplicadores PAL ya incluyen el ejercicio habitual (de 1,2
     // sedentario a 1,9 muy activo). Sumar otra vez los minutos registrados
     // duplicaría el gasto del entrenamiento y dispararía el objetivo calórico.
+    const option = activityOption(activityLevel, lang);
     notes.push(
-      `Actividad declarada: ${activityOption(activityLevel).label} (×${activity}). ` +
-        'El multiplicador ya incluye el entrenamiento habitual, así que no se suma dos veces.',
+      tx(
+        lang,
+        `Actividad declarada: ${option.label} (×${activity}). El multiplicador ya incluye el entrenamiento habitual, así que no se suma dos veces.`,
+        `Declared activity: ${option.label} (×${activity}). The multiplier already includes habitual training, so it is not added twice.`,
+      ),
     );
   } else {
     activity = 1.2;
@@ -565,7 +635,11 @@ export function computeMacros(
     if (weeklyMinutes >= 150) activity = 1.55;
     if (weeklyMinutes >= 300) activity = 1.725;
     notes.push(
-      `Actividad automática (×${activity}) según ${Math.round(weeklyMinutes)} min de entrenamiento en 7 días.`,
+      tx(
+        lang,
+        `Actividad automática (×${activity}) según ${Math.round(weeklyMinutes)} min de entrenamiento en 7 días.`,
+        `Automatic activity (×${activity}) based on ${Math.round(weeklyMinutes)} min of training in 7 days.`,
+      ),
     );
   }
   const tdee = bmr * activity;
@@ -633,10 +707,11 @@ export function computeWaterGuidance(
   m: BodyMeasures,
   weeklyMinutes: number,
   intakeMl: number,
+  lang: Lang = 'es',
 ): WaterGuidance {
   const intake = Math.max(0, Number(intakeMl) || 0);
   const weight = m.weight > 0 ? m.weight : 0;
-  const comp = bodyComposition(m);
+  const comp = bodyComposition(m, lang);
   const lean = comp.leanMass !== null && comp.leanMass > 0 ? comp.leanMass : weight * 0.8;
   const fat = Math.max(0, weight - lean);
   const exerciseAddMl = Math.round((Math.max(0, weeklyMinutes) / 7 / 60) * 500);
@@ -656,39 +731,81 @@ export function computeWaterGuidance(
 
   let status: WaterStatus = 'ok';
   let tone: WaterGuidance['tone'] = 'success';
-  let message = `Dentro de tu rango seguro (${(safeMaxMl / 1000).toFixed(1)} L).`;
-  let detail = `Objetivo personalizado: ${(targetMl / 1000).toFixed(1)} L/día según masa magra (${effectiveLean.toFixed(1)} kg) y entrenamiento (${exerciseAddMl} ml extra).`;
+  let message = tx(
+    lang,
+    `Dentro de tu rango seguro (${(safeMaxMl / 1000).toFixed(1)} L).`,
+    `Within your safe range (${(safeMaxMl / 1000).toFixed(1)} L).`,
+  );
+  let detail = tx(
+    lang,
+    `Objetivo personalizado: ${(targetMl / 1000).toFixed(1)} L/día según masa magra (${effectiveLean.toFixed(1)} kg) y entrenamiento (${exerciseAddMl} ml extra).`,
+    `Personalized target: ${(targetMl / 1000).toFixed(1)} L/day based on lean mass (${effectiveLean.toFixed(1)} kg) and training (${exerciseAddMl} ml extra).`,
+  );
 
   if (intake <= 0) {
     status = 'none';
     tone = 'info';
-    message = 'Aún no has registrado agua hoy.';
-    detail = `Tu objetivo es ${(targetMl / 1000).toFixed(1)} L. Reparte a lo largo del día en lugar de beber todo de golpe.`;
+    message = tx(lang, 'Aún no has registrado agua hoy.', 'You have not logged any water today.');
+    detail = tx(
+      lang,
+      `Tu objetivo es ${(targetMl / 1000).toFixed(1)} L. Reparte a lo largo del día en lugar de beber todo de golpe.`,
+      `Your target is ${(targetMl / 1000).toFixed(1)} L. Spread it throughout the day instead of drinking it all at once.`,
+    );
   } else if (intake < targetMl * 0.75) {
     status = 'low';
     tone = 'warn';
-    message = `Vas bajo de hidratación: te faltan ${((targetMl - intake) / 1000).toFixed(2)} L para el objetivo.`;
-    detail = 'Bebe en pequeños sorbos; la sed intensa y la orina oscura indican que ya vas tarde.';
+    message = tx(
+      lang,
+      `Vas bajo de hidratación: te faltan ${((targetMl - intake) / 1000).toFixed(2)} L para el objetivo.`,
+      `You are behind on hydration: ${((targetMl - intake) / 1000).toFixed(2)} L short of your target.`,
+    );
+    detail = tx(
+      lang,
+      'Bebe en pequeños sorbos; la sed intensa y la orina oscura indican que ya vas tarde.',
+      'Take small sips; intense thirst and dark urine mean you are already late.',
+    );
   } else if (intake < targetMl) {
     status = 'below';
     tone = 'info';
-    message = `Te quedan ${((targetMl - intake) / 1000).toFixed(2)} L para llegar a tu objetivo.`;
-    detail = detail;
+    message = tx(
+      lang,
+      `Te quedan ${((targetMl - intake) / 1000).toFixed(2)} L para llegar a tu objetivo.`,
+      `${((targetMl - intake) / 1000).toFixed(2)} L left to reach your target.`,
+    );
   } else if (intake <= safeMaxMl) {
     status = 'ok';
     tone = 'success';
-    message = `Dentro de tu rango seguro (${(safeMaxMl / 1000).toFixed(1)} L).`;
-    detail = detail;
+    message = tx(
+      lang,
+      `Dentro de tu rango seguro (${(safeMaxMl / 1000).toFixed(1)} L).`,
+      `Within your safe range (${(safeMaxMl / 1000).toFixed(1)} L).`,
+    );
   } else if (intake <= hardMaxMl) {
     status = 'excess';
     tone = 'danger';
-    message = `Por encima de tu límite seguro por ${((intake - safeMaxMl) / 1000).toFixed(2)} L.`;
-    detail = `Con tu masa magra y entrenamiento, no conviene pasar de ${(safeMaxMl / 1000).toFixed(1)} L al día. El riñón excreta ≈0,7–1,0 L/h; beber más rápido diluye el sodio. Reparte el agua y no fuerces.`;
+    message = tx(
+      lang,
+      `Por encima de tu límite seguro por ${((intake - safeMaxMl) / 1000).toFixed(2)} L.`,
+      `${((intake - safeMaxMl) / 1000).toFixed(2)} L above your safe limit.`,
+    );
+    detail = tx(
+      lang,
+      `Con tu masa magra y entrenamiento, no conviene pasar de ${(safeMaxMl / 1000).toFixed(1)} L al día. El riñón excreta ≈0,7–1,0 L/h; beber más rápido diluye el sodio. Reparte el agua y no fuerces.`,
+      `With your lean mass and training, it is best not to exceed ${(safeMaxMl / 1000).toFixed(1)} L per day. The kidneys excrete ≈0.7–1.0 L/h; drinking faster dilutes sodium. Spread out your water and do not force it.`,
+    );
   } else {
     status = 'danger';
     tone = 'danger';
-    message = `Riesgo de sobrehidratación: ${(intake / 1000).toFixed(2)} L registrados.`;
-    detail = `Superas el umbral de seguridad (${(hardMaxMl / 1000).toFixed(1)} L) para tu peso y composición. Para de beber, evita ejercicio intenso y busca atención médica si hay náuseas, confusión o dolor de cabeza.`;
+    message = tx(
+      lang,
+      `Riesgo de sobrehidratación: ${(intake / 1000).toFixed(2)} L registrados.`,
+      `Risk of overhydration: ${(intake / 1000).toFixed(2)} L logged.`,
+    );
+    detail = tx(
+      lang,
+      `Superas el umbral de seguridad (${(hardMaxMl / 1000).toFixed(1)} L) para tu peso y composición. Para de beber, evita ejercicio intenso y busca atención médica si hay náuseas, confusión o dolor de cabeza.`,
+      `You exceed the safety threshold (${(hardMaxMl / 1000).toFixed(1)} L) for your weight and composition. Stop drinking, avoid intense exercise and seek medical help if you have nausea, confusion or a headache.`,
+    );
   }
 
   return {
@@ -769,6 +886,7 @@ export function computeSatiety(
   n: NutritionEntry | null,
   macros: MacroResult | null,
   context: SatietyContext = {},
+  lang: Lang = 'es',
 ): SatietyResult | null {
   if (!n || !macros) return null;
 
@@ -830,89 +948,153 @@ export function computeSatiety(
   const drivers: SatietyDriver[] = [
     {
       id: 'protein',
-      label: 'Proteína',
+      label: tx(lang, 'Proteína', 'Protein'),
       value: Math.round(protein),
       weight: 30,
-      detail: `${Math.round(n.protein)} g de ${proteinTarget} g objetivo diario. Es el macro más saciante.`,
+      detail: tx(
+        lang,
+        `${Math.round(n.protein)} g de ${proteinTarget} g objetivo diario. Es el macro más saciante.`,
+        `${Math.round(n.protein)} g of a ${proteinTarget} g daily target. It is the most satiating macronutrient.`,
+      ),
     },
     {
       id: 'volume',
-      label: 'Peso y volumen',
+      label: tx(lang, 'Peso y volumen', 'Weight and volume'),
       value: Math.round(volume),
       weight: 25,
-      detail: `${Math.round(grams)} g de comida; referencia ${Math.round(volumeTarget)} g/día. La distensión gástrica es una señal mecánica directa.`,
+      detail: tx(
+        lang,
+        `${Math.round(grams)} g de comida; referencia ${Math.round(volumeTarget)} g/día. La distensión gástrica es una señal mecánica directa.`,
+        `${Math.round(grams)} g of food; reference ${Math.round(volumeTarget)} g/day. Gastric distension is a direct mechanical signal.`,
+      ),
     },
     {
       id: 'fiber',
-      label: 'Fibra',
+      label: tx(lang, 'Fibra', 'Fiber'),
       value: Math.round(fiber),
       weight: 20,
-      detail: `${Math.round(n.fiber * 10) / 10} g de ${fiberTarget} g objetivo. Retrasa el vaciado gástrico y modula GLP-1/PYY.`,
+      detail: tx(
+        lang,
+        `${Math.round(n.fiber * 10) / 10} g de ${fiberTarget} g objetivo. Retrasa el vaciado gástrico y modula GLP-1/PYY.`,
+        `${Math.round(n.fiber * 10) / 10} g of a ${fiberTarget} g target. It slows gastric emptying and modulates GLP-1/PYY.`,
+      ),
     },
     {
       id: 'water',
-      label: 'Agua',
+      label: tx(lang, 'Agua', 'Water'),
       value: Math.round(hydration),
       weight: 10,
-      detail: `${Math.round(n.water)} ml de ${Math.round(waterTarget)} ml. La deshidratación leve se confunde con hambre.`,
+      detail: tx(
+        lang,
+        `${Math.round(n.water)} ml de ${Math.round(waterTarget)} ml. La deshidratación leve se confunde con hambre.`,
+        `${Math.round(n.water)} ml of ${Math.round(waterTarget)} ml. Mild dehydration is often mistaken for hunger.`,
+      ),
     },
     {
       id: 'density',
-      label: 'Densidad energética',
+      label: tx(lang, 'Densidad energética', 'Energy density'),
       value: Math.round(density),
       weight: 10,
       detail: energyDensity === null
-        ? 'Sin gramos registrados: no se puede estimar kcal/g.'
-        : `${energyDensity.toFixed(2)} kcal/g. Por debajo de ~1,5 kcal/g se sacia más por caloría.`,
+        ? tx(lang, 'Sin gramos registrados: no se puede estimar kcal/g.', 'No grams logged: kcal/g cannot be estimated.')
+        : tx(
+            lang,
+            `${energyDensity.toFixed(2)} kcal/g. Por debajo de ~1,5 kcal/g se sacia más por caloría.`,
+            `${energyDensity.toFixed(2)} kcal/g. Below ~1.5 kcal/g you feel fuller per calorie.`,
+          ),
     },
     {
       id: 'fat',
-      label: 'Grasa',
+      label: tx(lang, 'Grasa', 'Fat'),
       value: Math.round(fat),
       weight: 5,
-      detail: `${Math.round(n.fat)} g de ${fatTarget} g. Sacia por enlentecer el vaciado gástrico, pero aporta mucha energía.`,
+      detail: tx(
+        lang,
+        `${Math.round(n.fat)} g de ${fatTarget} g. Sacia por enlentecer el vaciado gástrico, pero aporta mucha energía.`,
+        `${Math.round(n.fat)} g of ${fatTarget} g. It satisfies by slowing gastric emptying, but brings a lot of energy.`,
+      ),
     },
   ];
 
-  let diagnosis = 'Saciedad moderada';
-  let tip = 'Combina proteína, fibra, volumen y agua en cada comida para cubrir las señales mecánicas y hormonales.';
+  let diagnosis = tx(lang, 'Saciedad moderada', 'Moderate satiety');
+  let tip = tx(
+    lang,
+    'Combina proteína, fibra, volumen y agua en cada comida para cubrir las señales mecánicas y hormonales.',
+    'Combine protein, fiber, volume and water in each meal to cover the mechanical and hormonal signals.',
+  );
   let tone: SatietyResult['tone'] = 'info';
 
   if (score >= 70) {
-    diagnosis = 'Saciedad alta';
-    tip = 'Las señales de volumen, proteína y fibra están bien cubiertas. Mantén este patrón y vigila la densidad energética.';
+    diagnosis = tx(lang, 'Saciedad alta', 'High satiety');
+    tip = tx(
+      lang,
+      'Las señales de volumen, proteína y fibra están bien cubiertas. Mantén este patrón y vigila la densidad energética.',
+      'Volume, protein and fiber signals are well covered. Keep this pattern and watch energy density.',
+    );
     tone = 'good';
   } else if (score < 30) {
-    diagnosis = 'Hambre probable';
-    tip = 'Añade una fuente de proteína (25–40 g), fibra (8–12 g) y 300–500 g de alimentos con agua y volumen.';
+    diagnosis = tx(lang, 'Hambre probable', 'Likely hunger');
+    tip = tx(
+      lang,
+      'Añade una fuente de proteína (25–40 g), fibra (8–12 g) y 300–500 g de alimentos con agua y volumen.',
+      'Add a protein source (25–40 g), fiber (8–12 g) and 300–500 g of water-rich, high-volume foods.',
+    );
     tone = 'bad';
   } else if (energyDensity !== null && energyDensity > 2.2) {
-    diagnosis = 'Densidad energética alta';
-    tip = 'La comida concentra muchas calorías en poco peso: añade verduras, fruta, legumbres o sopa para ganar volumen sin exceso de energía.';
+    diagnosis = tx(lang, 'Densidad energética alta', 'High energy density');
+    tip = tx(
+      lang,
+      'La comida concentra muchas calorías en poco peso: añade verduras, fruta, legumbres o sopa para ganar volumen sin exceso de energía.',
+      'The meal packs many calories into little weight: add vegetables, fruit, legumes or soup to gain volume without excess energy.',
+    );
     tone = 'warn';
   } else if (proteinScore < 65 && volumeScore < 65) {
-    diagnosis = 'Poca proteína y poco volumen';
-    tip = 'Sube proteína de calidad y el peso de la comida (verduras, fruta, legumbres) para activar saciedad mecánica y hormonal.';
+    diagnosis = tx(lang, 'Poca proteína y poco volumen', 'Low protein and low volume');
+    tip = tx(
+      lang,
+      'Sube proteína de calidad y el peso de la comida (verduras, fruta, legumbres) para activar saciedad mecánica y hormonal.',
+      'Increase quality protein and meal weight (vegetables, fruit, legumes) to activate mechanical and hormonal satiety.',
+    );
     tone = 'warn';
   } else if (fiberScore < 60) {
-    diagnosis = 'Falta fibra';
-    tip = 'Añade 8–12 g de fibra por comida: legumbres, avena, fruta con piel, verduras o semillas.';
+    diagnosis = tx(lang, 'Falta fibra', 'Not enough fiber');
+    tip = tx(
+      lang,
+      'Añade 8–12 g de fibra por comida: legumbres, avena, fruta con piel, verduras o semillas.',
+      'Add 8–12 g of fiber per meal: legumes, oats, fruit with skin, vegetables or seeds.',
+    );
     tone = 'warn';
   } else if (proteinScore < 65) {
-    diagnosis = 'Proteína insuficiente';
-    tip = 'Reparte la proteína entre comidas (0,3–0,4 g/kg por comida) para sostener GLP-1/PYY y preservar masa magra.';
+    diagnosis = tx(lang, 'Proteína insuficiente', 'Not enough protein');
+    tip = tx(
+      lang,
+      'Reparte la proteína entre comidas (0,3–0,4 g/kg por comida) para sostener GLP-1/PYY y preservar masa magra.',
+      'Spread protein across meals (0.3–0.4 g/kg per meal) to sustain GLP-1/PYY and preserve lean mass.',
+    );
     tone = 'warn';
   } else if (hydrationScore < 60) {
-    diagnosis = 'Hidratación baja';
-    tip = 'Bebe agua junto a las comidas; la sed y el hambre comparten señales y la deshidratación reduce la saciedad.';
+    diagnosis = tx(lang, 'Hidratación baja', 'Low hydration');
+    tip = tx(
+      lang,
+      'Bebe agua junto a las comidas; la sed y el hambre comparten señales y la deshidratación reduce la saciedad.',
+      'Drink water with meals; thirst and hunger share signals and dehydration reduces satiety.',
+    );
     tone = 'warn';
   } else if (volumeScore < 60) {
-    diagnosis = 'Falta volumen';
-    tip = 'La distensión gástrica es una de las señales más potentes: añade alimentos ricos en agua y fibra para llegar a 300–500 g por comida.';
+    diagnosis = tx(lang, 'Falta volumen', 'Not enough volume');
+    tip = tx(
+      lang,
+      'La distensión gástrica es una de las señales más potentes: añade alimentos ricos en agua y fibra para llegar a 300–500 g por comida.',
+      'Gastric distension is one of the strongest signals: add water- and fiber-rich foods to reach 300–500 g per meal.',
+    );
     tone = 'warn';
   } else if (score >= 55) {
-    diagnosis = 'Saciedad aceptable';
-    tip = 'Buen equilibrio general. Si aparece hambre pronto, sube ligeramente proteína y volumen en la próxima comida.';
+    diagnosis = tx(lang, 'Saciedad aceptable', 'Acceptable satiety');
+    tip = tx(
+      lang,
+      'Buen equilibrio general. Si aparece hambre pronto, sube ligeramente proteína y volumen en la próxima comida.',
+      'Good overall balance. If hunger appears soon, slightly increase protein and volume at the next meal.',
+    );
   }
 
   return {
@@ -996,28 +1178,48 @@ function cunBae(m: BodyMeasures, bmi: number): number | null {
   );
 }
 
-export function bodyComposition(m: BodyMeasures): BodyComposition {
+export function bodyComposition(m: BodyMeasures, lang: Lang = 'es'): BodyComposition {
   const methods: BodyFatMethod[] = [];
   const missing: string[] = [];
 
   const n = navy(m);
   if (n !== null && Number.isFinite(n)) {
-    methods.push({ id: 'navy', name: 'Marina (Navy)', value: n, note: 'Circunferencias + altura' });
+    methods.push({
+      id: 'navy',
+      name: tx(lang, 'Marina (Navy)', 'Navy'),
+      value: n,
+      note: tx(lang, 'Circunferencias + altura', 'Circumferences + height'),
+    });
   }
   const r = rfm(m);
   if (r !== null && Number.isFinite(r)) {
-    methods.push({ id: 'rfm', name: 'RFM', value: r, note: 'Cintura + altura, sin peso' });
+    methods.push({
+      id: 'rfm',
+      name: 'RFM',
+      value: r,
+      note: tx(lang, 'Cintura + altura, sin peso', 'Waist + height, no weight'),
+    });
   }
   const hasWeightHeight = m.weight > 0 && m.height > 0;
   const bmi = hasWeightHeight ? m.weight / (m.height / 100) ** 2 : null;
   if (bmi !== null) {
     const d = deurenberg(m, bmi);
     if (d !== null && Number.isFinite(d)) {
-      methods.push({ id: 'deurenberg', name: 'Deurenberg', value: d, note: 'IMC + edad + sexo' });
+      methods.push({
+        id: 'deurenberg',
+        name: 'Deurenberg',
+        value: d,
+        note: tx(lang, 'IMC + edad + sexo', 'BMI + age + sex'),
+      });
     }
     const c = cunBae(m, bmi);
     if (c !== null && Number.isFinite(c)) {
-      methods.push({ id: 'cunbae', name: 'CUN-BAE', value: c, note: 'IMC + edad + sexo' });
+      methods.push({
+        id: 'cunbae',
+        name: 'CUN-BAE',
+        value: c,
+        note: tx(lang, 'IMC + edad + sexo', 'BMI + age + sex'),
+      });
     }
   }
 
@@ -1027,15 +1229,15 @@ export function bodyComposition(m: BodyMeasures): BodyComposition {
   const leanMass = fatMass !== null ? m.weight - fatMass : null;
 
   if (!n && !r) {
-    if (!m.waist) missing.push('cintura');
-    if (!m.height) missing.push('altura');
-    if (m.sex === 'unspecified') missing.push('sexo');
-    if (!m.neck) missing.push('cuello');
-    if (m.sex !== 'male' && !m.hip) missing.push('cadera');
+    if (!m.waist) missing.push(tx(lang, 'cintura', 'waist'));
+    if (!m.height) missing.push(tx(lang, 'altura', 'height'));
+    if (m.sex === 'unspecified') missing.push(tx(lang, 'sexo', 'sex'));
+    if (!m.neck) missing.push(tx(lang, 'cuello', 'neck'));
+    if (m.sex !== 'male' && !m.hip) missing.push(tx(lang, 'cadera', 'hip'));
   }
-  if (!hasWeightHeight && m.weight > 0) missing.push('altura');
-  if (m.weight <= 0) missing.push('peso');
-  if (!m.age) missing.push('edad');
+  if (!hasWeightHeight && m.weight > 0) missing.push(tx(lang, 'altura', 'height'));
+  if (m.weight <= 0) missing.push(tx(lang, 'peso', 'weight'));
+  if (!m.age) missing.push(tx(lang, 'edad', 'age'));
 
   let bmrMifflin: number | null = null;
   if (m.weight > 0 && m.height > 0) {
@@ -1127,6 +1329,7 @@ export function weeklySeries(
   exercises: Exercise[],
   weeks = 8,
   now = new Date(),
+  lang: Lang = 'es',
 ): WeeklyPoint[] {
   const exerciseMap = new Map(exercises.map((e) => [e.id, e]));
   const buckets = new Map<string, WeeklyPoint>();
@@ -1136,7 +1339,7 @@ export function weeklySeries(
     const key = todayISO(d);
     buckets.set(key, {
       key,
-      label: d.toLocaleDateString('es', { day: '2-digit', month: 'short' }),
+      label: d.toLocaleDateString(locale(lang), { day: '2-digit', month: 'short' }),
       volume: 0,
       sets: 0,
       minutes: 0,
@@ -1191,6 +1394,7 @@ export interface ExercisePoint {
 export function exerciseSeries(
   events: VaultEvent[],
   exerciseId: string,
+  lang: Lang = 'es',
 ): ExercisePoint[] {
   const prs = new Set(reducePRs(events).filter((p) => p.exerciseId === exerciseId).map((p) => p.date));
   const points: ExercisePoint[] = [];
@@ -1200,7 +1404,7 @@ export function exerciseSeries(
     const maxWeight = Math.max(0, ...entry.sets.map((x) => x.weight || 0));
     points.push({
       date: s.date,
-      label: formatShort(s.date),
+      label: formatShort(s.date, lang),
       maxWeight,
       volume: entry.sets.reduce((a, x) => a + x.reps * x.weight, 0),
       pr: prs.has(s.date),
@@ -1212,7 +1416,7 @@ export function exerciseSeries(
     const maxWeight = Math.max(0, ...entry.sets.map((x) => x.weight || 0));
     points.push({
       date: w.date,
-      label: formatShort(w.date),
+      label: formatShort(w.date, lang),
       maxWeight,
       volume: entry.sets.reduce((a, x) => a + x.reps * x.weight, 0),
       pr: prs.has(w.date),

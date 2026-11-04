@@ -24,7 +24,7 @@ import BodyView from './BodyView';
 import WellnessView from './WellnessView';
 import Select from './components/Select';
 import { Icon, LogoMark } from './components/Icons';
-import { useLanguage, t } from './i18n';
+import { useLanguage, t, tx } from './i18n';
 import UpdatePanel from './components/UpdatePanel';
 import { errorText } from './errors';
 import { openRepository, REPOSITORY_URL } from './links';
@@ -39,14 +39,6 @@ const NAV: Array<{ id: View; icon: string }> = [
   { id: 'body', icon: 'body' },
   { id: 'wellness', icon: 'check' },
 ];
-
-const TITLES: Record<View, string> = {
-  panel: 'Panel',
-  training: 'Entrenamiento',
-  history: 'Historial',
-  body: 'Figura corporal',
-  wellness: 'Hábitos y ánimo',
-};
 
 /** Fecha local en el mismo formato que usa Rust para `longlife`. */
 function localDateKey(): string {
@@ -99,7 +91,11 @@ export default function App() {
           if (dropWarnedRef.current !== signature) {
             dropWarnedRef.current = signature;
             notify(
-              `Aviso: la bóveda tiene ${next.length} eventos y antes había ${previous}. Revisa longlife y restaura los que falten.`,
+              tx(
+                lang,
+                `Aviso: la bóveda tiene ${next.length} eventos y antes había ${previous}. Revisa longlife y restaura los que falten.`,
+                `Warning: the vault has ${next.length} events and previously had ${previous}. Check longlife and restore the missing ones.`,
+              ),
               'error',
             );
           }
@@ -109,9 +105,12 @@ export default function App() {
         localStorage.setItem(key, String(next.length));
       }
     } catch (e) {
-      notify(`No se pudo leer la bóveda: ${errorText(e)}`, 'error');
+      notify(
+        tx(lang, `No se pudo leer la bóveda: ${errorText(e)}`, `Could not read the vault: ${errorText(e)}`),
+        'error',
+      );
     }
-  }, [notify, vault]);
+  }, [notify, vault, lang]);
 
   useEffect(() => {
     getAppInfo().then(setInfo).catch(() => {});
@@ -166,9 +165,16 @@ export default function App() {
       .then(setBackupStatus)
       .catch((e) => {
         setBackupStatus(null);
-        notify(`No se pudo leer el estado de longlife: ${errorText(e)}`, 'error');
+        notify(
+          tx(
+            lang,
+            `No se pudo leer el estado de longlife: ${errorText(e)}`,
+            `Could not read longlife status: ${errorText(e)}`,
+          ),
+          'error',
+        );
       });
-  }, [settingsOpen, vault, notify]);
+  }, [settingsOpen, vault, notify, lang]);
 
   useEffect(() => {
     if (!settingsOpen) {
@@ -207,8 +213,7 @@ export default function App() {
     const onRejection = (e: PromiseRejectionEvent) => {
       e.preventDefault();
       notify(`Error: ${errorText(e.reason)}`, 'error');
-    };
-    window.addEventListener('unhandledrejection', onRejection);
+    };    window.addEventListener('unhandledrejection', onRejection);
     return () => window.removeEventListener('unhandledrejection', onRejection);
   }, [notify]);
 
@@ -222,7 +227,7 @@ export default function App() {
       setVaultDataDir(next.path.startsWith('{') || next.path.startsWith('content://') ? 'omega' : `${next.path}/omega`);
       setBackupStatus(null);
       setConfirmDeleteBackups(false);
-      notify('Bóveda seleccionada.', 'success');
+      notify(tx(lang, 'Bóveda seleccionada.', 'Vault selected.'), 'success');
       try {
         const result = await runBackup();
         setBackupStatus(result.status);
@@ -241,12 +246,27 @@ export default function App() {
       const result = await runBackup(true);
       setBackupStatus(result.status);
       if (result.created && result.date) {
-        notify(`Copia de ${result.date} creada en longlife.`, 'success');
+        notify(
+          tx(
+            lang,
+            `Copia de ${result.date} creada en longlife.`,
+            `Backup of ${result.date} created in longlife.`,
+          ),
+          'success',
+        );
       } else {
-        notify(result.skipped || 'No se creó ninguna copia.', 'info');
+        notify(
+          result.skipped
+            ? result.skipped
+            : tx(lang, 'No se creó ninguna copia.', 'No backup was created.'),
+          'info',
+        );
       }
     } catch (e) {
-      notify(`No se pudo crear la copia: ${errorText(e)}`, 'error');
+      notify(
+        tx(lang, `No se pudo crear la copia: ${errorText(e)}`, `Could not create the backup: ${errorText(e)}`),
+        'error',
+      );
     } finally {
       setBackupBusy(false);
     }
@@ -258,9 +278,19 @@ export default function App() {
       const status = await deleteBackups();
       setBackupStatus(status);
       setConfirmDeleteBackups(false);
-      notify('Todas las copias de longlife se han borrado. No se recreará hasta mañana.', 'success');
+      notify(
+        tx(
+          lang,
+          'Todas las copias de longlife se han borrado. No se recreará hasta mañana.',
+          'All longlife backups have been deleted. A new one will not be created until tomorrow.',
+        ),
+        'success',
+      );
     } catch (e) {
-      notify(`No se pudieron borrar las copias: ${errorText(e)}`, 'error');
+      notify(
+        tx(lang, `No se pudieron borrar las copias: ${errorText(e)}`, `Could not delete backups: ${errorText(e)}`),
+        'error',
+      );
     } finally {
       setBackupBusy(false);
     }
@@ -279,17 +309,28 @@ export default function App() {
       }
       if (result.imported > 0) {
         notify(
-          `Restaurados ${result.imported} eventos en ${result.folder}. No se ha sobrescrito nada.`,
+          tx(
+            lang,
+            `Restaurados ${result.imported} eventos en ${result.folder}. No se ha sobrescrito nada.`,
+            `Restored ${result.imported} events into ${result.folder}. Nothing was overwritten.`,
+          ),
           'success',
         );
       } else {
         notify(
-          `No faltaban eventos: la bóveda actual ya contiene los ${result.source_events} de esa copia.`,
+          tx(
+            lang,
+            `No faltaban eventos: la bóveda actual ya contiene los ${result.source_events} de esa copia.`,
+            `No missing events: the current vault already contains the ${result.source_events} from that backup.`,
+          ),
           'info',
         );
       }
     } catch (e) {
-      notify(`No se pudo restaurar la copia: ${errorText(e)}`, 'error');
+      notify(
+        tx(lang, `No se pudo restaurar la copia: ${errorText(e)}`, `Could not restore the backup: ${errorText(e)}`),
+        'error',
+      );
     } finally {
       setRestoreBusy(null);
     }
@@ -299,9 +340,13 @@ export default function App() {
   const vaultName = vaultLabel || (vault ? vault.split(/[\\/]/).filter(Boolean).pop() || vault : '');
   const backupSummary = backupStatus
     ? backupStatus.copies.length > 0
-      ? `${ownCopies.length}/${backupStatus.retention_days} copias de este dispositivo · última ${backupStatus.last_backup ?? '—'}`
-      : 'Sin copias todavía'
-    : 'Cargando…';
+      ? tx(
+          lang,
+          `${ownCopies.length}/${backupStatus.retention_days} copias de este dispositivo · última ${backupStatus.last_backup ?? '—'}`,
+          `${ownCopies.length}/${backupStatus.retention_days} backups from this device · latest ${backupStatus.last_backup ?? '—'}`,
+        )
+      : tx(lang, 'Sin copias todavía', 'No backups yet')
+    : tx(lang, 'Cargando…', 'Loading…');
   const formatBytes = (bytes: number) => {
     if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
     const units = ['B', 'KB', 'MB', 'GB'];
@@ -318,20 +363,20 @@ export default function App() {
       return d.toISOString().slice(0, 10);
     };
     const sampleExercises: Exercise[] = [
-      { id: 'ex-bench', name: 'Press banca', zone: 'chest', type: 'fuerza' },
-      { id: 'ex-row', name: 'Remo con barra', zone: 'back', type: 'fuerza' },
-      { id: 'ex-squat', name: 'Sentadilla', zone: 'legs', type: 'fuerza' },
-      { id: 'ex-press', name: 'Press militar', zone: 'shoulders', type: 'fuerza' },
-      { id: 'ex-curl', name: 'Curl bíceps', zone: 'arms', type: 'fuerza' },
-      { id: 'ex-plank', name: 'Plancha', zone: 'core', type: 'fuerza' },
-      { id: 'ex-run', name: 'Carrera suave', zone: 'cardio', type: 'cardio' },
+      { id: 'ex-bench', name: tx(lang, 'Press banca', 'Bench press'), zone: 'chest', type: 'fuerza' },
+      { id: 'ex-row', name: tx(lang, 'Remo con barra', 'Barbell row'), zone: 'back', type: 'fuerza' },
+      { id: 'ex-squat', name: tx(lang, 'Sentadilla', 'Squat'), zone: 'legs', type: 'fuerza' },
+      { id: 'ex-press', name: tx(lang, 'Press militar', 'Overhead press'), zone: 'shoulders', type: 'fuerza' },
+      { id: 'ex-curl', name: tx(lang, 'Curl bíceps', 'Biceps curl'), zone: 'arms', type: 'fuerza' },
+      { id: 'ex-plank', name: tx(lang, 'Plancha', 'Plank'), zone: 'core', type: 'fuerza' },
+      { id: 'ex-run', name: tx(lang, 'Carrera suave', 'Easy run'), zone: 'cardio', type: 'cardio' },
     ];
     for (const ex of sampleExercises) {
       await appendEvent(newEvent(deviceId, 'exercise.upsert', ex));
     }
     const routine = {
       id: 'routine-sample',
-      name: 'Full body ejemplo',
+      name: tx(lang, 'Full body ejemplo', 'Sample full body'),
       exercises: [
         { exerciseId: 'ex-bench', sets: 4, reps: 8, load: 60, rest: 120 },
         { exerciseId: 'ex-row', sets: 4, reps: 10, load: 50, rest: 90 },
@@ -366,7 +411,7 @@ export default function App() {
       }));
     }
     await refresh();
-    notify('Datos de ejemplo cargados.', 'success');
+    notify(tx(lang, 'Datos de ejemplo cargados.', 'Sample data loaded.'), 'success');
   };
 
   const onRefresh = refresh;
@@ -378,12 +423,18 @@ export default function App() {
           <div className="hero-logo"><LogoMark size={64} /></div>
           <h1>Better Tracker</h1>
           <p>
-            Tu entrenamiento, composición corporal y saciedad dual, todo local. Sin cuentas, sin telemetría y con actualizaciones firmadas solo cuando las pides.
+            {tx(
+              lang,
+              'Tu entrenamiento, composición corporal y saciedad dual, todo local. Sin cuentas, sin telemetría y con actualizaciones firmadas solo cuando las pides.',
+              'Your training, body composition and dual satiety, all local. No accounts, no telemetry, and signed updates only when you ask for them.',
+            )}
           </p>
           <button className="btn btn-primary" onClick={chooseVault}>
-            <Icon name="plus" size={16} /> Seleccionar bóveda
+            <Icon name="plus" size={16} /> {tx(lang, 'Seleccionar bóveda', 'Select vault')}
           </button>
-          <div className="hero-device">Dispositivo: {deviceId || 'generando…'}</div>
+          <div className="hero-device">
+            {tx(lang, 'Dispositivo:', 'Device:')} {deviceId || tx(lang, 'generando…', 'generating…')}
+          </div>
         </div>
       </div>
     );
@@ -400,7 +451,7 @@ export default function App() {
           </div>
         </div>
 
-        <nav className="sidebar-nav" aria-label="Navegación principal">
+        <nav className="sidebar-nav" aria-label={tx(lang, 'Navegación principal', 'Main navigation')}>
           {NAV.map((item) => (
             <button
               key={item.id}
@@ -436,11 +487,11 @@ export default function App() {
           <button
             type="button"
             className="settings-btn"
-            aria-label="Repositorio"
+            aria-label={tx(lang, 'Repositorio', 'Repository')}
             onClick={() => void openRepository().catch((e) => notify(errorText(e), 'error'))}
             title={REPOSITORY_URL}
           >
-            <Icon name="repo" size={17} /> <span className="sidebar-footer-label">Repositorio</span>
+            <Icon name="repo" size={17} /> <span className="sidebar-footer-label">{tx(lang, 'Repositorio', 'Repository')}</span>
           </button>
         </div>
       </aside>
@@ -448,12 +499,14 @@ export default function App() {
       <main className="main">
         <header className="topbar">
           <div className="row wrap">
-            <span className="badge badge-success"><span className="status-dot" /> Solo local</span>
-            <span className="hint">Datos locales · sin cuentas · sin telemetría</span>
+            <span className="badge badge-success"><span className="status-dot" /> {tx(lang, 'Solo local', 'Local only')}</span>
+            <span className="hint">
+              {tx(lang, 'Datos locales · sin cuentas · sin telemetría', 'Local data · no accounts · no telemetry')}
+            </span>
           </div>
           <div className="topbar-actions">
             <span className="hint">{new Date().toLocaleDateString(lang === 'en' ? 'en' : 'es', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
-            <button className="btn-icon" aria-label="Ajustes" onClick={() => setSettingsOpen(true)}>
+            <button className="btn-icon" aria-label={t('settings', lang)} onClick={() => setSettingsOpen(true)}>
               <Icon name="settings" size={17} />
             </button>
           </div>
@@ -505,13 +558,21 @@ export default function App() {
             />
           )}
           <div className="row between wrap" style={{ marginTop: 18 }}>
-            <span className="hint">Better Tracker · {info ? `v${info.version}` : 'v—'} · {events.length} eventos locales</span>
-            <span className="hint">Bóveda: {vaultName}{vaultDataDir ? ` · datos en ${vaultDataDir}` : ''}</span>
+            <span className="hint">
+              Better Tracker · {info ? `v${info.version}` : 'v—'} ·{' '}
+              {tx(lang, `${events.length} eventos locales`, `${events.length} local events`)}
+            </span>
+            <span className="hint">
+              {tx(lang, 'Bóveda:', 'Vault:')} {vaultName}
+              {vaultDataDir
+                ? tx(lang, ` · datos en ${vaultDataDir}`, ` · data in ${vaultDataDir}`)
+                : ''}
+            </span>
           </div>
         </div>
       </main>
 
-      <nav className="bottom-nav" aria-label="Navegación principal móvil">
+      <nav className="bottom-nav" aria-label={tx(lang, 'Navegación principal móvil', 'Mobile main navigation')}>
         {NAV.map((item) => (
           <button
             key={item.id}
@@ -532,29 +593,35 @@ export default function App() {
             <div className="modal-header">
               <div>
                 <div className="modal-title" id="settings-title">{t('settings', lang)}</div>
-                <div className="card-sub">Estado local de Better Tracker. Sin cuentas ni telemetría; actualizaciones opcionales.</div>
+                <div className="card-sub">
+                  {tx(
+                    lang,
+                    'Estado local de Better Tracker. Sin cuentas ni telemetría; actualizaciones opcionales.',
+                    'Local Better Tracker status. No accounts or telemetry; optional updates.',
+                  )}
+                </div>
               </div>
-              <button className="btn-icon" aria-label="Cerrar ajustes" onClick={() => setSettingsOpen(false)}>
+              <button className="btn-icon" aria-label={tx(lang, 'Cerrar ajustes', 'Close settings')} onClick={() => setSettingsOpen(false)}>
                 <Icon name="close" size={16} />
               </button>
             </div>
             <div className="modal-body">
               <div className="settings-row">
-                <span className="muted">Bóveda</span>
+                <span className="muted">{tx(lang, 'Bóveda', 'Vault')}</span>
                 <span className="value" title={vault ?? undefined}>{vaultName}</span>
               </div>
               {vaultDataDir && (
                 <div className="settings-row">
-                  <span className="muted">Datos de la app</span>
+                  <span className="muted">{tx(lang, 'Datos de la app', 'App data')}</span>
                   <span className="value mono small">{vaultDataDir}</span>
                 </div>
               )}
               <div className="settings-row">
-                <span className="muted">Dispositivo</span>
+                <span className="muted">{tx(lang, 'Dispositivo', 'Device')}</span>
                 <span className="value mono">{deviceId}</span>
               </div>
               <div className="settings-row">
-                <span className="muted">Versión</span>
+                <span className="muted">{tx(lang, 'Versión', 'Version')}</span>
                 <span className="value">{info?.version ?? '—'}</span>
               </div>
               <div className="settings-row">
@@ -566,11 +633,11 @@ export default function App() {
                 <span className="value">{info?.build_date ?? '—'}</span>
               </div>
               <div className="settings-row">
-                <span className="muted">Esquema de bóveda</span>
+                <span className="muted">{tx(lang, 'Esquema de bóveda', 'Vault schema')}</span>
                 <span className="value">v{info?.vault_schema_version ?? '—'}</span>
               </div>
               <div className="settings-row">
-                <span className="muted">Eventos</span>
+                <span className="muted">{tx(lang, 'Eventos', 'Events')}</span>
                 <span className="value">{events.length}</span>
               </div>
               <div className="settings-row">
@@ -586,37 +653,51 @@ export default function App() {
                 />
               </div>
               <div className="settings-row">
-                <span className="muted">Formato instalado</span>
+                <span className="muted">{tx(lang, 'Formato instalado', 'Installed format')}</span>
                 <span className="value mono">{info?.install_format ?? '—'}</span>
               </div>
               <div className="settings-row">
-                <span className="muted">Código de barras</span>
-                <span className="value small">Escanea desde Panel → Ingesta → Escanear código</span>
+                <span className="muted">{tx(lang, 'Código de barras', 'Barcode')}</span>
+                <span className="value small">
+                  {tx(
+                    lang,
+                    'Escanea desde Panel → Ingesta → Escanear código',
+                    'Scan from Dashboard → Intake → Scan code',
+                  )}
+                </span>
               </div>
               <div className="settings-row">
-                <span className="muted">Repositorio</span>
+                <span className="muted">{tx(lang, 'Repositorio', 'Repository')}</span>
                 <button
                   className="btn btn-ghost btn-sm"
                   onClick={() => void openRepository().catch((e) => notify(errorText(e), 'error'))}
                 >
-                  <Icon name="repo" size={14} /> Abrir GitHub
+                  <Icon name="repo" size={14} /> {tx(lang, 'Abrir GitHub', 'Open GitHub')}
                 </button>
               </div>
               <UpdatePanel installFormat={info?.install_format} notify={notify} />
               <div style={{ marginTop: 14 }}>
-                <div className="modal-title" style={{ fontSize: 14, marginBottom: 4 }}>Copias de seguridad (longlife)</div>
+                <div className="modal-title" style={{ fontSize: 14, marginBottom: 4 }}>
+                  {tx(lang, 'Copias de seguridad (longlife)', 'Backups (longlife)')}
+                </div>
                 <div className="card-sub" style={{ marginBottom: 8 }}>
-                  Una copia de <span className="mono">omega</span> por día y dispositivo en{' '}
-                  <span className="mono">longlife/&lt;dispositivo&gt;/&lt;fecha&gt;</span>. Se conservan las{' '}
-                  {backupStatus?.retention_days ?? 7} más recientes de cada dispositivo.
+                  {tx(lang, 'Una copia de ', 'One copy of ')}
+                  <span className="mono">omega</span>
+                  {tx(lang, ' por día y dispositivo en ', ' per day and device in ')}
+                  <span className="mono">longlife/&lt;dispositivo&gt;/&lt;fecha&gt;</span>
+                  {tx(
+                    lang,
+                    `. Se conservan las ${backupStatus?.retention_days ?? 7} más recientes de cada dispositivo.`,
+                    `. The ${backupStatus?.retention_days ?? 7} most recent per device are kept.`,
+                  )}
                 </div>
                 <div className="settings-row">
-                  <span className="muted">Estado</span>
+                  <span className="muted">{tx(lang, 'Estado', 'Status')}</span>
                   <span className="value small">{backupSummary}</span>
                 </div>
                 {backupStatus && backupStatus.copies.length > 0 && (
                   <div className="settings-row">
-                    <span className="muted">Tamaño total</span>
+                    <span className="muted">{tx(lang, 'Tamaño total', 'Total size')}</span>
                     <span className="value">{formatBytes(backupStatus.total_bytes)}</span>
                   </div>
                 )}
@@ -624,22 +705,34 @@ export default function App() {
                   <div className="notice notice-error" style={{ marginTop: 10 }}>
                     <Icon name="info" size={16} />
                     <span>
-                      La bóveda pasó de {eventDrop.previous} a {eventDrop.current} eventos. Una sincronización o una
-                      copia antigua pudo sobrescribir archivos. Elige una copia de longlife y pulsa «Restaurar» para
-                      recuperar solo los eventos que faltan.
+                      {tx(
+                        lang,
+                        `La bóveda pasó de ${eventDrop.previous} a ${eventDrop.current} eventos. Una sincronización o una copia antigua pudo sobrescribir archivos. Elige una copia de longlife y pulsa «Restaurar» para recuperar solo los eventos que faltan.`,
+                        `The vault went from ${eventDrop.previous} to ${eventDrop.current} events. A sync or an old backup may have overwritten files. Choose a longlife backup and press "Restore" to recover only the missing events.`,
+                      )}
                     </span>
                   </div>
                 )}
                 <div className="row wrap" style={{ marginTop: 8 }}>
                   <button className="btn btn-ghost btn-sm" onClick={createBackup} disabled={backupBusy}>
-                    <Icon name="history" size={14} /> {backupBusy ? 'Trabajando…' : 'Crear copia de hoy'}
+                    <Icon name="history" size={14} />{' '}
+                    {backupBusy
+                      ? tx(lang, 'Trabajando…', 'Working…')
+                      : tx(lang, 'Crear copia de hoy', "Create today's backup")}
                   </button>
                 </div>
                 {backupStatus && backupStatus.copies.length > 0 && (
                   <>
                     <div className="card-sub" style={{ marginTop: 12, marginBottom: 4 }}>
-                      Copias disponibles ({backupStatus.copies.length}). Restaurar nunca borra ni sobrescribe datos:
-                      importa a <span className="mono">omega/devices/restored-…</span> solo los eventos que falten.
+                      {tx(lang, 'Copias disponibles ', 'Available backups ')}
+                      ({backupStatus.copies.length}).
+                      {tx(
+                        lang,
+                        ' Restaurar nunca borra ni sobrescribe datos: importa a ',
+                        ' Restoring never deletes or overwrites data: it imports into ',
+                      )}
+                      <span className="mono">omega/devices/restored-…</span>
+                      {tx(lang, ' solo los eventos que falten.', ' only the missing events.')}
                     </div>
                     <ul className="snapshot-list">
                       {[...backupStatus.copies].reverse().map((copy) => (
@@ -648,24 +741,31 @@ export default function App() {
                             <div className="snapshot-title">
                               <strong>{copy.date}</strong>
                               <span className="hint">{copy.device_label}</span>
-                              {copy.current_device && <span className="badge badge-success">Este dispositivo</span>}
-                              {copy.legacy && <span className="badge badge-muted">Formato antiguo</span>}
-                              {copy.damaged && <span className="badge badge-warning">Dañada</span>}
+                              {copy.current_device && (
+                                <span className="badge badge-success">{tx(lang, 'Este dispositivo', 'This device')}</span>
+                              )}
+                              {copy.legacy && (
+                                <span className="badge badge-muted">{tx(lang, 'Formato antiguo', 'Old format')}</span>
+                              )}
+                              {copy.damaged && <span className="badge badge-warning">{tx(lang, 'Dañada', 'Damaged')}</span>}
                               {!copy.complete && !copy.damaged && (
-                                <span className="badge badge-warning">Incompleta</span>
+                                <span className="badge badge-warning">{tx(lang, 'Incompleta', 'Incomplete')}</span>
                               )}
                             </div>
                             <div className="hint small">
-                              {copy.files} archivos · {formatBytes(copy.bytes)} · <span className="mono">{copy.id}</span>
+                              {copy.files} {tx(lang, 'archivos', 'files')} · {formatBytes(copy.bytes)} ·{' '}
+                              <span className="mono">{copy.id}</span>
                             </div>
                             {copy.damaged && (
                               <div className="hint small">
-                                Contiene {copy.files}
-                                {copy.expected_files !== null ? ` de ${copy.expected_files}` : ''} archivos según su
-                                manifiesto. Restaurar usará solo lo que haya
+                                {tx(
+                                  lang,
+                                  `Contiene ${copy.files}${copy.expected_files !== null ? ` de ${copy.expected_files}` : ''} archivos según su manifiesto. Restaurar usará solo lo que haya`,
+                                  `Contains ${copy.files}${copy.expected_files !== null ? ` of ${copy.expected_files}` : ''} files according to its manifest. Restoring will use only what is available`,
+                                )}
                                 {copy.current_device && copy.date === localDateKey()
-                                  ? '; «Crear copia de hoy» la rehace completa.'
-                                  : '; si necesitas el resto, usa otra copia.'}
+                                  ? tx(lang, '; «Crear copia de hoy» la rehace completa.', '; "Create today\'s backup" rebuilds it completely.')
+                                  : tx(lang, '; si necesitas el resto, usa otra copia.', '; if you need the rest, use another backup.')}
                               </div>
                             )}
                           </div>
@@ -676,14 +776,16 @@ export default function App() {
                                 onClick={() => void restoreCopy(copy)}
                                 disabled={restoreBusy !== null}
                               >
-                                {restoreBusy === copy.id ? 'Restaurando…' : 'Restaurar lo que falta'}
+                                {restoreBusy === copy.id
+                                  ? tx(lang, 'Restaurando…', 'Restoring…')
+                                  : tx(lang, 'Restaurar lo que falta', 'Restore missing')}
                               </button>
                               <button
                                 className="btn btn-ghost btn-sm"
                                 onClick={() => setConfirmRestore(null)}
                                 disabled={restoreBusy !== null}
                               >
-                                Cancelar
+                                {tx(lang, 'Cancelar', 'Cancel')}
                               </button>
                             </div>
                           ) : (
@@ -692,7 +794,7 @@ export default function App() {
                               onClick={() => setConfirmRestore(copy.id)}
                               disabled={restoreBusy !== null}
                             >
-                              Restaurar
+                              {tx(lang, 'Restaurar', 'Restore')}
                             </button>
                           )}
                         </li>
@@ -703,8 +805,11 @@ export default function App() {
                 <div className="notice notice-warn" style={{ marginTop: 10 }}>
                   <Icon name="info" size={16} />
                   <span>
-                    Zona de alto riesgo: borrar longlife es irreversible. La restauración es no destructiva, pero
-                    conviene tener una copia reciente antes de tocar la bóveda.
+                    {tx(
+                      lang,
+                      'Zona de alto riesgo: borrar longlife es irreversible. La restauración es no destructiva, pero conviene tener una copia reciente antes de tocar la bóveda.',
+                      'High-risk zone: deleting longlife is irreversible. Restoring is non-destructive, but you should have a recent backup before touching the vault.',
+                    )}
                   </span>
                 </div>
                 {!confirmDeleteBackups ? (
@@ -713,25 +818,28 @@ export default function App() {
                     onClick={() => setConfirmDeleteBackups(true)}
                     disabled={backupBusy || !backupStatus || backupStatus.copies.length === 0}
                   >
-                    <Icon name="close" size={14} /> Borrar todas las copias
+                    <Icon name="close" size={14} /> {tx(lang, 'Borrar todas las copias', 'Delete all backups')}
                   </button>
                 ) : (
                   <div className="notice notice-error">
                     <Icon name="info" size={16} />
                     <span>
-                      ¿Borrar definitivamente las {backupStatus?.copies.length ?? 0} copias de longlife? Esta acción
-                      no se puede deshacer.
+                      {tx(
+                        lang,
+                        `¿Borrar definitivamente las ${backupStatus?.copies.length ?? 0} copias de longlife? Esta acción no se puede deshacer.`,
+                        `Permanently delete the ${backupStatus?.copies.length ?? 0} longlife backups? This action cannot be undone.`,
+                      )}
                     </span>
                     <div className="row wrap" style={{ marginTop: 8 }}>
                       <button className="btn btn-danger btn-sm" onClick={removeBackups} disabled={backupBusy}>
-                        Sí, borrar todo
+                        {tx(lang, 'Sí, borrar todo', 'Yes, delete all')}
                       </button>
                       <button
                         className="btn btn-ghost btn-sm"
                         onClick={() => setConfirmDeleteBackups(false)}
                         disabled={backupBusy}
                       >
-                        Cancelar
+                        {tx(lang, 'Cancelar', 'Cancel')}
                       </button>
                     </div>
                   </div>
@@ -740,34 +848,42 @@ export default function App() {
               <div className="notice notice-info">
                 <Icon name="info" size={16} />
                 <span>
-                  La app solo lee y escribe datos en <span className="mono">omega</span>. Las copias longlife son una
-                  red de seguridad local; no se exportan ni se envían a ningún servidor. Las únicas conexiones de red
-                  son la comprobación manual de actualizaciones y la consulta opcional a Open Food Facts al escanear un
-                  código.
+                  {tx(lang, 'La app solo lee y escribe datos en ', 'The app only reads and writes data in ')}
+                  <span className="mono">omega</span>
+                  {tx(
+                    lang,
+                    '. Las copias longlife son una red de seguridad local; no se exportan ni se envían a ningún servidor. Las únicas conexiones de red son la comprobación manual de actualizaciones y la consulta opcional a Open Food Facts al escanear un código.',
+                    '. Longlife backups are a local safety net; they are not exported or sent to any server. The only network connections are the manual update check and the optional Open Food Facts lookup when scanning a barcode.',
+                  )}
                 </span>
               </div>
               {!isTauri() && (
                 <div className="notice notice-warn">
                   <Icon name="info" size={16} />
                   <span>
-                    Estás en modo navegador: los eventos se guardan en localStorage. En la app de escritorio se usa la
-                    bóveda real y los diálogos nativos.
+                    {tx(
+                      lang,
+                      'Estás en modo navegador: los eventos se guardan en localStorage. En la app de escritorio se usa la bóveda real y los diálogos nativos.',
+                      'You are in browser mode: events are stored in localStorage. The desktop app uses the real vault and native dialogs.',
+                    )}
                   </span>
                 </div>
               )}
               {!isTauri() && (
                 <div className="row between wrap">
                   <button className="btn btn-ghost btn-sm" onClick={seedSample}>
-                    <Icon name="plus" size={14} /> Cargar datos de ejemplo
+                    <Icon name="plus" size={14} /> {tx(lang, 'Cargar datos de ejemplo', 'Load sample data')}
                   </button>
-                  <span className="hint">Solo para probar la interfaz.</span>
+                  <span className="hint">{tx(lang, 'Solo para probar la interfaz.', 'Only for testing the interface.')}</span>
                 </div>
               )}
             </div>
             <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={() => setSettingsOpen(false)}>Cerrar</button>
+              <button className="btn btn-ghost" onClick={() => setSettingsOpen(false)}>
+                {tx(lang, 'Cerrar', 'Close')}
+              </button>
               <button className="btn btn-primary" onClick={chooseVault}>
-                <Icon name="history" size={15} /> Cambiar bóveda
+                <Icon name="history" size={15} /> {tx(lang, 'Cambiar bóveda', 'Change vault')}
               </button>
             </div>
           </div>

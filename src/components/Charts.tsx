@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import type { Exercise, PR, VaultEvent } from '../types';
-import { BODY_ZONES, ZONE_MAP, type ZoneId } from '../zones';
+import { BODY_ZONES, ZONE_MAP, type ZoneId, zoneName, zoneMuscles } from '../zones';
+import { useLanguage, tx } from '../i18n';
 import {
   addDays,
   formatShort,
@@ -13,8 +14,9 @@ import {
   type ZoneLoad,
 } from '../metrics';
 
-export function EmptyChart({ text = 'Aún no hay datos suficientes.' }: { text?: string }) {
-  return <div className="chart-empty">{text}</div>;
+export function EmptyChart({ text }: { text?: string }) {
+  const { lang } = useLanguage();
+  return <div className="chart-empty">{text ?? tx(lang, 'Aún no hay datos suficientes.', 'Not enough data yet.')}</div>;
 }
 
 interface LinePoint {
@@ -40,6 +42,7 @@ export function LineChart({
   zeroBased?: boolean;
   decimals?: number;
 }) {
+  const { lang } = useLanguage();
   if (points.length === 0) return <EmptyChart />;
   const w = 640;
   const h = height;
@@ -74,7 +77,7 @@ export function LineChart({
       {points.map((p, i) => (
         <g key={`${p.label}-${i}`}>
           <circle cx={x(i)} cy={y(p.value)} r={p.mark ? 5 : 3} fill={p.mark ? 'var(--warning)' : color} stroke="var(--surface)" strokeWidth="1.5">
-            <title>{`${p.label}: ${formatValue(p.value)}${suffix}${p.mark ? ' · marca personal' : ''}`}</title>
+            <title>{`${p.label}: ${formatValue(p.value)}${suffix}${p.mark ? tx(lang, ' · marca personal', ' · personal record') : ''}`}</title>
           </circle>
           {p.mark && <circle cx={x(i)} cy={y(p.value)} r={9} fill="none" stroke="var(--warning)" strokeWidth="1.5" opacity="0.7" />}
           {i % labelEvery === 0 && (
@@ -179,6 +182,7 @@ export function BodyHeatmap({
   load: Record<ZoneId, ZoneLoad>;
   compact?: boolean;
 }) {
+  const { lang } = useLanguage();
   const [hover, setHover] = useState<ZoneId | null>(null);
   const intensity = (z: ZoneId) => Math.max(0, Math.min(1, intensityFor(load[z])));
   const fill = (z: ZoneId) => {
@@ -190,7 +194,7 @@ export function BodyHeatmap({
 
   return (
     <div className={`body-heatmap ${compact ? 'compact' : ''}`}>
-      <svg viewBox="0 0 270 270" role="img" aria-label="Mapa de calor muscular">
+      <svg viewBox="0 0 270 270" role="img" aria-label={tx(lang, 'Mapa de calor muscular', 'Muscle heatmap')}>
         <defs>
           <linearGradient id="bodyBase" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#3a3448" />
@@ -204,27 +208,27 @@ export function BodyHeatmap({
           <rect x="54" y="40" width="12" height="9" rx="3" fill="url(#bodyBase)" />
           <path d="M38 53 Q60 46 82 53 L87 92 Q60 100 33 92 Z" {...fill('chest')} stroke="#514a61" strokeWidth="1"
             onMouseEnter={() => setHover('chest')} onMouseLeave={() => setHover(null)}>
-            <title>Pecho</title>
+            <title>{zoneName('chest', lang)}</title>
           </path>
           <ellipse cx="36" cy="59" rx="12" ry="9" {...fill('shoulders')} stroke="#514a61"
-            onMouseEnter={() => setHover('shoulders')} onMouseLeave={() => setHover(null)}><title>Hombros</title></ellipse>
+            onMouseEnter={() => setHover('shoulders')} onMouseLeave={() => setHover(null)}><title>{zoneName('shoulders', lang)}</title></ellipse>
           <ellipse cx="84" cy="59" rx="12" ry="9" {...fill('shoulders')} stroke="#514a61"
-            onMouseEnter={() => setHover('shoulders')} onMouseLeave={() => setHover(null)}><title>Hombros</title></ellipse>
+            onMouseEnter={() => setHover('shoulders')} onMouseLeave={() => setHover(null)}><title>{zoneName('shoulders', lang)}</title></ellipse>
           <rect x="20" y="64" width="12" height="70" rx="6" {...fill('arms')} stroke="#514a61"
-            onMouseEnter={() => setHover('arms')} onMouseLeave={() => setHover(null)}><title>Brazos</title></rect>
+            onMouseEnter={() => setHover('arms')} onMouseLeave={() => setHover(null)}><title>{zoneName('arms', lang)}</title></rect>
           <rect x="88" y="64" width="12" height="70" rx="6" {...fill('arms')} stroke="#514a61"
-            onMouseEnter={() => setHover('arms')} onMouseLeave={() => setHover(null)}><title>Brazos</title></rect>
+            onMouseEnter={() => setHover('arms')} onMouseLeave={() => setHover(null)}><title>{zoneName('arms', lang)}</title></rect>
           <rect x="42" y="92" width="36" height="50" rx="9" {...fill('core')} stroke="#514a61"
             onMouseEnter={() => setHover('core')} onMouseLeave={() => setHover(null)}><title>Core</title></rect>
           <rect x="44" y="142" width="14" height="72" rx="7" {...fill('legs')} stroke="#514a61"
-            onMouseEnter={() => setHover('legs')} onMouseLeave={() => setHover(null)}><title>Piernas</title></rect>
+            onMouseEnter={() => setHover('legs')} onMouseLeave={() => setHover(null)}><title>{zoneName('legs', lang)}</title></rect>
           <rect x="62" y="142" width="14" height="72" rx="7" {...fill('legs')} stroke="#514a61"
-            onMouseEnter={() => setHover('legs')} onMouseLeave={() => setHover(null)}><title>Piernas</title></rect>
+            onMouseEnter={() => setHover('legs')} onMouseLeave={() => setHover(null)}><title>{zoneName('legs', lang)}</title></rect>
           <rect x="44" y="214" width="14" height="36" rx="6" {...fill('calves')} stroke="#514a61"
-            onMouseEnter={() => setHover('calves')} onMouseLeave={() => setHover(null)}><title>Pantorrillas</title></rect>
+            onMouseEnter={() => setHover('calves')} onMouseLeave={() => setHover(null)}><title>{zoneName('calves', lang)}</title></rect>
           <rect x="62" y="214" width="14" height="36" rx="6" {...fill('calves')} stroke="#514a61"
-            onMouseEnter={() => setHover('calves')} onMouseLeave={() => setHover(null)}><title>Pantorrillas</title></rect>
-          <text x="60" y="266" textAnchor="middle" className="heatmap-caption">Frente</text>
+            onMouseEnter={() => setHover('calves')} onMouseLeave={() => setHover(null)}><title>{zoneName('calves', lang)}</title></rect>
+          <text x="60" y="266" textAnchor="middle" className="heatmap-caption">{tx(lang, 'Frente', 'Front')}</text>
         </g>
 
         {/* Espalda */}
@@ -232,26 +236,26 @@ export function BodyHeatmap({
           <circle cx="60" cy="26" r="14" fill="url(#bodyBase)" stroke="#514a61" />
           <rect x="54" y="40" width="12" height="9" rx="3" fill="url(#bodyBase)" />
           <path d="M38 53 Q60 46 82 53 L87 108 Q60 120 33 108 Z" {...fill('back')} stroke="#514a61"
-            onMouseEnter={() => setHover('back')} onMouseLeave={() => setHover(null)}><title>Espalda</title></path>
+            onMouseEnter={() => setHover('back')} onMouseLeave={() => setHover(null)}><title>{zoneName('back', lang)}</title></path>
           <ellipse cx="36" cy="59" rx="12" ry="9" {...fill('shoulders')} stroke="#514a61"
-            onMouseEnter={() => setHover('shoulders')} onMouseLeave={() => setHover(null)}><title>Hombros</title></ellipse>
+            onMouseEnter={() => setHover('shoulders')} onMouseLeave={() => setHover(null)}><title>{zoneName('shoulders', lang)}</title></ellipse>
           <ellipse cx="84" cy="59" rx="12" ry="9" {...fill('shoulders')} stroke="#514a61"
-            onMouseEnter={() => setHover('shoulders')} onMouseLeave={() => setHover(null)}><title>Hombros</title></ellipse>
+            onMouseEnter={() => setHover('shoulders')} onMouseLeave={() => setHover(null)}><title>{zoneName('shoulders', lang)}</title></ellipse>
           <rect x="20" y="64" width="12" height="70" rx="6" {...fill('arms')} stroke="#514a61"
-            onMouseEnter={() => setHover('arms')} onMouseLeave={() => setHover(null)}><title>Brazos</title></rect>
+            onMouseEnter={() => setHover('arms')} onMouseLeave={() => setHover(null)}><title>{zoneName('arms', lang)}</title></rect>
           <rect x="88" y="64" width="12" height="70" rx="6" {...fill('arms')} stroke="#514a61"
-            onMouseEnter={() => setHover('arms')} onMouseLeave={() => setHover(null)}><title>Brazos</title></rect>
+            onMouseEnter={() => setHover('arms')} onMouseLeave={() => setHover(null)}><title>{zoneName('arms', lang)}</title></rect>
           <ellipse cx="60" cy="126" rx="22" ry="14" {...fill('legs')} stroke="#514a61"
-            onMouseEnter={() => setHover('legs')} onMouseLeave={() => setHover(null)}><title>Glúteos / piernas</title></ellipse>
+            onMouseEnter={() => setHover('legs')} onMouseLeave={() => setHover(null)}><title>{tx(lang, 'Glúteos / piernas', 'Glutes / legs')}</title></ellipse>
           <rect x="44" y="142" width="14" height="72" rx="7" {...fill('legs')} stroke="#514a61"
-            onMouseEnter={() => setHover('legs')} onMouseLeave={() => setHover(null)}><title>Piernas</title></rect>
+            onMouseEnter={() => setHover('legs')} onMouseLeave={() => setHover(null)}><title>{zoneName('legs', lang)}</title></rect>
           <rect x="62" y="142" width="14" height="72" rx="7" {...fill('legs')} stroke="#514a61"
-            onMouseEnter={() => setHover('legs')} onMouseLeave={() => setHover(null)}><title>Piernas</title></rect>
+            onMouseEnter={() => setHover('legs')} onMouseLeave={() => setHover(null)}><title>{zoneName('legs', lang)}</title></rect>
           <rect x="44" y="214" width="14" height="36" rx="6" {...fill('calves')} stroke="#514a61"
-            onMouseEnter={() => setHover('calves')} onMouseLeave={() => setHover(null)}><title>Pantorrillas</title></rect>
+            onMouseEnter={() => setHover('calves')} onMouseLeave={() => setHover(null)}><title>{zoneName('calves', lang)}</title></rect>
           <rect x="62" y="214" width="14" height="36" rx="6" {...fill('calves')} stroke="#514a61"
-            onMouseEnter={() => setHover('calves')} onMouseLeave={() => setHover(null)}><title>Pantorrillas</title></rect>
-          <text x="60" y="266" textAnchor="middle" className="heatmap-caption">Espalda</text>
+            onMouseEnter={() => setHover('calves')} onMouseLeave={() => setHover(null)}><title>{zoneName('calves', lang)}</title></rect>
+          <text x="60" y="266" textAnchor="middle" className="heatmap-caption">{tx(lang, 'Espalda', 'Back')}</text>
         </g>
       </svg>
       {!compact && (
@@ -266,21 +270,21 @@ export function BodyHeatmap({
                 onMouseLeave={() => setHover(null)}
               >
                 <span className="dot" style={{ background: z.color }} />
-                {z.name}
+                {zoneName(z.id, lang)}
               </button>
             ))}
           </div>
           {active && (
             <div className="heatmap-detail">
-              <strong>{ZONE_MAP[active].name}</strong>
-              <span>{Math.round(load[active]?.sets || 0)} series · {Math.round(load[active]?.minutes || 0)} min esta semana</span>
-              <span className="muted">{ZONE_MAP[active].muscles.join(' · ')}</span>
+              <strong>{zoneName(active, lang)}</strong>
+              <span>{tx(lang, `${Math.round(load[active]?.sets || 0)} series · ${Math.round(load[active]?.minutes || 0)} min esta semana`, `${Math.round(load[active]?.sets || 0)} sets · ${Math.round(load[active]?.minutes || 0)} min this week`)}</span>
+              <span className="muted">{zoneMuscles(ZONE_MAP[active], lang).join(' · ')}</span>
             </div>
           )}
           <div className="heatmap-scale">
-            <span>Menos</span>
+            <span>{tx(lang, 'Menos', 'Less')}</span>
             <div className="heatmap-gradient" />
-            <span>Más</span>
+            <span>{tx(lang, 'Más', 'More')}</span>
           </div>
         </div>
       )}
@@ -295,6 +299,7 @@ interface CalendarProps {
 }
 
 export function CalendarHeatmap({ events, exercises, prs }: CalendarProps) {
+  const { lang } = useLanguage();
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selected, setSelected] = useState<string | null>(null);
   const exerciseMap = useMemo(() => new Map(exercises.map((e) => [e.id, e])), [exercises]);
@@ -336,12 +341,15 @@ export function CalendarHeatmap({ events, exercises, prs }: CalendarProps) {
   return (
     <div className="calendar-wrap">
       <div className="calendar-head">
-        <button type="button" className="btn-icon" onClick={() => setMonth(new Date(year, mon - 1, 1))} aria-label="Mes anterior">‹</button>
-        <strong className="calendar-title">{monthLabel(month)}</strong>
-        <button type="button" className="btn-icon" onClick={() => setMonth(new Date(year, mon + 1, 1))} aria-label="Mes siguiente">›</button>
+        <button type="button" className="btn-icon" onClick={() => setMonth(new Date(year, mon - 1, 1))} aria-label={tx(lang, 'Mes anterior', 'Previous month')}>‹</button>
+        <strong className="calendar-title">{monthLabel(month, lang)}</strong>
+        <button type="button" className="btn-icon" onClick={() => setMonth(new Date(year, mon + 1, 1))} aria-label={tx(lang, 'Mes siguiente', 'Next month')}>›</button>
       </div>
       <div className="calendar-grid">
-        {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((d) => (
+        {(lang === 'en'
+          ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+          : ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+        ).map((d) => (
           <div key={d} className="calendar-dow">{d}</div>
         ))}
         {cells.map((cell, i) => {
@@ -356,7 +364,11 @@ export function CalendarHeatmap({ events, exercises, prs }: CalendarProps) {
               className={`calendar-cell ${selected === cell.date ? 'selected' : ''} ${isToday ? 'today' : ''}`}
               onClick={() => setSelected(cell.date)}
               style={{ background: l.minutes > 0 ? `rgba(208, 188, 255, ${0.12 + intensity * 0.62})` : undefined }}
-              title={`${cell.date} · ${Math.round(l.minutes)} min · ${l.sets} series`}
+              title={tx(
+                lang,
+                `${cell.date} · ${Math.round(l.minutes)} min · ${l.sets} series`,
+                `${cell.date} · ${Math.round(l.minutes)} min · ${l.sets} sets`,
+              )}
             >
               <span className="calendar-day">{cell.day}</span>
               <span className="calendar-cell-meta">
@@ -368,30 +380,36 @@ export function CalendarHeatmap({ events, exercises, prs }: CalendarProps) {
         })}
       </div>
       <div className="calendar-legend">
-        <span className="muted">Intensidad por minutos de entrenamiento</span>
+        <span className="muted">{tx(lang, 'Intensidad por minutos de entrenamiento', 'Intensity by training minutes')}</span>
         <div className="heatmap-scale">
-          <span>Menos</span>
+          <span>{tx(lang, 'Menos', 'Less')}</span>
           <div className="heatmap-gradient" />
-          <span>Más</span>
+          <span>{tx(lang, 'Más', 'More')}</span>
         </div>
       </div>
       {sel && (
         <div className="calendar-detail">
           <div className="calendar-detail-head">
-            <strong>{formatShort(selected!)}</strong>
-            {sel.prs.length > 0 && <span className="badge badge-warning">★ {sel.prs.length} marca(s)</span>}
+            <strong>{formatShort(selected!, lang)}</strong>
+            {sel.prs.length > 0 && (
+              <span className="badge badge-warning">★ {tx(lang, `${sel.prs.length} marca(s)`, `${sel.prs.length} PR(s)`)}</span>
+            )}
           </div>
-          {sel.sessions.length === 0 && sel.workouts.length === 0 && <p className="muted">Sin entrenamientos este día.</p>}
+          {sel.sessions.length === 0 && sel.workouts.length === 0 && (
+            <p className="muted">{tx(lang, 'Sin entrenamientos este día.', 'No workouts this day.')}</p>
+          )}
           {sel.sessions.map((s) => (
             <div key={s.id} className="calendar-session">
-              <span>Sesión · {Math.round(s.duration / 60)} min</span>
-              <span className="muted">{s.entries.length} ejercicios</span>
+              <span>
+                {tx(lang, 'Sesión', 'Session')} · {Math.round(s.duration / 60)} min
+              </span>
+              <span className="muted">{tx(lang, `${s.entries.length} ejercicios`, `${s.entries.length} exercises`)}</span>
             </div>
           ))}
           {sel.workouts.map((w) => (
             <div key={w.id} className="calendar-session">
               <span>{w.name}</span>
-              <span className="muted">{w.entries.length} ejercicios</span>
+              <span className="muted">{tx(lang, `${w.entries.length} ejercicios`, `${w.entries.length} exercises`)}</span>
             </div>
           ))}
           {sel.prs.map((p) => (

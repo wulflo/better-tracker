@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Icon } from './Icons';
+import { tx, useLanguage } from '../i18n';
 
 type Tone = 'success' | 'error' | 'info';
 
@@ -62,6 +63,7 @@ function clock(totalSeconds: number): string {
 }
 
 export default function RestTimer({ notify }: { notify: (message: string, tone?: Tone) => void }) {
+  const { lang } = useLanguage();
   const [duration, setDuration] = useState(90);
   const [remaining, setRemaining] = useState(90);
   const [running, setRunning] = useState(false);
@@ -79,14 +81,21 @@ export default function RestTimer({ notify }: { notify: (message: string, tone?:
         if (!finished.current) {
           finished.current = true;
           timerAlarm();
-          notify('Descanso terminado. A por la siguiente serie.', 'success');
+          notify(
+            tx(
+              lang,
+              'Descanso terminado. A por la siguiente serie.',
+              'Rest finished. On to the next set.',
+            ),
+            'success',
+          );
         }
       }
     };
     tick();
     const id = window.setInterval(tick, 250);
     return () => window.clearInterval(id);
-  }, [running, notify]);
+  }, [running, notify, lang]);
 
   const start = () => {
     const seconds = remaining > 0 ? remaining : duration;
@@ -127,12 +136,12 @@ export default function RestTimer({ notify }: { notify: (message: string, tone?:
 
   const pct = duration > 0 ? Math.max(0, Math.min(100, Math.round((remaining / duration) * 100))) : 0;
   const label = running
-    ? 'Descanso en curso'
+    ? tx(lang, 'Descanso en curso', 'Rest in progress')
     : remaining <= 0
-      ? 'Descanso terminado'
+      ? tx(lang, 'Descanso terminado', 'Rest finished')
       : remaining < duration
-        ? 'En pausa'
-        : 'Listo para empezar';
+        ? tx(lang, 'En pausa', 'Paused')
+        : tx(lang, 'Listo para empezar', 'Ready to start');
 
   return (
     <div className="rest-timer">
@@ -143,7 +152,7 @@ export default function RestTimer({ notify }: { notify: (message: string, tone?:
       <div className="rest-timer-track" aria-hidden="true">
         <div style={{ width: `${pct}%` }} />
       </div>
-      <div className="rest-timer-presets" role="group" aria-label="Duración del descanso">
+      <div className="rest-timer-presets" role="group" aria-label={tx(lang, 'Duración del descanso', 'Rest duration')}>
         {PRESETS.map((seconds) => (
           <button
             key={seconds}
@@ -152,22 +161,27 @@ export default function RestTimer({ notify }: { notify: (message: string, tone?:
             onClick={() => chooseDuration(seconds)}
             disabled={running}
           >
-            {seconds < 60 ? `${seconds}s` : `${seconds / 60} min`}
+            {seconds < 60
+              ? tx(lang, `${seconds}s`, `${seconds}s`)
+              : tx(lang, `${seconds / 60} min`, `${seconds / 60} min`)}
           </button>
         ))}
       </div>
       <div className="row wrap">
         {running ? (
           <button type="button" className="btn btn-primary btn-sm" onClick={pause}>
-            <Icon name="pause" size={14} /> Pausar
+            <Icon name="pause" size={14} /> {tx(lang, 'Pausar', 'Pause')}
           </button>
         ) : (
           <button type="button" className="btn btn-primary btn-sm" onClick={start}>
-            <Icon name="play" size={14} /> {remaining > 0 && remaining < duration ? 'Reanudar' : 'Iniciar'}
+            <Icon name="play" size={14} />{' '}
+            {remaining > 0 && remaining < duration
+              ? tx(lang, 'Reanudar', 'Resume')
+              : tx(lang, 'Iniciar', 'Start')}
           </button>
         )}
         <button type="button" className="btn btn-ghost btn-sm" onClick={reset}>
-          <Icon name="refresh" size={14} /> Reiniciar
+          <Icon name="refresh" size={14} /> {tx(lang, 'Reiniciar', 'Reset')}
         </button>
         <button type="button" className="btn btn-ghost btn-sm" onClick={() => adjust(15)}>
           +15 s
@@ -177,9 +191,11 @@ export default function RestTimer({ notify }: { notify: (message: string, tone?:
         </button>
       </div>
       <p className="hint">
-        Sirve para descansar entre series o para cualquier intervalo. Al terminar suena y vibra.
-        Se mantiene activo mientras estés en Entrenamiento; la sesión en vivo tiene su propio
-        temporizador con pausa y aviso.
+        {tx(
+          lang,
+          'Sirve para descansar entre series o para cualquier intervalo. Al terminar suena y vibra. Se mantiene activo mientras estés en Entrenamiento; la sesión en vivo tiene su propio temporizador con pausa y aviso.',
+          'Use it to rest between sets or for any interval. It beeps and vibrates when done. It stays active while you are in Training; the live session has its own timer with pause and alert.',
+        )}
       </p>
     </div>
   );

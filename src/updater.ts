@@ -14,6 +14,8 @@ import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import type { Update } from '@tauri-apps/plugin-updater';
 import { isTauri } from './vault';
+import type { Lang } from './i18n';
+import { tx } from './i18n';
 
 export const UPDATE_MANIFEST_URL =
   'https://github.com/wulflo/better-tracker/releases/latest/download/latest.json';
@@ -109,35 +111,66 @@ export function canUseUpdater(installFormat?: string): boolean {
   ].includes(installFormat ?? '');
 }
 
-export function updaterUnavailableReason(installFormat?: string): string {
-  if (!isTauri()) return 'La actualización está disponible solo en la app nativa.';
+export function updaterUnavailableReason(installFormat?: string, lang: Lang = 'es'): string {
+  if (!isTauri()) {
+    return tx(
+      lang,
+      'La actualización está disponible solo en la app nativa.',
+      'Updates are only available in the native app.',
+    );
+  }
   if (installFormat === 'snap') {
-    return 'Esta versión se actualiza desde la Snap Store. No hace falta buscar actualizaciones aquí.';
+    return tx(
+      lang,
+      'Esta versión se actualiza desde la Snap Store. No hace falta buscar actualizaciones aquí.',
+      'This version updates from the Snap Store. No need to check for updates here.',
+    );
   }
   if (installFormat === 'flatpak') {
-    return 'Esta versión se actualiza desde Flatpak. No hace falta buscar actualizaciones aquí.';
+    return tx(
+      lang,
+      'Esta versión se actualiza desde Flatpak. No hace falta buscar actualizaciones aquí.',
+      'This version updates from Flatpak. No need to check for updates here.',
+    );
   }
   if (installFormat === 'linux') {
-    return 'No se pudo detectar si la app se instaló como .deb o .rpm. Descarga el paquete nuevo desde GitHub Releases.';
+    return tx(
+      lang,
+      'No se pudo detectar si la app se instaló como .deb o .rpm. Descarga el paquete nuevo desde GitHub Releases.',
+      'Could not detect whether the app was installed as .deb or .rpm. Download the new package from GitHub Releases.',
+    );
   }
-  return 'Este formato no admite actualización integrada. Descarga la versión nueva desde GitHub Releases.';
+  return tx(
+    lang,
+    'Este formato no admite actualización integrada. Descarga la versión nueva desde GitHub Releases.',
+    'This format does not support in-app updates. Download the new version from GitHub Releases.',
+  );
 }
 
-export async function checkForUpdate(installFormat?: string): Promise<AvailableUpdate | null> {
+export async function checkForUpdate(
+  installFormat?: string,
+  lang: Lang = 'es',
+): Promise<AvailableUpdate | null> {
   if (!isTauri()) {
-    throw new Error('La actualización solo está disponible en la app nativa.');
+    throw new Error(
+      tx(
+        lang,
+        'La actualización solo está disponible en la app nativa.',
+        'Updates are only available in the native app.',
+      ),
+    );
   }
   if (installFormat === 'snap' || installFormat === 'flatpak') {
-    throw new Error(updaterUnavailableReason(installFormat));
+    throw new Error(updaterUnavailableReason(installFormat, lang));
   }
   if (installFormat === 'apk') {
-    return checkAndroidUpdate();
+    return checkAndroidUpdate(lang);
   }
   if (installFormat === 'deb' || installFormat === 'rpm') {
-    return checkLinuxPackageUpdate(installFormat);
+    return checkLinuxPackageUpdate(installFormat, lang);
   }
 
-  const manifest = await fetchManifest();
+  const manifest = await fetchManifest(lang);
   const currentVersion = await getVersion();
   if (manifest.version && !isNewerVersion(manifest.version, currentVersion)) {
     return null;
@@ -148,7 +181,11 @@ export async function checkForUpdate(installFormat?: string): Promise<AvailableU
   if (!update) {
     if (manifest.version && isNewerVersion(manifest.version, currentVersion)) {
       throw new Error(
-        `El manifiesto anuncia la versión ${manifest.version}, pero el actualizador nativo no la reconoce para este formato. Vuelve a intentarlo o descarga el paquete desde GitHub Releases.`,
+        tx(
+          lang,
+          `El manifiesto anuncia la versión ${manifest.version}, pero el actualizador nativo no la reconoce para este formato. Vuelve a intentarlo o descarga el paquete desde GitHub Releases.`,
+          `The manifest announces version ${manifest.version}, but the native updater does not recognize it for this format. Try again or download the package from GitHub Releases.`,
+        ),
       );
     }
     return null;
@@ -230,33 +267,65 @@ export function updateSummary(update: Update): UpdateInfo {
   };
 }
 
-async function fetchManifest(): Promise<UpdateManifest> {
+async function fetchManifest(lang: Lang = 'es'): Promise<UpdateManifest> {
   const manifest = await invoke<UpdateManifest>('fetch_update_manifest');
   if (!manifest || typeof manifest !== 'object') {
-    throw new Error('El manifiesto de actualizaciones está vacío.');
+    throw new Error(
+      tx(lang, 'El manifiesto de actualizaciones está vacío.', 'The update manifest is empty.'),
+    );
   }
   return manifest;
 }
 
-function validateAsset(rawAsset: ManifestAsset | undefined, label: string): AndroidAsset {
+function validateAsset(
+  rawAsset: ManifestAsset | undefined,
+  label: string,
+  lang: Lang = 'es',
+): AndroidAsset {
   if (!rawAsset?.url || !rawAsset.sha256) {
-    throw new Error(`La release no incluye ${label} para este dispositivo.`);
+    throw new Error(
+      tx(
+        lang,
+        `La release no incluye ${label} para este dispositivo.`,
+        `The release does not include ${label} for this device.`,
+      ),
+    );
   }
   if (!/^https:\/\//i.test(rawAsset.url)) {
-    throw new Error(`La URL de ${label} no usa HTTPS.`);
+    throw new Error(
+      tx(lang, `La URL de ${label} no usa HTTPS.`, `The ${label} URL does not use HTTPS.`),
+    );
   }
   if (!rawAsset.url.startsWith('https://github.com/wulflo/better-tracker/releases/')) {
-    throw new Error(`La URL de ${label} no pertenece a las releases oficiales.`);
+    throw new Error(
+      tx(
+        lang,
+        `La URL de ${label} no pertenece a las releases oficiales.`,
+        `The ${label} URL does not belong to the official releases.`,
+      ),
+    );
   }
   if (!/^[a-f0-9]{64}$/i.test(rawAsset.sha256)) {
-    throw new Error(`El manifiesto incluye un SHA-256 no válido para ${label}.`);
+    throw new Error(
+      tx(
+        lang,
+        `El manifiesto incluye un SHA-256 no válido para ${label}.`,
+        `The manifest includes an invalid SHA-256 for ${label}.`,
+      ),
+    );
   }
   if (
     rawAsset.signature !== undefined &&
     (typeof rawAsset.signature !== 'string' ||
       !/^[A-Za-z0-9+/=\s]+$/.test(rawAsset.signature))
   ) {
-    throw new Error(`El manifiesto incluye una firma no válida para ${label}.`);
+    throw new Error(
+      tx(
+        lang,
+        `El manifiesto incluye una firma no válida para ${label}.`,
+        `The manifest includes an invalid signature for ${label}.`,
+      ),
+    );
   }
   return {
     url: rawAsset.url,
@@ -266,10 +335,16 @@ function validateAsset(rawAsset: ManifestAsset | undefined, label: string): Andr
   };
 }
 
-async function checkAndroidUpdate(): Promise<AvailableUpdate | null> {
-  const manifest = await fetchManifest();
+async function checkAndroidUpdate(lang: Lang = 'es'): Promise<AvailableUpdate | null> {
+  const manifest = await fetchManifest(lang);
   if (!manifest.version) {
-    throw new Error('El manifiesto de actualizaciones no incluye una versión.');
+    throw new Error(
+      tx(
+        lang,
+        'El manifiesto de actualizaciones no incluye una versión.',
+        'The update manifest does not include a version.',
+      ),
+    );
   }
   const currentVersion = await getVersion();
   if (!isNewerVersion(manifest.version, currentVersion)) {
@@ -277,7 +352,8 @@ async function checkAndroidUpdate(): Promise<AvailableUpdate | null> {
   }
   const asset = validateAsset(
     manifest.platforms?.[ANDROID_UPDATE_PLATFORM_KEY],
-    'una APK de Android',
+    tx(lang, 'una APK de Android', 'an Android APK'),
+    lang,
   );
   const update: AndroidUpdate = { version: manifest.version, currentVersion, asset };
   return {
@@ -292,17 +368,30 @@ async function checkAndroidUpdate(): Promise<AvailableUpdate | null> {
   };
 }
 
-async function checkLinuxPackageUpdate(format: 'deb' | 'rpm'): Promise<AvailableUpdate | null> {
-  const manifest = await fetchManifest();
+async function checkLinuxPackageUpdate(
+  format: 'deb' | 'rpm',
+  lang: Lang = 'es',
+): Promise<AvailableUpdate | null> {
+  const manifest = await fetchManifest(lang);
   if (!manifest.version) {
-    throw new Error('El manifiesto de actualizaciones no incluye una versión.');
+    throw new Error(
+      tx(
+        lang,
+        'El manifiesto de actualizaciones no incluye una versión.',
+        'The update manifest does not include a version.',
+      ),
+    );
   }
   const currentVersion = await getVersion();
   if (!isNewerVersion(manifest.version, currentVersion)) {
     return null;
   }
   const key = format === 'deb' ? DEB_UPDATE_PLATFORM_KEY : RPM_UPDATE_PLATFORM_KEY;
-  const asset = validateAsset(manifest.platforms?.[key], `un paquete .${format}`);
+  const asset = validateAsset(
+    manifest.platforms?.[key],
+    tx(lang, `un paquete .${format}`, `a .${format} package`),
+    lang,
+  );
   const update: LinuxPackageUpdate = { version: manifest.version, currentVersion, format, asset };
   return {
     kind: 'package',

@@ -8,6 +8,8 @@
  * mensual (día del mes). Los puntos solo se suman una vez por hábito y fecha:
  * el último evento de ese día manda.
  */
+import type { Lang } from './i18n';
+import { tx } from './i18n';
 import type { Habit, HabitFrequency, HabitLog, MoodEntry, MoodScore, VaultEvent } from './types';
 import { addDays, parseISO, startOfWeek, todayISO } from './metrics';
 
@@ -43,6 +45,11 @@ export interface WellnessDigest {
 }
 
 const DAY_LABELS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const DAY_LABELS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function dayLabels(lang: Lang): string[] {
+  return lang === 'en' ? DAY_LABELS_EN : DAY_LABELS;
+}
 
 export function reduceHabits(events: VaultEvent[]): Habit[] {
   const map = new Map<string, Habit>();
@@ -142,19 +149,21 @@ export function isHabitDue(habit: Habit, date: string): boolean {
 }
 
 /** Etiqueta legible de la programación. */
-export function habitScheduleLabel(habit: Habit): string {
-  if (habit.frequency === 'daily') return 'Cada día';
-  if (habit.frequency === 'monthly') return `Día ${habit.dayOfMonth} de cada mes`;
+export function habitScheduleLabel(habit: Habit, lang: Lang = 'es'): string {
+  if (habit.frequency === 'daily') return tx(lang, 'Cada día', 'Every day');
+  if (habit.frequency === 'monthly') {
+    return tx(lang, `Día ${habit.dayOfMonth} de cada mes`, `Day ${habit.dayOfMonth} of every month`);
+  }
   if (habit.days.length > 0) {
     return habit.days.length === 7
-      ? 'Cada día'
+      ? tx(lang, 'Cada día', 'Every day')
       : habit.days
           .slice()
           .sort()
-          .map((d) => DAY_LABELS[d])
+          .map((d) => dayLabels(lang)[d])
           .join(' · ');
   }
-  return `${habit.timesPerWeek}× por semana`;
+  return tx(lang, `${habit.timesPerWeek}× por semana`, `${habit.timesPerWeek}× per week`);
 }
 
 /** Veces que toca esta semana (para hábitos sin días concretos). */
@@ -170,7 +179,7 @@ export function habitDone(habit: Habit, logs: Map<string, HabitLog>, date = toda
   return Boolean(log?.completed);
 }
 
-export function wellnessDigest(events: VaultEvent[], now = new Date()): WellnessDigest {
+export function wellnessDigest(events: VaultEvent[], now = new Date(), lang: Lang = 'es'): WellnessDigest {
   const habits = reduceHabits(events);
   const logs = reduceHabitLogs(events);
   const moods = reduceMoods(events);
@@ -214,7 +223,7 @@ export function wellnessDigest(events: VaultEvent[], now = new Date()): Wellness
     const done = habits.filter((habit) => habitDone(habit, logs, date)).length;
     return {
       date,
-      label: DAY_LABELS[parseISO(date).getDay()],
+      label: dayLabels(lang)[parseISO(date).getDay()],
       points: [...logs.values()]
         .filter((log) => log.date === date && log.completed)
         .reduce((sum, log) => sum + log.points, 0),
@@ -292,7 +301,15 @@ export function habitStreaks(
 }
 
 /** Resumen automático de cinco palabras como máximo. */
-export function autoSummary(done: number, due: number, mood: MoodScore | null): string {
+export function autoSummary(done: number, due: number, mood: MoodScore | null, lang: Lang = 'es'): string {
+  if (lang === 'en') {
+    const moodWord =
+      mood === null ? 'no mood' : mood >= 4 ? 'good mood' : mood === 3 ? 'neutral mood' : 'low mood';
+    if (due === 0) return `Free day, ${moodWord}`;
+    if (done >= due) return `Day complete, ${moodWord}`;
+    if (done === 0) return `Pending, ${moodWord}`;
+    return `${done} of ${due}, ${moodWord}`;
+  }
   const moodWord =
     mood === null ? 'sin ánimo' : mood >= 4 ? 'buen ánimo' : mood === 3 ? 'ánimo neutro' : 'ánimo bajo';
   if (due === 0) return `Día libre, ${moodWord}`;
@@ -309,12 +326,26 @@ export const MOOD_FACES: Array<{ value: MoodScore; label: string; face: string }
   { value: 5, label: 'Muy bien', face: '😄' },
 ];
 
-export function defaultHabits(createdAt = new Date().toISOString()): Habit[] {
+const MOOD_FACES_EN: typeof MOOD_FACES = [
+  { value: 1, label: 'Very low', face: '😞' },
+  { value: 2, label: 'Low', face: '🙁' },
+  { value: 3, label: 'Neutral', face: '😐' },
+  { value: 4, label: 'Good', face: '🙂' },
+  { value: 5, label: 'Very good', face: '😄' },
+];
+
+export function moodFaces(lang: Lang = 'es'): typeof MOOD_FACES {
+  return lang === 'en' ? MOOD_FACES_EN : MOOD_FACES;
+}
+
+export function defaultHabits(createdAt = new Date().toISOString(), lang: Lang = 'es'): Habit[] {
+  const name = (es: string, en: string) => tx(lang, es, en);
+  const note = (es: string, en: string) => tx(lang, es, en);
   return [
     {
       id: 'habit-walk',
-      name: 'Caminar 20 minutos',
-      note: 'Movimiento diario de baja intensidad.',
+      name: name('Caminar 20 minutos', 'Walk 20 minutes'),
+      note: note('Movimiento diario de baja intensidad.', 'Daily low-intensity movement.'),
       frequency: 'daily',
       days: [],
       timesPerWeek: 7,
@@ -325,8 +356,11 @@ export function defaultHabits(createdAt = new Date().toISOString()): Habit[] {
     },
     {
       id: 'habit-protein',
-      name: 'Llegar a la proteína objetivo',
-      note: 'Reparte la proteína entre las comidas principales.',
+      name: name('Llegar a la proteína objetivo', 'Reach protein target'),
+      note: note(
+        'Reparte la proteína entre las comidas principales.',
+        'Spread protein across main meals.',
+      ),
       frequency: 'daily',
       days: [],
       timesPerWeek: 7,
@@ -337,8 +371,11 @@ export function defaultHabits(createdAt = new Date().toISOString()): Habit[] {
     },
     {
       id: 'habit-strength',
-      name: 'Entrenamiento de fuerza',
-      note: 'Tres sesiones semanales son suficientes para preservar músculo.',
+      name: name('Entrenamiento de fuerza', 'Strength training'),
+      note: note(
+        'Tres sesiones semanales son suficientes para preservar músculo.',
+        'Three weekly sessions are enough to preserve muscle.',
+      ),
       frequency: 'weekly',
       days: [1, 3, 5],
       timesPerWeek: 3,
@@ -349,8 +386,11 @@ export function defaultHabits(createdAt = new Date().toISOString()): Habit[] {
     },
     {
       id: 'habit-review',
-      name: 'Revisar el mes',
-      note: 'Ajusta objetivos según la tendencia, no según un día aislado.',
+      name: name('Revisar el mes', 'Review the month'),
+      note: note(
+        'Ajusta objetivos según la tendencia, no según un día aislado.',
+        'Adjust goals based on the trend, not a single day.',
+      ),
       frequency: 'monthly',
       days: [],
       timesPerWeek: 1,

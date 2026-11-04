@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import type { BodyMeasures } from './types';
 import { clamp } from './metrics';
+import { tx, useLanguage } from './i18n';
 
 interface Limits {
   min: number;
@@ -34,15 +35,15 @@ function limitsFor(key: string, sex: BodyMeasures['sex']): Limits {
   return LIMITS[key]?.[sex] ?? NEUTRAL[key] ?? { min: 0, max: 1 };
 }
 
-const NODES: Array<{ key: keyof BodyMeasures; label: string; x: number; y: number }> = [
-  { key: 'neck', label: 'Cuello', x: 150, y: 90 },
-  { key: 'chest', label: 'Pecho', x: 150, y: 132 },
-  { key: 'waist', label: 'Cintura', x: 150, y: 190 },
-  { key: 'hip', label: 'Cadera', x: 150, y: 240 },
-  { key: 'arm', label: 'Brazo', x: 72, y: 160 },
-  { key: 'thigh', label: 'Muslo', x: 126, y: 320 },
-  { key: 'calf', label: 'Pantorrilla', x: 128, y: 382 },
-  { key: 'wrist', label: 'Muñeca', x: 54, y: 246 },
+const NODES: Array<{ key: keyof BodyMeasures; label: string; labelEn: string; x: number; y: number }> = [
+  { key: 'neck', label: 'Cuello', labelEn: 'Neck', x: 150, y: 90 },
+  { key: 'chest', label: 'Pecho', labelEn: 'Chest', x: 150, y: 132 },
+  { key: 'waist', label: 'Cintura', labelEn: 'Waist', x: 150, y: 190 },
+  { key: 'hip', label: 'Cadera', labelEn: 'Hip', x: 150, y: 240 },
+  { key: 'arm', label: 'Brazo', labelEn: 'Arm', x: 72, y: 160 },
+  { key: 'thigh', label: 'Muslo', labelEn: 'Thigh', x: 126, y: 320 },
+  { key: 'calf', label: 'Pantorrilla', labelEn: 'Calf', x: 128, y: 382 },
+  { key: 'wrist', label: 'Muñeca', labelEn: 'Wrist', x: 54, y: 246 },
 ];
 
 export default function BodyFigure({
@@ -52,6 +53,7 @@ export default function BodyFigure({
   measures: BodyMeasures;
   onChange: (m: BodyMeasures) => void;
 }) {
+  const { lang } = useLanguage();
   const svgRef = useRef<SVGSVGElement>(null);
   const [dragging, setDragging] = useState<string | null>(null);
 
@@ -111,7 +113,7 @@ export default function BodyFigure({
 
   return (
     <div className="body-figure">
-      <svg ref={svgRef} viewBox="0 0 300 420" role="img" aria-label="Figura corporal adaptativa">
+      <svg ref={svgRef} viewBox="0 0 300 420" role="img" aria-label={tx(lang, 'Figura corporal adaptativa', 'Adaptive body figure')}>
         <defs>
           <linearGradient id="figure-fill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#b69cff" stopOpacity="0.95" />
@@ -228,18 +230,22 @@ export default function BodyFigure({
                 onPointerUp={onPointerUp}
                 onPointerCancel={onPointerUp}
               >
-                <title>{`${node.label}: ${value.toFixed(1)} cm`}</title>
+                <title>{`${lang === 'en' ? node.labelEn : node.label}: ${value.toFixed(1)} cm`}</title>
               </circle>
               <text x={node.x + dx} y={node.y + 4} textAnchor={anchor} className="figure-node-label">
-                {node.label}
+                {lang === 'en' ? node.labelEn : node.label}
               </text>
             </g>
           );
         })}
       </svg>
       <div className="figure-caption">
-        <span>Arrastra los nodos hacia fuera para aumentar la medida.</span>
-        {measures.sex === 'unspecified' && <span className="badge badge-muted">Sexo sin especificar: límites neutros</span>}
+        <span>{tx(lang, 'Arrastra los nodos hacia fuera para aumentar la medida.', 'Drag the nodes outwards to increase the measurement.')}</span>
+        {measures.sex === 'unspecified' && (
+          <span className="badge badge-muted">
+            {tx(lang, 'Sexo sin especificar: límites neutros', 'Sex unspecified: neutral limits')}
+          </span>
+        )}
       </div>
     </div>
   );

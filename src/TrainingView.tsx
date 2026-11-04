@@ -30,10 +30,14 @@ import {
 } from './metrics';
 import {
   BODY_ZONES,
-  TYPE_OPTIONS,
   ZONE_MAP,
-  ZONE_OPTIONS,
+  exerciseTypeLabel,
+  typeOptions,
   zoneForExercise,
+  zoneMuscles,
+  zoneName,
+  zoneNameOf,
+  zoneOptions,
   type ZoneId,
 } from './zones';
 import Select from './components/Select';
@@ -41,6 +45,7 @@ import { NumberInput, Field, EmptyState, Stat } from './components/Fields';
 import RestTimer, { primeTimerAlarm, timerAlarm } from './components/RestTimer';
 import { Icon } from './components/Icons';
 import { BarChart, BodyHeatmap, CalendarHeatmap, LineChart, ProgressBar } from './components/Charts';
+import { tx, useLanguage } from './i18n';
 
 interface Props {
   deviceId: string;
@@ -52,16 +57,21 @@ interface Props {
 
 type Tab = 'library' | 'routines' | 'plan' | 'session' | 'calendar' | 'progress';
 
-const TABS: Array<[Tab, string]> = [
-  ['library', 'Biblioteca'],
-  ['routines', 'Rutinas'],
-  ['plan', 'Plan'],
-  ['session', 'Sesión'],
-  ['calendar', 'Calendario'],
-  ['progress', 'Progreso'],
+const TABS: Array<[Tab, string, string]> = [
+  ['library', 'Biblioteca', 'Library'],
+  ['routines', 'Rutinas', 'Routines'],
+  ['plan', 'Plan', 'Plan'],
+  ['session', 'Sesión', 'Session'],
+  ['calendar', 'Calendario', 'Calendar'],
+  ['progress', 'Progreso', 'Progress'],
 ];
 
 const DAY_NAMES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+const DAY_NAMES_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function dayNames(lang: 'es' | 'en'): string[] {
+  return lang === 'en' ? DAY_NAMES_EN : DAY_NAMES;
+}
 
 interface LiveEntry {
   exerciseId: string;
@@ -70,33 +80,54 @@ interface LiveEntry {
 }
 
 export default function TrainingView({ deviceId, events, exercises, onRefresh, notify }: Props) {
+  const { lang } = useLanguage();
   const [tab, setTab] = useState<Tab>('library');
   const routines = useMemo(() => reduceRoutines(events), [events]);
   const plans = useMemo(() => reducePlans(events), [events]);
   const mesocycles = useMemo(() => reduceMesocycles(events), [events]);
   const prs = useMemo(() => reducePRs(events), [events]);
   const summary = useMemo(() => trainingSummary(events, exercises), [events, exercises]);
-  const alerts = useMemo(() => trainingAlerts(summary), [summary]);
+  const alerts = useMemo(() => trainingAlerts(summary, new Date(), lang), [summary, lang]);
 
   return (
     <div className="page">
       <header className="page-header">
         <div>
-          <h1 className="page-title">Entrenamiento</h1>
+          <h1 className="page-title">{tx(lang, 'Entrenamiento', 'Training')}</h1>
           <p className="page-sub">
-            Biblioteca, rutinas, planificación, sesión en vivo, calendario y progreso en una sola sección.
+            {tx(
+              lang,
+              'Biblioteca, rutinas, planificación, sesión en vivo, calendario y progreso en una sola sección.',
+              'Library, routines, planning, live session, calendar and progress in a single section.',
+            )}
           </p>
         </div>
         <div className="page-actions">
-          <span className="badge badge-primary"><Icon name="dumbbell" size={12} /> {summary.weekSessions} sesiones · {minutesLabel(summary.weekMinutes)}</span>
-          {alerts.length > 0 && <span className="badge badge-warning"><Icon name="alert" size={12} /> {alerts.length} alerta(s)</span>}
+          <span className="badge badge-primary">
+            <Icon name="dumbbell" size={12} />{' '}
+            {tx(
+              lang,
+              `${summary.weekSessions} ${summary.weekSessions === 1 ? 'sesión' : 'sesiones'} · ${minutesLabel(summary.weekMinutes)}`,
+              `${summary.weekSessions} ${summary.weekSessions === 1 ? 'session' : 'sessions'} · ${minutesLabel(summary.weekMinutes)}`,
+            )}
+          </span>
+          {alerts.length > 0 && (
+            <span className="badge badge-warning">
+              <Icon name="alert" size={12} />{' '}
+              {tx(
+                lang,
+                `${alerts.length} alerta(s)`,
+                `${alerts.length} ${alerts.length === 1 ? 'alert' : 'alerts'}`,
+              )}
+            </span>
+          )}
         </div>
       </header>
 
-      <div className="tabs" role="tablist" aria-label="Secciones de entrenamiento">
-        {TABS.map(([id, label]) => (
+      <div className="tabs" role="tablist" aria-label={tx(lang, 'Secciones de entrenamiento', 'Training sections')}>
+        {TABS.map(([id, es, en]) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id} className={`tab ${tab === id ? 'active' : ''}`} onClick={() => setTab(id)}>
-            {label}
+            {tx(lang, es, en)}
           </button>
         ))}
       </div>
@@ -134,6 +165,7 @@ function LibraryTab({
   onRefresh: () => Promise<void>;
   notify: (m: string, t?: 'success' | 'error' | 'info') => void;
 }) {
+  const { lang } = useLanguage();
   const [name, setName] = useState('');
   const [zone, setZone] = useState<ZoneId>('chest');
   const [type, setType] = useState('fuerza');
@@ -143,7 +175,7 @@ function LibraryTab({
 
   const save = async () => {
     if (!name.trim()) {
-      notify('Escribe el nombre del ejercicio.', 'error');
+      notify(tx(lang, 'Escribe el nombre del ejercicio.', 'Enter the exercise name.'), 'error');
       return;
     }
     const ex: Exercise = {
@@ -156,13 +188,13 @@ function LibraryTab({
     await appendEvent(newEvent(deviceId, 'exercise.upsert', ex));
     setName('');
     await onRefresh();
-    notify('Ejercicio añadido.', 'success');
+    notify(tx(lang, 'Ejercicio añadido.', 'Exercise added.'), 'success');
   };
 
   const del = async (id: string) => {
     await appendEvent(newEvent(deviceId, 'exercise.delete', { id }));
     await onRefresh();
-    notify('Ejercicio eliminado.', 'success');
+    notify(tx(lang, 'Ejercicio eliminado.', 'Exercise deleted.'), 'success');
   };
 
   const filtered = exercises.filter((ex) => {
@@ -182,63 +214,89 @@ function LibraryTab({
       <section className="card">
         <div className="card-header">
           <div>
-            <div className="card-title"><Icon name="plus" /> Añadir ejercicio</div>
-            <div className="card-sub">Las zonas son universales: elige una y la app muestra los músculos que incluye.</div>
+            <div className="card-title"><Icon name="plus" /> {tx(lang, 'Añadir ejercicio', 'Add exercise')}</div>
+            <div className="card-sub">
+              {tx(
+                lang,
+                'Las zonas son universales: elige una y la app muestra los músculos que incluye.',
+                'Zones are universal: pick one and the app shows the muscles it includes.',
+              )}
+            </div>
           </div>
         </div>
         <div className="card-body stack">
-          <Field label="Nombre">
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Press banca, sentadilla, remo..." />
+          <Field label={tx(lang, 'Nombre', 'Name')}>
+            <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={tx(lang, 'Press banca, sentadilla, remo...', 'Bench press, squat, row...')} />
           </Field>
           <div className="field-row">
-            <Field label="Zona corporal">
-              <Select value={zone} onChange={(v) => setZone(v as ZoneId)} options={ZONE_OPTIONS} />
+            <Field label={tx(lang, 'Zona corporal', 'Body zone')}>
+              <Select value={zone} onChange={(v) => setZone(v as ZoneId)} options={zoneOptions(lang)} />
             </Field>
-            <Field label="Tipo">
-              <Select value={type} onChange={setType} options={TYPE_OPTIONS} />
+            <Field label={tx(lang, 'Tipo', 'Type')}>
+              <Select value={type} onChange={setType} options={typeOptions(lang)} />
             </Field>
           </div>
           <div className="exercise-zone">
-            <span className="field-label">Músculos incluidos</span>
+            <span className="field-label">{tx(lang, 'Músculos incluidos', 'Included muscles')}</span>
             <div className="exercise-zone-muscles">
-              {selectedZone.muscles.map((m) => <span key={m} className="tag">{m}</span>)}
+              {zoneMuscles(selectedZone, lang).map((m) => <span key={m} className="tag">{m}</span>)}
             </div>
             <span className="hint">
-              Rango semanal orientativo: {selectedZone.weeklySets[0]}–{selectedZone.weeklySets[1]} series · {selectedZone.weeklyMinutes[0]}–{selectedZone.weeklyMinutes[1]} min.
+              {tx(
+                lang,
+                `Rango semanal orientativo: ${selectedZone.weeklySets[0]}–${selectedZone.weeklySets[1]} series · ${selectedZone.weeklyMinutes[0]}–${selectedZone.weeklyMinutes[1]} min.`,
+                `Suggested weekly range: ${selectedZone.weeklySets[0]}–${selectedZone.weeklySets[1]} sets · ${selectedZone.weeklyMinutes[0]}–${selectedZone.weeklyMinutes[1]} min.`,
+              )}
             </span>
           </div>
-          <button className="btn btn-primary" onClick={save}><Icon name="plus" size={15} /> Añadir a la biblioteca</button>
+          <button className="btn btn-primary" onClick={save}><Icon name="plus" size={15} /> {tx(lang, 'Añadir a la biblioteca', 'Add to library')}</button>
         </div>
       </section>
 
       <section className="card">
         <div className="card-header">
           <div>
-            <div className="card-title"><Icon name="dumbbell" /> Biblioteca</div>
-            <div className="card-sub">{exercises.length} ejercicio(s). Sin campos manuales de zona.</div>
+            <div className="card-title"><Icon name="dumbbell" /> {tx(lang, 'Biblioteca', 'Library')}</div>
+            <div className="card-sub">
+              {tx(
+                lang,
+                `${exercises.length} ejercicio(s). Sin campos manuales de zona.`,
+                `${exercises.length} ${exercises.length === 1 ? 'exercise' : 'exercises'}. No manual zone fields.`,
+              )}
+            </div>
           </div>
-          <span className="badge badge-muted">{filtered.length} visibles</span>
+          <span className="badge badge-muted">
+            {tx(lang, `${filtered.length} visibles`, `${filtered.length} visible`)}
+          </span>
         </div>
         <div className="card-body stack">
-          <input className="input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre, zona o músculo..." />
+          <input className="input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={tx(lang, 'Buscar por nombre, zona o músculo...', 'Search by name, zone or muscle...')} />
           {filtered.length === 0 ? (
-            <EmptyState icon={<Icon name="dumbbell" />} title="Sin ejercicios" sub="Añade el primero para empezar a construir rutinas." />
+            <EmptyState
+              icon={<Icon name="dumbbell" />}
+              title={tx(lang, 'Sin ejercicios', 'No exercises')}
+              sub={tx(lang, 'Añade el primero para empezar a construir rutinas.', 'Add the first one to start building routines.')}
+            />
           ) : (
             <div className="list" style={{ maxHeight: 480, overflow: 'auto', paddingRight: 4 }}>
               {filtered.map((ex) => {
                 const z = ZONE_MAP[zoneForExercise(ex)];
+                const uses = usage(ex.id);
                 return (
                   <div key={ex.id} className="list-item">
                     <div className="list-item-main">
                       <span className="list-item-title">{ex.name}</span>
-                      <span className="list-item-sub">{z.name} · {ex.type} · {usage(ex.id)} uso(s)</span>
+                      <span className="list-item-sub">
+                        {zoneNameOf(z, lang)} · {exerciseTypeLabel(ex.type, lang)} ·{' '}
+                        {tx(lang, `${uses} uso(s)`, `${uses} ${uses === 1 ? 'use' : 'uses'}`)}
+                      </span>
                     </div>
                     <div className="list-item-meta">
                       <span className="chip" style={{ borderColor: `${z.color}55` }}>
                         <span className="chip-dot" style={{ background: z.color }} />
-                        {z.name}
+                        {zoneNameOf(z, lang)}
                       </span>
-                      <button className="btn-icon" aria-label={`Eliminar ${ex.name}`} onClick={() => void del(ex.id)}><Icon name="trash" size={14} /></button>
+                      <button className="btn-icon" aria-label={tx(lang, `Eliminar ${ex.name}`, `Delete ${ex.name}`)} onClick={() => void del(ex.id)}><Icon name="trash" size={14} /></button>
                     </div>
                   </div>
                 );
@@ -251,8 +309,14 @@ function LibraryTab({
       <section className="card span-2">
         <div className="card-header">
           <div>
-            <div className="card-title"><Icon name="body" /> Zonas universales</div>
-            <div className="card-sub">Cada zona incluye varios músculos y tiene un rango de series/tiempo recomendado para detectar exceso de carga.</div>
+            <div className="card-title"><Icon name="body" /> {tx(lang, 'Zonas universales', 'Universal zones')}</div>
+            <div className="card-sub">
+              {tx(
+                lang,
+                'Cada zona incluye varios músculos y tiene un rango de series/tiempo recomendado para detectar exceso de carga.',
+                'Each zone includes several muscles and has a recommended sets/time range to detect overload.',
+              )}
+            </div>
           </div>
         </div>
         <div className="card-body">
@@ -262,14 +326,24 @@ function LibraryTab({
               return (
                 <div key={z.id} className="metric">
                   <div className="row between">
-                    <span className="strong">{z.name}</span>
+                    <span className="strong">{zoneNameOf(z, lang)}</span>
                     <span className="dot" style={{ width: 9, height: 9, borderRadius: 999, background: z.color, display: 'inline-block' }} />
                   </div>
-                  <div className="small muted" style={{ marginTop: 4 }}>{z.muscles.join(' · ')}</div>
+                  <div className="small muted" style={{ marginTop: 4 }}>{zoneMuscles(z, lang).join(' · ')}</div>
                   <div className="small" style={{ marginTop: 8 }}>
-                    {load.sets} series · {Math.round(load.minutes)} min esta semana
+                    {tx(
+                      lang,
+                      `${load.sets} series · ${Math.round(load.minutes)} min esta semana`,
+                      `${load.sets} sets · ${Math.round(load.minutes)} min this week`,
+                    )}
                   </div>
-                  <div className="hint">Recomendado: {z.weeklySets[0]}–{z.weeklySets[1]} series · {z.weeklyMinutes[0]}–{z.weeklyMinutes[1]} min</div>
+                  <div className="hint">
+                    {tx(
+                      lang,
+                      `Recomendado: ${z.weeklySets[0]}–${z.weeklySets[1]} series · ${z.weeklyMinutes[0]}–${z.weeklyMinutes[1]} min`,
+                      `Recommended: ${z.weeklySets[0]}–${z.weeklySets[1]} sets · ${z.weeklyMinutes[0]}–${z.weeklyMinutes[1]} min`,
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -293,11 +367,12 @@ function RoutinesTab({
   onRefresh: () => Promise<void>;
   notify: (m: string, t?: 'success' | 'error' | 'info') => void;
 }) {
+  const { lang } = useLanguage();
   const [name, setName] = useState('');
   const [selected, setSelected] = useState('');
   const [items, setItems] = useState<RoutineExercise[]>([]);
 
-  const exerciseOptions = exercises.map((e) => ({ value: e.id, label: e.name, hint: ZONE_MAP[zoneForExercise(e)].name }));
+  const exerciseOptions = exercises.map((e) => ({ value: e.id, label: e.name, hint: zoneName(zoneForExercise(e), lang) }));
   const addExercise = () => {
     if (!selected) return;
     setItems((v) => [...v, { exerciseId: selected, sets: 3, reps: 10, load: 0, rest: 90 }]);
@@ -310,7 +385,7 @@ function RoutinesTab({
 
   const save = async () => {
     if (!name.trim() || items.length === 0) {
-      notify('La rutina necesita nombre y al menos un ejercicio.', 'error');
+      notify(tx(lang, 'La rutina necesita nombre y al menos un ejercicio.', 'The routine needs a name and at least one exercise.'), 'error');
       return;
     }
     const r: Routine = { id: crypto.randomUUID(), name: name.trim(), exercises: items };
@@ -318,12 +393,12 @@ function RoutinesTab({
     setName('');
     setItems([]);
     await onRefresh();
-    notify('Rutina guardada.', 'success');
+    notify(tx(lang, 'Rutina guardada.', 'Routine saved.'), 'success');
   };
   const del = async (id: string) => {
     await appendEvent(newEvent(deviceId, 'routine.deleted', { id }));
     await onRefresh();
-    notify('Rutina eliminada.', 'success');
+    notify(tx(lang, 'Rutina eliminada.', 'Routine deleted.'), 'success');
   };
 
   return (
@@ -331,21 +406,27 @@ function RoutinesTab({
       <section className="card span-2">
         <div className="card-header">
           <div>
-            <div className="card-title"><Icon name="plus" /> Nueva rutina</div>
-            <div className="card-sub">Define series, repeticiones, carga y descanso. La sesión en vivo reutiliza estos datos.</div>
+            <div className="card-title"><Icon name="plus" /> {tx(lang, 'Nueva rutina', 'New routine')}</div>
+            <div className="card-sub">
+              {tx(
+                lang,
+                'Define series, repeticiones, carga y descanso. La sesión en vivo reutiliza estos datos.',
+                'Define sets, reps, load and rest. The live session reuses this data.',
+              )}
+            </div>
           </div>
         </div>
         <div className="card-body stack">
           <div className="row wrap" style={{ alignItems: 'flex-end' }}>
             <div className="field" style={{ minWidth: 220 }}>
-              <span className="field-label">Nombre de la rutina</span>
-              <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Torso, pierna, full body..." />
+              <span className="field-label">{tx(lang, 'Nombre de la rutina', 'Routine name')}</span>
+              <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={tx(lang, 'Torso, pierna, full body...', 'Upper body, legs, full body...')} />
             </div>
             <div className="field grow" style={{ minWidth: 200 }}>
-              <span className="field-label">Añadir ejercicio</span>
-              <Select value={selected} onChange={setSelected} options={exerciseOptions} placeholder="Elegir ejercicio" />
+              <span className="field-label">{tx(lang, 'Añadir ejercicio', 'Add exercise')}</span>
+              <Select value={selected} onChange={setSelected} options={exerciseOptions} placeholder={tx(lang, 'Elegir ejercicio', 'Choose exercise')} />
             </div>
-            <button className="btn btn-tonal" onClick={addExercise}><Icon name="plus" size={15} /> Añadir</button>
+            <button className="btn btn-tonal" onClick={addExercise}><Icon name="plus" size={15} /> {tx(lang, 'Añadir', 'Add')}</button>
           </div>
 
           {items.length > 0 && (
@@ -356,15 +437,17 @@ function RoutinesTab({
                 return (
                   <div key={`${it.exerciseId}-${i}`} className="list-item" style={{ alignItems: 'flex-start' }}>
                     <div className="list-item-main">
-                      <span className="list-item-title">{ex?.name ?? 'Ejercicio'}</span>
-                      <span className="list-item-sub">{z?.name ?? 'Zona'} · {it.sets} series × {it.reps} reps</span>
+                      <span className="list-item-title">{ex?.name ?? tx(lang, 'Ejercicio', 'Exercise')}</span>
+                      <span className="list-item-sub">
+                        {z ? zoneNameOf(z, lang) : tx(lang, 'Zona', 'Zone')} · {it.sets} {tx(lang, 'series', 'sets')} × {it.reps} reps
+                      </span>
                     </div>
                     <div className="row wrap" style={{ justifyContent: 'flex-end' }}>
-                      <label className="field" style={{ width: 76 }}><span className="field-label">Series</span><NumberInput value={it.sets} onChange={(v) => updateItem(i, 'sets', v)} min={1} max={20} /></label>
+                      <label className="field" style={{ width: 76 }}><span className="field-label">{tx(lang, 'Series', 'Sets')}</span><NumberInput value={it.sets} onChange={(v) => updateItem(i, 'sets', v)} min={1} max={20} /></label>
                       <label className="field" style={{ width: 76 }}><span className="field-label">Reps</span><NumberInput value={it.reps} onChange={(v) => updateItem(i, 'reps', v)} min={1} max={100} /></label>
-                      <label className="field" style={{ width: 84 }}><span className="field-label">Carga kg</span><NumberInput value={it.load} onChange={(v) => updateItem(i, 'load', v)} min={0} max={500} step={0.5} /></label>
-                      <label className="field" style={{ width: 90 }}><span className="field-label">Descanso s</span><NumberInput value={it.rest} onChange={(v) => updateItem(i, 'rest', v)} min={0} max={600} /></label>
-                      <button className="btn-icon" aria-label="Quitar" onClick={() => removeItem(i)}><Icon name="close" size={14} /></button>
+                      <label className="field" style={{ width: 84 }}><span className="field-label">{tx(lang, 'Carga kg', 'Load kg')}</span><NumberInput value={it.load} onChange={(v) => updateItem(i, 'load', v)} min={0} max={500} step={0.5} /></label>
+                      <label className="field" style={{ width: 90 }}><span className="field-label">{tx(lang, 'Descanso s', 'Rest s')}</span><NumberInput value={it.rest} onChange={(v) => updateItem(i, 'rest', v)} min={0} max={600} /></label>
+                      <button className="btn-icon" aria-label={tx(lang, 'Quitar', 'Remove')} onClick={() => removeItem(i)}><Icon name="close" size={14} /></button>
                     </div>
                   </div>
                 );
@@ -373,8 +456,10 @@ function RoutinesTab({
           )}
 
           <div className="row between">
-            <span className="hint">{items.length} ejercicio(s) en la rutina</span>
-            <button className="btn btn-primary" onClick={save} disabled={items.length === 0}><Icon name="check" size={15} /> Guardar rutina</button>
+            <span className="hint">
+              {tx(lang, `${items.length} ejercicio(s) en la rutina`, `${items.length} ${items.length === 1 ? 'exercise' : 'exercises'} in the routine`)}
+            </span>
+            <button className="btn btn-primary" onClick={save} disabled={items.length === 0}><Icon name="check" size={15} /> {tx(lang, 'Guardar rutina', 'Save routine')}</button>
           </div>
         </div>
       </section>
@@ -382,13 +467,23 @@ function RoutinesTab({
       <section className="card span-2">
         <div className="card-header">
           <div>
-            <div className="card-title"><Icon name="dumbbell" /> Rutinas guardadas</div>
-            <div className="card-sub">{routines.length} rutina(s). Las rutinas eliminadas desaparecen de sesión y plan.</div>
+            <div className="card-title"><Icon name="dumbbell" /> {tx(lang, 'Rutinas guardadas', 'Saved routines')}</div>
+            <div className="card-sub">
+              {tx(
+                lang,
+                `${routines.length} rutina(s). Las rutinas eliminadas desaparecen de sesión y plan.`,
+                `${routines.length} ${routines.length === 1 ? 'routine' : 'routines'}. Deleted routines disappear from session and plan.`,
+              )}
+            </div>
           </div>
         </div>
         <div className="card-body">
           {routines.length === 0 ? (
-            <EmptyState icon={<Icon name="dumbbell" />} title="Sin rutinas" sub="Crea una rutina para reutilizarla en la sesión en vivo y en el plan semanal." />
+            <EmptyState
+              icon={<Icon name="dumbbell" />}
+              title={tx(lang, 'Sin rutinas', 'No routines')}
+              sub={tx(lang, 'Crea una rutina para reutilizarla en la sesión en vivo y en el plan semanal.', 'Create a routine to reuse it in the live session and the weekly plan.')}
+            />
           ) : (
             <div className="grid grid-2">
               {routines.map((r) => {
@@ -400,14 +495,20 @@ function RoutinesTab({
                   <div key={r.id} className="metric">
                     <div className="row between">
                       <span className="strong">{r.name}</span>
-                      <button className="btn-icon" aria-label={`Eliminar ${r.name}`} onClick={() => void del(r.id)}><Icon name="trash" size={14} /></button>
+                      <button className="btn-icon" aria-label={tx(lang, `Eliminar ${r.name}`, `Delete ${r.name}`)} onClick={() => void del(r.id)}><Icon name="trash" size={14} /></button>
                     </div>
                     <div className="chips" style={{ marginTop: 8 }}>
                       {zones.map((z) => (
-                        <span key={z} className="chip"><span className="chip-dot" style={{ background: ZONE_MAP[z].color }} />{ZONE_MAP[z].name}</span>
+                        <span key={z} className="chip"><span className="chip-dot" style={{ background: ZONE_MAP[z].color }} />{zoneName(z, lang)}</span>
                       ))}
                     </div>
-                    <div className="hint" style={{ marginTop: 8 }}>{r.exercises.length} ejercicios · {r.exercises.reduce((a, x) => a + x.sets, 0)} series</div>
+                    <div className="hint" style={{ marginTop: 8 }}>
+                      {tx(
+                        lang,
+                        `${r.exercises.length} ejercicios · ${r.exercises.reduce((a, x) => a + x.sets, 0)} series`,
+                        `${r.exercises.length} ${r.exercises.length === 1 ? 'exercise' : 'exercises'} · ${r.exercises.reduce((a, x) => a + x.sets, 0)} sets`,
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -434,6 +535,7 @@ function PlanTab({
   onRefresh: () => Promise<void>;
   notify: (m: string, t?: 'success' | 'error' | 'info') => void;
 }) {
+  const { lang } = useLanguage();
   const [routineId, setRoutineId] = useState('');
   const [days, setDays] = useState<number[]>([]);
   const [startTime, setStartTime] = useState('18:00');
@@ -443,12 +545,12 @@ function PlanTab({
   const [deload, setDeload] = useState(true);
   const [start, setStart] = useState(todayISO());
 
-  const routineOptions = routines.map((r) => ({ value: r.id, label: r.name, hint: `${r.exercises.length} ejercicios` }));
+  const routineOptions = routines.map((r) => ({ value: r.id, label: r.name, hint: tx(lang, `${r.exercises.length} ejercicios`, `${r.exercises.length} ${r.exercises.length === 1 ? 'exercise' : 'exercises'}`) }));
   const toggleDay = (d: number) => setDays((v) => (v.includes(d) ? v.filter((x) => x !== d) : [...v, d].sort()));
 
   const savePlan = async () => {
     if (!routineId || days.length === 0) {
-      notify('Elige una rutina y al menos un día.', 'error');
+      notify(tx(lang, 'Elige una rutina y al menos un día.', 'Choose a routine and at least one day.'), 'error');
       return;
     }
     const p: Plan = { id: crypto.randomUUID(), routineId, days, startTime, duration };
@@ -456,7 +558,7 @@ function PlanTab({
     setDays([]);
     setRoutineId('');
     await onRefresh();
-    notify('Plan semanal guardado.', 'success');
+    notify(tx(lang, 'Plan semanal guardado.', 'Weekly plan saved.'), 'success');
   };
   const delPlan = async (id: string) => {
     await appendEvent(newEvent(deviceId, 'plan.deleted', { id }));
@@ -464,14 +566,14 @@ function PlanTab({
   };
   const saveMeso = async () => {
     if (!mesoName.trim()) {
-      notify('Escribe un nombre para el mesociclo.', 'error');
+      notify(tx(lang, 'Escribe un nombre para el mesociclo.', 'Enter a name for the mesocycle.'), 'error');
       return;
     }
     const m: Mesocycle = { id: crypto.randomUUID(), name: mesoName.trim(), weeks, deload, start };
     await appendEvent(newEvent(deviceId, 'mesocycle.saved', m));
     setMesoName('');
     await onRefresh();
-    notify('Mesociclo guardado.', 'success');
+    notify(tx(lang, 'Mesociclo guardado.', 'Mesocycle saved.'), 'success');
   };
   const delMeso = async (id: string) => {
     await appendEvent(newEvent(deviceId, 'mesocycle.deleted', { id }));
@@ -483,46 +585,52 @@ function PlanTab({
       <section className="card span-2">
         <div className="card-header">
           <div>
-            <div className="card-title"><Icon name="calendar" /> Plan semanal</div>
-            <div className="card-sub">Asigna rutinas a días concretos. El calendario muestra la carga real, no solo el plan.</div>
+            <div className="card-title"><Icon name="calendar" /> {tx(lang, 'Plan semanal', 'Weekly plan')}</div>
+            <div className="card-sub">
+              {tx(
+                lang,
+                'Asigna rutinas a días concretos. El calendario muestra la carga real, no solo el plan.',
+                'Assign routines to specific days. The calendar shows actual load, not just the plan.',
+              )}
+            </div>
           </div>
         </div>
         <div className="card-body stack">
           <div className="row wrap" style={{ alignItems: 'flex-end' }}>
             <div className="field" style={{ minWidth: 240 }}>
-              <span className="field-label">Rutina</span>
-              <Select value={routineId} onChange={setRoutineId} options={routineOptions} placeholder="Elegir rutina" />
+              <span className="field-label">{tx(lang, 'Rutina', 'Routine')}</span>
+              <Select value={routineId} onChange={setRoutineId} options={routineOptions} placeholder={tx(lang, 'Elegir rutina', 'Choose routine')} />
             </div>
             <div className="field" style={{ width: 110 }}>
-              <span className="field-label">Hora</span>
+              <span className="field-label">{tx(lang, 'Hora', 'Time')}</span>
               <input className="input" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
             </div>
             <div className="field" style={{ width: 110 }}>
-              <span className="field-label">Duración min</span>
+              <span className="field-label">{tx(lang, 'Duración min', 'Duration min')}</span>
               <NumberInput value={duration} onChange={setDuration} min={10} max={300} />
             </div>
-            <button className="btn btn-tonal" onClick={savePlan}><Icon name="plus" size={15} /> Añadir al plan</button>
+            <button className="btn btn-tonal" onClick={savePlan}><Icon name="plus" size={15} /> {tx(lang, 'Añadir al plan', 'Add to plan')}</button>
           </div>
           <div className="chips">
-            {DAY_NAMES.map((d, i) => (
+            {dayNames(lang).map((d, i) => (
               <button key={d} type="button" className={`chip ${days.includes(i) ? 'active' : ''}`} onClick={() => toggleDay(i)}>{d}</button>
             ))}
           </div>
           <div className="grid grid-4" style={{ gap: 10 }}>
-            {DAY_NAMES.map((d, i) => {
+            {dayNames(lang).map((d, i) => {
               const dayPlans = plans.filter((p) => p.days.includes(i));
               return (
                 <div key={d} className="metric">
                   <div className="row between"><span className="strong">{d}</span><span className="badge badge-muted">{dayPlans.length}</span></div>
-                  {dayPlans.length === 0 ? <div className="hint" style={{ marginTop: 6 }}>Descanso</div> : (
+                  {dayPlans.length === 0 ? <div className="hint" style={{ marginTop: 6 }}>{tx(lang, 'Descanso', 'Rest')}</div> : (
                     <div className="stack-sm" style={{ marginTop: 8 }}>
                       {dayPlans.map((p) => {
                         const r = routines.find((x) => x.id === p.routineId);
                         return (
                           <div key={p.id} className="small">
                             <div className="row between">
-                              <span>{p.startTime} · {r?.name ?? 'Rutina eliminada'}</span>
-                              <button className="btn-xs btn-ghost btn" aria-label="Eliminar plan" onClick={() => void delPlan(p.id)}><Icon name="close" size={11} /></button>
+                              <span>{p.startTime} · {r?.name ?? tx(lang, 'Rutina eliminada', 'Deleted routine')}</span>
+                              <button className="btn-xs btn-ghost btn" aria-label={tx(lang, 'Eliminar plan', 'Delete plan')} onClick={() => void delPlan(p.id)}><Icon name="close" size={11} /></button>
                             </div>
                             <span className="muted">{p.duration} min</span>
                           </div>
@@ -540,40 +648,46 @@ function PlanTab({
       <section className="card span-2">
         <div className="card-header">
           <div>
-            <div className="card-title"><Icon name="clock" /> Mesociclos</div>
-            <div className="card-sub">Bloques de varias semanas con descarga opcional.</div>
+            <div className="card-title"><Icon name="clock" /> {tx(lang, 'Mesociclos', 'Mesocycles')}</div>
+            <div className="card-sub">{tx(lang, 'Bloques de varias semanas con descarga opcional.', 'Multi-week blocks with optional deload.')}</div>
           </div>
         </div>
         <div className="card-body stack">
           <div className="row wrap" style={{ alignItems: 'flex-end' }}>
             <div className="field" style={{ minWidth: 220 }}>
-              <span className="field-label">Nombre</span>
-              <input className="input" value={mesoName} onChange={(e) => setMesoName(e.target.value)} placeholder="Fuerza, hipertrofia, definición..." />
+              <span className="field-label">{tx(lang, 'Nombre', 'Name')}</span>
+              <input className="input" value={mesoName} onChange={(e) => setMesoName(e.target.value)} placeholder={tx(lang, 'Fuerza, hipertrofia, definición...', 'Strength, hypertrophy, definition...')} />
             </div>
             <div className="field" style={{ width: 110 }}>
-              <span className="field-label">Semanas</span>
+              <span className="field-label">{tx(lang, 'Semanas', 'Weeks')}</span>
               <NumberInput value={weeks} onChange={setWeeks} min={1} max={52} />
             </div>
             <div className="field" style={{ width: 170 }}>
-              <span className="field-label">Inicio</span>
+              <span className="field-label">{tx(lang, 'Inicio', 'Start')}</span>
               <input className="input" type="date" value={start} onChange={(e) => setStart(e.target.value)} />
             </div>
             <label className="row small" style={{ paddingBottom: 10 }}>
-              <input type="checkbox" checked={deload} onChange={(e) => setDeload(e.target.checked)} /> Semana de descarga
+              <input type="checkbox" checked={deload} onChange={(e) => setDeload(e.target.checked)} /> {tx(lang, 'Semana de descarga', 'Deload week')}
             </label>
-            <button className="btn btn-tonal" onClick={saveMeso}><Icon name="plus" size={15} /> Guardar</button>
+            <button className="btn btn-tonal" onClick={saveMeso}><Icon name="plus" size={15} /> {tx(lang, 'Guardar', 'Save')}</button>
           </div>
           {mesocycles.length === 0 ? (
-            <p className="hint">Sin mesociclos.</p>
+            <p className="hint">{tx(lang, 'Sin mesociclos.', 'No mesocycles.')}</p>
           ) : (
             <div className="list">
               {mesocycles.slice().reverse().map((m) => (
                 <div key={m.id} className="list-item">
                   <div className="list-item-main">
                     <span className="list-item-title">{m.name}</span>
-                    <span className="list-item-sub">{m.weeks} semanas · inicio {m.start} · {m.deload ? 'con descarga' : 'sin descarga'}</span>
+                    <span className="list-item-sub">
+                      {tx(
+                        lang,
+                        `${m.weeks} semanas · inicio ${m.start} · ${m.deload ? 'con descarga' : 'sin descarga'}`,
+                        `${m.weeks} ${m.weeks === 1 ? 'week' : 'weeks'} · starts ${m.start} · ${m.deload ? 'with deload' : 'without deload'}`,
+                      )}
+                    </span>
                   </div>
-                  <button className="btn-icon" aria-label={`Eliminar ${m.name}`} onClick={() => void delMeso(m.id)}><Icon name="trash" size={14} /></button>
+                  <button className="btn-icon" aria-label={tx(lang, `Eliminar ${m.name}`, `Delete ${m.name}`)} onClick={() => void delMeso(m.id)}><Icon name="trash" size={14} /></button>
                 </div>
               ))}
             </div>
@@ -599,6 +713,7 @@ function SessionTab({
   onRefresh: () => Promise<void>;
   notify: (m: string, t?: 'success' | 'error' | 'info') => void;
 }) {
+  const { lang } = useLanguage();
   const [selectedRoutine, setSelectedRoutine] = useState('');
   const [entries, setEntries] = useState<LiveEntry[]>([]);
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -625,18 +740,18 @@ function SessionTab({
   useEffect(() => {
     if (restLeft === 0 && restWasActive.current && !restSuppressAlarm.current) {
       timerAlarm();
-      notify('Descanso terminado. A por la siguiente serie.', 'success');
+      notify(tx(lang, 'Descanso terminado. A por la siguiente serie.', 'Rest finished. On to the next set.'), 'success');
     }
     restSuppressAlarm.current = false;
     restWasActive.current = restLeft > 0;
-  }, [restLeft, notify]);
+  }, [restLeft, notify, lang]);
 
   const exerciseOptions = exercises.map((e) => ({
     value: e.id,
     label: e.name,
-    hint: ZONE_MAP[zoneForExercise(e)].name,
+    hint: zoneName(zoneForExercise(e), lang),
   }));
-  const routineOptions = routines.map((r) => ({ value: r.id, label: r.name, hint: `${r.exercises.length} ejercicios` }));
+  const routineOptions = routines.map((r) => ({ value: r.id, label: r.name, hint: tx(lang, `${r.exercises.length} ejercicios`, `${r.exercises.length} ${r.exercises.length === 1 ? 'exercise' : 'exercises'}`) }));
 
   const start = () => {
     const r = routines.find((x) => x.id === selectedRoutine);
@@ -722,7 +837,7 @@ function SessionTab({
       .map((e) => ({ exerciseId: e.exerciseId, sets: e.sets.filter((s) => s.reps > 0 || s.weight > 0) }))
       .filter((e) => e.sets.length > 0);
     if (cleanEntries.length === 0) {
-      notify('La sesión está vacía: añade al menos una serie.', 'error');
+      notify(tx(lang, 'La sesión está vacía: añade al menos una serie.', 'The session is empty: add at least one set.'), 'error');
       return;
     }
     const session: Session = {
@@ -742,7 +857,7 @@ function SessionTab({
         const ex = exercises.find((e) => e.id === entry.exerciseId);
         prs.push({
           exerciseId: entry.exerciseId,
-          name: ex?.name ?? 'Ejercicio',
+          name: ex?.name ?? tx(lang, 'Ejercicio', 'Exercise'),
           weight: best.weight,
           reps: best.reps,
           date: session.date,
@@ -759,8 +874,12 @@ function SessionTab({
     await onRefresh();
     notify(
       prs.length
-        ? `Sesión guardada con ${prs.length} marca(s) personal(es): ${prs.map((p) => `${p.name} ${p.weight} kg`).join(', ')}.`
-        : 'Sesión guardada.',
+        ? tx(
+            lang,
+            `Sesión guardada con ${prs.length} marca(s) personal(es): ${prs.map((p) => `${p.name} ${p.weight} kg`).join(', ')}.`,
+            `Session saved with ${prs.length} personal ${prs.length === 1 ? 'record' : 'records'}: ${prs.map((p) => `${p.name} ${p.weight} kg`).join(', ')}.`,
+          )
+        : tx(lang, 'Sesión guardada.', 'Session saved.'),
       'success',
     );
   };
@@ -782,29 +901,41 @@ function SessionTab({
         <section className="card">
           <div className="card-header">
             <div>
-              <div className="card-title"><Icon name="clock" /> Iniciar sesión</div>
-              <div className="card-sub">Elige una rutina para precargar series y descansos, o empieza libre.</div>
+              <div className="card-title"><Icon name="clock" /> {tx(lang, 'Iniciar sesión', 'Start session')}</div>
+              <div className="card-sub">
+                {tx(lang, 'Elige una rutina para precargar series y descansos, o empieza libre.', 'Choose a routine to preload sets and rests, or start free.')}
+              </div>
             </div>
           </div>
           <div className="card-body stack">
-            <Field label="Rutina (opcional)">
-              <Select value={selectedRoutine} onChange={setSelectedRoutine} options={routineOptions} placeholder="Sesión libre" />
+            <Field label={tx(lang, 'Rutina (opcional)', 'Routine (optional)')}>
+              <Select value={selectedRoutine} onChange={setSelectedRoutine} options={routineOptions} placeholder={tx(lang, 'Sesión libre', 'Free session')} />
             </Field>
-            <button className="btn btn-primary" onClick={start}><Icon name="plus" size={15} /> Iniciar sesión</button>
-            <p className="hint">El temporizador y los descansos funcionan mientras la app esté abierta. Al finalizar se detectan marcas personales.</p>
+            <button className="btn btn-primary" onClick={start}><Icon name="plus" size={15} /> {tx(lang, 'Iniciar sesión', 'Start session')}</button>
+            <p className="hint">
+              {tx(
+                lang,
+                'El temporizador y los descansos funcionan mientras la app esté abierta. Al finalizar se detectan marcas personales.',
+                'The timer and rests work while the app is open. Personal records are detected when you finish.',
+              )}
+            </p>
           </div>
         </section>
 
         <section className="card">
           <div className="card-header">
             <div>
-              <div className="card-title"><Icon name="history" /> Sesiones recientes</div>
-              <div className="card-sub">Últimas 5 sesiones guardadas.</div>
+              <div className="card-title"><Icon name="history" /> {tx(lang, 'Sesiones recientes', 'Recent sessions')}</div>
+              <div className="card-sub">{tx(lang, 'Últimas 5 sesiones guardadas.', 'Last 5 saved sessions.')}</div>
             </div>
           </div>
           <div className="card-body">
             {recent.length === 0 ? (
-              <EmptyState icon={<Icon name="history" />} title="Sin sesiones" sub="Inicia la primera sesión para ver el historial aquí." />
+              <EmptyState
+                icon={<Icon name="history" />}
+                title={tx(lang, 'Sin sesiones', 'No sessions')}
+                sub={tx(lang, 'Inicia la primera sesión para ver el historial aquí.', 'Start your first session to see the history here.')}
+              />
             ) : (
               <div className="list">
                 {recent.map((s) => {
@@ -813,10 +944,15 @@ function SessionTab({
                   return (
                     <div key={s.id} className="list-item">
                       <div className="list-item-main">
-                        <span className="list-item-title">{r?.name ?? 'Sesión libre'}</span>
-                        <span className="list-item-sub">{formatShort(s.date)} · {Math.round(s.duration / 60)} min · {sets} series</span>
+                        <span className="list-item-title">{r?.name ?? tx(lang, 'Sesión libre', 'Free session')}</span>
+                        <span className="list-item-sub">
+                          {formatShort(s.date, lang)} · {Math.round(s.duration / 60)} min ·{' '}
+                          {tx(lang, `${sets} series`, `${sets} ${sets === 1 ? 'set' : 'sets'}`)}
+                        </span>
                       </div>
-                      <span className="badge badge-muted">{s.entries.length} ej.</span>
+                      <span className="badge badge-muted">
+                        {tx(lang, `${s.entries.length} ej.`, `${s.entries.length} ex.`)}
+                      </span>
                     </div>
                   );
                 })}
@@ -828,8 +964,14 @@ function SessionTab({
         <section className="card span-2">
           <div className="card-header">
             <div>
-              <div className="card-title"><Icon name="clock" /> Temporizador de descanso</div>
-              <div className="card-sub">Cuenta atrás con aviso sonoro y vibración, sin depender de la sesión en vivo.</div>
+              <div className="card-title"><Icon name="clock" /> {tx(lang, 'Temporizador de descanso', 'Rest timer')}</div>
+              <div className="card-sub">
+                {tx(
+                  lang,
+                  'Cuenta atrás con aviso sonoro y vibración, sin depender de la sesión en vivo.',
+                  'Countdown with sound and vibration, independent of the live session.',
+                )}
+              </div>
             </div>
           </div>
           <div className="card-body">
@@ -847,38 +989,52 @@ function SessionTab({
       <section className="card">
         <div className="card-header">
           <div>
-            <div className="card-title"><Icon name="clock" /> Sesión en vivo</div>
-            <div className="card-sub">{entries.length} ejercicios · {totalSets} series · se guardará con la fecha de hoy.</div>
+            <div className="card-title"><Icon name="clock" /> {tx(lang, 'Sesión en vivo', 'Live session')}</div>
+            <div className="card-sub">
+              {tx(
+                lang,
+                `${entries.length} ejercicios · ${totalSets} series · se guardará con la fecha de hoy.`,
+                `${entries.length} ${entries.length === 1 ? 'exercise' : 'exercises'} · ${totalSets} ${totalSets === 1 ? 'set' : 'sets'} · will be saved with today's date.`,
+              )}
+            </div>
           </div>
           <div className="row wrap">
             <span className="badge badge-primary">{fmtDuration(elapsed)}</span>
             {restLeft > 0 && (
               <>
                 <span className="badge badge-warning">
-                  Descanso {fmtDuration(restLeft)}{restPaused ? ' · en pausa' : ''}
+                  {tx(
+                    lang,
+                    `Descanso ${fmtDuration(restLeft)}${restPaused ? ' · en pausa' : ''}`,
+                    `Rest ${fmtDuration(restLeft)}${restPaused ? ' · paused' : ''}`,
+                  )}
                 </span>
                 <button className="btn btn-ghost btn-sm" onClick={() => setRestPaused((value) => !value)}>
-                  <Icon name={restPaused ? 'play' : 'pause'} size={14} /> {restPaused ? 'Reanudar' : 'Pausar'}
+                  <Icon name={restPaused ? 'play' : 'pause'} size={14} /> {tx(lang, restPaused ? 'Reanudar' : 'Pausar', restPaused ? 'Resume' : 'Pause')}
                 </button>
                 <button className="btn btn-ghost btn-sm" onClick={stopRest}>
-                  <Icon name="close" size={14} /> Quitar descanso
+                  <Icon name="close" size={14} /> {tx(lang, 'Quitar descanso', 'Stop rest')}
                 </button>
               </>
             )}
-            <button className="btn btn-ghost btn-sm" onClick={discard}><Icon name="close" size={14} /> Descartar</button>
+            <button className="btn btn-ghost btn-sm" onClick={discard}><Icon name="close" size={14} /> {tx(lang, 'Descartar', 'Discard')}</button>
           </div>
         </div>
         <div className="card-body stack">
           <div className="row wrap" style={{ alignItems: 'flex-end' }}>
             <div className="field grow" style={{ minWidth: 220 }}>
-              <span className="field-label">Añadir ejercicio</span>
-              <Select value={addEx} onChange={addExercise} options={exerciseOptions} placeholder="Elegir ejercicio" />
+              <span className="field-label">{tx(lang, 'Añadir ejercicio', 'Add exercise')}</span>
+              <Select value={addEx} onChange={addExercise} options={exerciseOptions} placeholder={tx(lang, 'Elegir ejercicio', 'Choose exercise')} />
             </div>
-            <button className="btn btn-primary" onClick={finish}><Icon name="check" size={15} /> Finalizar y guardar</button>
+            <button className="btn btn-primary" onClick={finish}><Icon name="check" size={15} /> {tx(lang, 'Finalizar y guardar', 'Finish and save')}</button>
           </div>
 
           {entries.length === 0 && (
-            <EmptyState icon={<Icon name="dumbbell" />} title="Sesión vacía" sub="Añade ejercicios o empieza con una rutina para precargar el trabajo." />
+            <EmptyState
+              icon={<Icon name="dumbbell" />}
+              title={tx(lang, 'Sesión vacía', 'Empty session')}
+              sub={tx(lang, 'Añade ejercicios o empieza con una rutina para precargar el trabajo.', 'Add exercises or start with a routine to preload the work.')}
+            />
           )}
 
           {entries.map((entry, ei) => {
@@ -888,28 +1044,30 @@ function SessionTab({
               <div key={`${entry.exerciseId}-${ei}`} className="metric" style={{ padding: 14 }}>
                 <div className="row between wrap">
                   <div className="row wrap">
-                    <strong>{ex?.name ?? 'Ejercicio'}</strong>
-                    {z && <span className="chip"><span className="chip-dot" style={{ background: z.color }} />{z.name}</span>}
+                    <strong>{ex?.name ?? tx(lang, 'Ejercicio', 'Exercise')}</strong>
+                    {z && <span className="chip"><span className="chip-dot" style={{ background: z.color }} />{zoneNameOf(z, lang)}</span>}
                   </div>
-                  <button className="btn-icon" aria-label="Quitar ejercicio" onClick={() => removeEntry(ei)}><Icon name="trash" size={14} /></button>
+                  <button className="btn-icon" aria-label={tx(lang, 'Quitar ejercicio', 'Remove exercise')} onClick={() => removeEntry(ei)}><Icon name="trash" size={14} /></button>
                 </div>
                 <div className="stack-sm" style={{ marginTop: 10 }}>
                   {entry.sets.map((s, si) => (
                     <div key={si} className="row wrap">
-                      <span className="hint" style={{ width: 48 }}>Serie {si + 1}</span>
+                      <span className="hint" style={{ width: 48 }}>{tx(lang, `Serie ${si + 1}`, `Set ${si + 1}`)}</span>
                       <label className="field" style={{ width: 80 }}><span className="field-label">Reps</span><NumberInput value={s.reps} onChange={(v) => updateSet(ei, si, 'reps', v)} min={0} max={200} /></label>
-                      <label className="field" style={{ width: 88 }}><span className="field-label">Peso kg</span><NumberInput value={s.weight} onChange={(v) => updateSet(ei, si, 'weight', v)} min={0} max={600} step={0.5} /></label>
+                      <label className="field" style={{ width: 88 }}><span className="field-label">{tx(lang, 'Peso kg', 'Weight kg')}</span><NumberInput value={s.weight} onChange={(v) => updateSet(ei, si, 'weight', v)} min={0} max={600} step={0.5} /></label>
                       <label className="field" style={{ width: 76 }}><span className="field-label">RPE</span><NumberInput value={s.rpe ?? 0} onChange={(v) => updateSet(ei, si, 'rpe', v)} min={1} max={10} /></label>
                       <button className="btn btn-ghost btn-sm" onClick={() => startRest(entry.rest || 90)}><Icon name="clock" size={13} /> {entry.rest || 90}s</button>
-                      <button className="btn-icon" aria-label="Quitar serie" onClick={() => removeSet(ei, si)}><Icon name="close" size={13} /></button>
+                      <button className="btn-icon" aria-label={tx(lang, 'Quitar serie', 'Remove set')} onClick={() => removeSet(ei, si)}><Icon name="close" size={13} /></button>
                       {s.weight > 0 && s.reps > 0 && (
                         <span className="badge badge-muted">1RM ≈ {Math.round(estimate1RM(s.weight, s.reps).epley ?? 0)} kg</span>
                       )}
                     </div>
                   ))}
                   <div className="row wrap">
-                    <button className="btn btn-ghost btn-sm" onClick={() => addSet(ei)}><Icon name="plus" size={13} /> Añadir serie</button>
-                    <span className="hint">Descanso sugerido: {entry.rest || 90}s</span>
+                    <button className="btn btn-ghost btn-sm" onClick={() => addSet(ei)}><Icon name="plus" size={13} /> {tx(lang, 'Añadir serie', 'Add set')}</button>
+                    <span className="hint">
+                      {tx(lang, `Descanso sugerido: ${entry.rest || 90}s`, `Suggested rest: ${entry.rest || 90}s`)}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -942,23 +1100,24 @@ function ProgressTab({
   alerts: ReturnType<typeof trainingAlerts>;
   prs: PR[];
 }) {
+  const { lang } = useLanguage();
   const [metric, setMetric] = useState<'volume' | 'minutes' | 'sets'>('volume');
-  const weekly = useMemo(() => weeklySeries(events, exercises, 8), [events, exercises]);
+  const weekly = useMemo(() => weeklySeries(events, exercises, 8, new Date(), lang), [events, exercises, lang]);
   const [exerciseId, setExerciseId] = useState('');
 
-  const exerciseOptions = exercises.map((e) => ({ value: e.id, label: e.name, hint: ZONE_MAP[zoneForExercise(e)].name }));
+  const exerciseOptions = exercises.map((e) => ({ value: e.id, label: e.name, hint: zoneName(zoneForExercise(e), lang) }));
   const defaultExercise = useMemo(() => {
     for (const ex of exercises) {
-      if (exerciseSeries(events, ex.id).length > 0) return ex.id;
+      if (exerciseSeries(events, ex.id, lang).length > 0) return ex.id;
     }
     return exercises[0]?.id ?? '';
-  }, [events, exercises]);
+  }, [events, exercises, lang]);
   const selectedExercise = exerciseId || defaultExercise;
-  const series = useMemo(() => (selectedExercise ? exerciseSeries(events, selectedExercise) : []), [events, selectedExercise]);
+  const series = useMemo(() => (selectedExercise ? exerciseSeries(events, selectedExercise, lang) : []), [events, selectedExercise, lang]);
   const selected = exercises.find((e) => e.id === selectedExercise);
 
   const metricValue = (p: (typeof weekly)[number]) => (metric === 'volume' ? Math.round(p.volume) : metric === 'minutes' ? Math.round(p.minutes) : p.sets);
-  const metricSuffix = metric === 'volume' ? ' kg' : metric === 'minutes' ? ' min' : ' series';
+  const metricSuffix = metric === 'volume' ? ' kg' : metric === 'minutes' ? ' min' : tx(lang, ' series', ' sets');
 
   return (
     <div className="stack">
@@ -966,13 +1125,19 @@ function ProgressTab({
         <section className="card">
           <div className="card-header">
             <div>
-              <div className="card-title"><Icon name="chart" /> Carga semanal</div>
-              <div className="card-sub">Últimas 8 semanas. Cambia la métrica para ver volumen, minutos o series.</div>
+              <div className="card-title"><Icon name="chart" /> {tx(lang, 'Carga semanal', 'Weekly load')}</div>
+              <div className="card-sub">
+                {tx(
+                  lang,
+                  'Últimas 8 semanas. Cambia la métrica para ver volumen, minutos o series.',
+                  'Last 8 weeks. Change the metric to see volume, minutes or sets.',
+                )}
+              </div>
             </div>
             <div className="segmented">
               {(['volume', 'minutes', 'sets'] as const).map((m) => (
                 <button key={m} type="button" className={`segment ${metric === m ? 'active' : ''}`} onClick={() => setMetric(m)}>
-                  {m === 'volume' ? 'Volumen' : m === 'minutes' ? 'Minutos' : 'Series'}
+                  {m === 'volume' ? tx(lang, 'Volumen', 'Volume') : m === 'minutes' ? tx(lang, 'Minutos', 'Minutes') : tx(lang, 'Series', 'Sets')}
                 </button>
               ))}
             </div>
@@ -985,21 +1150,27 @@ function ProgressTab({
         <section className="card">
           <div className="card-header">
             <div>
-              <div className="card-title"><Icon name="spark" /> Rendimiento por ejercicio</div>
-              <div className="card-sub">Peso máximo por sesión y marcas personales destacadas.</div>
+              <div className="card-title"><Icon name="spark" /> {tx(lang, 'Rendimiento por ejercicio', 'Performance by exercise')}</div>
+              <div className="card-sub">
+                {tx(lang, 'Peso máximo por sesión y marcas personales destacadas.', 'Max weight per session and highlighted personal records.')}
+              </div>
             </div>
             <div style={{ minWidth: 180 }}>
               <Select
                 value={selectedExercise}
                 onChange={(v) => setExerciseId(v)}
                 options={exerciseOptions}
-                placeholder="Elegir ejercicio"
+                placeholder={tx(lang, 'Elegir ejercicio', 'Choose exercise')}
               />
             </div>
           </div>
           <div className="card-body">
             {series.length === 0 ? (
-              <EmptyState icon={<Icon name="chart" />} title="Sin datos de rendimiento" sub="Registra una sesión con este ejercicio para ver su evolución." />
+              <EmptyState
+                icon={<Icon name="chart" />}
+                title={tx(lang, 'Sin datos de rendimiento', 'No performance data')}
+                sub={tx(lang, 'Registra una sesión con este ejercicio para ver su evolución.', 'Log a session with this exercise to see its evolution.')}
+              />
             ) : (
               <>
                 <LineChart
@@ -1008,8 +1179,13 @@ function ProgressTab({
                   color="var(--tertiary)"
                 />
                 <div className="row between wrap" style={{ marginTop: 8 }}>
-                  <span className="hint">{selected?.name} · {series.length} registro(s)</span>
-                  <span className="badge badge-warning"><Icon name="spark" size={12} /> {series.filter((p) => p.pr).length} marca(s)</span>
+                  <span className="hint">
+                    {selected?.name} · {tx(lang, `${series.length} registro(s)`, `${series.length} ${series.length === 1 ? 'record' : 'records'}`)}
+                  </span>
+                  <span className="badge badge-warning">
+                    <Icon name="spark" size={12} />{' '}
+                    {tx(lang, `${series.filter((p) => p.pr).length} marca(s)`, `${series.filter((p) => p.pr).length} PR${series.filter((p) => p.pr).length === 1 ? '' : 's'}`)}
+                  </span>
                 </div>
               </>
             )}
@@ -1021,8 +1197,10 @@ function ProgressTab({
         <section className="card">
           <div className="card-header">
             <div>
-              <div className="card-title"><Icon name="body" /> Mapa de calor muscular</div>
-              <div className="card-sub">Series y minutos de los últimos 7 días por zona universal.</div>
+              <div className="card-title"><Icon name="body" /> {tx(lang, 'Mapa de calor muscular', 'Muscle heatmap')}</div>
+              <div className="card-sub">
+                {tx(lang, 'Series y minutos de los últimos 7 días por zona universal.', 'Sets and minutes from the last 7 days by universal zone.')}
+              </div>
             </div>
           </div>
           <div className="card-body">
@@ -1033,15 +1211,23 @@ function ProgressTab({
         <section className="card">
           <div className="card-header">
             <div>
-              <div className="card-title"><Icon name="alert" /> Alertas de carga</div>
-              <div className="card-sub">Sobreentrenamiento por zona respecto a series y tiempo recomendados.</div>
+              <div className="card-title"><Icon name="alert" /> {tx(lang, 'Alertas de carga', 'Load alerts')}</div>
+              <div className="card-sub">
+                {tx(lang, 'Sobreentrenamiento por zona respecto a series y tiempo recomendados.', 'Overtraining by zone relative to recommended sets and time.')}
+              </div>
             </div>
           </div>
           <div className="card-body stack">
             {alerts.length === 0 ? (
               <div className="notice notice-success">
                 <Icon name="check" size={16} />
-                <span>Sin señales de sobreentrenamiento. Las zonas están dentro de rangos razonables.</span>
+                <span>
+                  {tx(
+                    lang,
+                    'Sin señales de sobreentrenamiento. Las zonas están dentro de rangos razonables.',
+                    'No signs of overtraining. Zones are within reasonable ranges.',
+                  )}
+                </span>
               </div>
             ) : (
               alerts.map((a) => (
@@ -1058,20 +1244,26 @@ function ProgressTab({
       <section className="card">
         <div className="card-header">
           <div>
-            <div className="card-title"><Icon name="target" /> Carga por zona</div>
-            <div className="card-sub">Comparación con el rango semanal recomendado. La última columna indica el estado.</div>
+            <div className="card-title"><Icon name="target" /> {tx(lang, 'Carga por zona', 'Load by zone')}</div>
+            <div className="card-sub">
+              {tx(
+                lang,
+                'Comparación con el rango semanal recomendado. La última columna indica el estado.',
+                'Comparison with the recommended weekly range. The last column shows the status.',
+              )}
+            </div>
           </div>
         </div>
         <div className="card-body" style={{ overflowX: 'auto' }}>
           <table className="table">
             <thead>
               <tr>
-                <th>Zona</th>
-                <th>Series</th>
-                <th>Minutos</th>
-                <th>Recomendado</th>
-                <th>Última sesión</th>
-                <th>Estado</th>
+                <th>{tx(lang, 'Zona', 'Zone')}</th>
+                <th>{tx(lang, 'Series', 'Sets')}</th>
+                <th>{tx(lang, 'Minutos', 'Minutes')}</th>
+                <th>{tx(lang, 'Recomendado', 'Recommended')}</th>
+                <th>{tx(lang, 'Última sesión', 'Last session')}</th>
+                <th>{tx(lang, 'Estado', 'Status')}</th>
               </tr>
             </thead>
             <tbody>
@@ -1081,14 +1273,24 @@ function ProgressTab({
                   z.weeklySets[1] > 0 ? load.sets / z.weeklySets[1] : 0,
                   load.minutes / z.weeklyMinutes[1],
                 );
-                const status = ratio > 1.15 ? ['high', 'Exceso'] as const : ratio > 0.85 ? ['warn', 'Cerca del límite'] as const : ['ok', 'Dentro'] as const;
+                const status = ratio > 1.15
+                  ? ['high', tx(lang, 'Exceso', 'Over')] as const
+                  : ratio > 0.85
+                    ? ['warn', tx(lang, 'Cerca del límite', 'Close to the limit')] as const
+                    : ['ok', tx(lang, 'Dentro', 'Within')] as const;
                 return (
                   <tr key={z.id}>
-                    <td><span className="row"><span className="chip-dot" style={{ background: z.color }} />{z.name}</span></td>
+                    <td><span className="row"><span className="chip-dot" style={{ background: z.color }} />{zoneNameOf(z, lang)}</span></td>
                     <td className="mono">{load.sets}</td>
                     <td className="mono">{Math.round(load.minutes)}</td>
-                    <td className="small muted">{z.weeklySets[0]}–{z.weeklySets[1]} series · {z.weeklyMinutes[0]}–{z.weeklyMinutes[1]} min</td>
-                    <td className="small">{load.lastDate ? formatShort(load.lastDate) : '—'}</td>
+                    <td className="small muted">
+                      {tx(
+                        lang,
+                        `${z.weeklySets[0]}–${z.weeklySets[1]} series · ${z.weeklyMinutes[0]}–${z.weeklyMinutes[1]} min`,
+                        `${z.weeklySets[0]}–${z.weeklySets[1]} sets · ${z.weeklyMinutes[0]}–${z.weeklyMinutes[1]} min`,
+                      )}
+                    </td>
+                    <td className="small">{load.lastDate ? formatShort(load.lastDate, lang) : '—'}</td>
                     <td>
                       <span className={`badge ${status[0] === 'high' ? 'badge-error' : status[0] === 'warn' ? 'badge-warning' : 'badge-success'}`}>{status[1]}</span>
                     </td>
@@ -1103,21 +1305,29 @@ function ProgressTab({
       <section className="card">
         <div className="card-header">
           <div>
-            <div className="card-title"><Icon name="spark" /> Marcas personales</div>
-            <div className="card-sub">Detectadas al finalizar una sesión. Se ocultan si vacías el historial.</div>
+            <div className="card-title"><Icon name="spark" /> {tx(lang, 'Marcas personales', 'Personal records')}</div>
+            <div className="card-sub">
+              {tx(lang, 'Detectadas al finalizar una sesión. Se ocultan si vacías el historial.', 'Detected when you finish a session. Hidden if you clear history.')}
+            </div>
           </div>
           <span className="badge badge-warning">{prs.length}</span>
         </div>
         <div className="card-body">
           {prs.length === 0 ? (
-            <p className="hint">Sin marcas todavía. La app compara el peso máximo por ejercicio con tu historial.</p>
+            <p className="hint">
+              {tx(
+                lang,
+                'Sin marcas todavía. La app compara el peso máximo por ejercicio con tu historial.',
+                'No records yet. The app compares the max weight per exercise with your history.',
+              )}
+            </p>
           ) : (
             <div className="list">
               {prs.slice().reverse().slice(0, 20).map((p) => (
                 <div key={`${p.date}-${p.exerciseId}-${p.weight}`} className="list-item">
                   <div className="list-item-main">
                     <span className="list-item-title"><Icon name="spark" size={12} /> {p.name}</span>
-                    <span className="list-item-sub">{formatShort(p.date)} · {p.weight} kg × {p.reps} reps</span>
+                    <span className="list-item-sub">{formatShort(p.date, lang)} · {p.weight} kg × {p.reps} reps</span>
                   </div>
                   <span className="badge badge-warning">{Math.round(estimate1RM(p.weight, p.reps).epley ?? p.weight)} kg 1RM</span>
                 </div>
@@ -1130,8 +1340,8 @@ function ProgressTab({
       <section className="card">
         <div className="card-header">
           <div>
-            <div className="card-title"><Icon name="chart" /> Progreso por zona</div>
-            <div className="card-sub">Series semanales frente al máximo recomendado.</div>
+            <div className="card-title"><Icon name="chart" /> {tx(lang, 'Progreso por zona', 'Progress by zone')}</div>
+            <div className="card-sub">{tx(lang, 'Series semanales frente al máximo recomendado.', 'Weekly sets against the recommended maximum.')}</div>
           </div>
         </div>
         <div className="card-body stack" style={{ gap: 12 }}>
@@ -1140,7 +1350,7 @@ function ProgressTab({
             return (
               <ProgressBar
                 key={z.id}
-                label={`${z.name} · ${load.sets} series`}
+                label={`${zoneNameOf(z, lang)} · ${load.sets} ${tx(lang, 'series', 'sets')}`}
                 value={load.sets}
                 max={Math.max(1, z.weeklySets[1])}
                 valueLabel={`${load.sets}/${z.weeklySets[1]}`}

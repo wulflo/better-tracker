@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { Food, FoodCategory, FoodLogItem, MealSlot } from '../types';
 import {
-  FOOD_CATEGORIES,
-  MEAL_SLOTS,
   calcFood,
   categoryLabel,
   defaultQuantity,
@@ -15,7 +13,11 @@ import {
   searchFoods,
   unitLabel,
   validBarcodeChecksum,
+  localizedFoodName,
+  foodCategories,
+  mealSlots,
 } from '../foodDb';
+import { useLanguage, tx } from '../i18n';
 import { lookupBarcode } from '../vault';
 import { lookupBarcodeCatalog } from '../barcodeCatalog';
 import { errorText } from '../errors';
@@ -42,6 +44,7 @@ function preferredUnit(food: Food): string {
 }
 
 export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onClear, onCreateFood }: Props) {
+  const { lang } = useLanguage();
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState(foods[0]?.id ?? '');
   const [quantity, setQuantity] = useState(100);
@@ -77,11 +80,17 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
   const units = selected ? foodUnits(selected) : ['g'];
   const preview = selected ? calcFood(selected, quantity, unit) : null;
   const totals = mealTotals(items);
-  const results = useMemo(() => searchFoods(foods, query, 8), [foods, query]);
+  const results = useMemo(() => searchFoods(foods, query, 8, lang), [foods, query, lang]);
 
   const foodFor = (item: FoodLogItem): Food | undefined =>
     foods.find((food) => food.id === item.foodId)
     ?? (scannedFood?.id === item.foodId ? scannedFood : undefined);
+
+  const displayName = (food: Food): string => localizedFoodName(food, lang);
+  const displayItemName = (item: FoodLogItem): string => {
+    const food = foodFor(item);
+    return food ? localizedFoodName(food, lang) : item.name;
+  };
 
   useEffect(() => {
     if (foods.some((food) => food.id === selectedId)) return;
@@ -144,12 +153,16 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
     const local = findFoodByBarcode(foods, code);
     if (local) {
       chooseFood(local);
-      setBarcodeNotice(`Producto ya guardado: ${local.name} (${code}).`);
+      setBarcodeNotice(
+        tx(lang, `Producto ya guardado: ${local.name} (${code}).`, `Product already saved: ${local.name} (${code}).`),
+      );
       return;
     }
 
     setBarcodeBusy(true);
-    setBarcodeNotice(`Buscando el código ${code} en el catálogo local…`);
+    setBarcodeNotice(
+      tx(lang, `Buscando el código ${code} en el catálogo local…`, `Looking up code ${code} in the local catalog…`),
+    );
     try {
       // 1) Catálogo local AR/PE/MX: disponible sin conexión. Los macros son
       // una aproximación por categoría, así que se avisa en el resultado.
@@ -159,30 +172,48 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
         await onCreateFood(catalogFood);
         chooseFood(catalogFood);
         setBarcodeNotice(
-          `Producto del catálogo local: ${catalogFood.name}. Macros estimados por categoría; ajusta la cantidad o edítalo con la etiqueta si necesitas precisión.`,
+          tx(
+            lang,
+            `Producto del catálogo local: ${catalogFood.name}. Macros estimados por categoría; ajusta la cantidad o edítalo con la etiqueta si necesitas precisión.`,
+            `Local catalog product: ${catalogFood.name}. Macros estimated by category; adjust the amount or edit it from the label if you need precision.`,
+          ),
         );
         return;
       }
 
       // 2) Open Food Facts: datos exactos si el producto existe y hay red.
-      setBarcodeNotice(`Buscando el código ${code} en Open Food Facts…`);
+      setBarcodeNotice(
+        tx(lang, `Buscando el código ${code} en Open Food Facts…`, `Looking up code ${code} on Open Food Facts…`),
+      );
       const product = await lookupBarcode(code);
       if (product) {
         setScannedFood(product);
         await onCreateFood(product);
         chooseFood(product);
-        setBarcodeNotice(`Producto encontrado y guardado en tu base: ${product.name}.`);
+        setBarcodeNotice(
+          tx(lang, `Producto encontrado y guardado en tu base: ${product.name}.`, `Product found and saved to your database: ${product.name}.`),
+        );
       } else {
         setCustom((value) => ({ ...value, barcode: code }));
         setCustomOpen(true);
         setBarcodeNotice(
-          `El código ${code} no está en el catálogo local ni en Open Food Facts o no tiene macros. Revisa la etiqueta y guárdalo manualmente: el código quedará asociado.`,
+          tx(
+            lang,
+            `El código ${code} no está en el catálogo local ni en Open Food Facts o no tiene macros. Revisa la etiqueta y guárdalo manualmente: el código quedará asociado.`,
+            `Code ${code} is not in the local catalog or Open Food Facts, or it has no macros. Check the label and save it manually: the code will be linked.`,
+          ),
         );
       }
     } catch (e) {
       setCustom((value) => ({ ...value, barcode: code }));
       setCustomOpen(true);
-      setBarcodeNotice(`No se pudo consultar el producto (${errorText(e)}). Puedes guardarlo manualmente con este código.`);
+      setBarcodeNotice(
+        tx(
+          lang,
+          `No se pudo consultar el producto (${errorText(e)}). Puedes guardarlo manualmente con este código.`,
+          `Could not look up the product (${errorText(e)}). You can save it manually with this code.`,
+        ),
+      );
     } finally {
       setBarcodeBusy(false);
     }
@@ -199,16 +230,22 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
     setBarcodeError('');
     setBarcodeNotice(null);
     if (!code) {
-      setBarcodeError('Escribe los dígitos del código de barras.');
+      setBarcodeError(tx(lang, 'Escribe los dígitos del código de barras.', 'Enter the barcode digits.'));
       return;
     }
     if (code.length < 6 || code.length > 14) {
-      setBarcodeError('El código debe tener entre 6 y 14 dígitos.');
+      setBarcodeError(tx(lang, 'El código debe tener entre 6 y 14 dígitos.', 'The code must have between 6 and 14 digits.'));
       return;
     }
     if (isGtinLength(code) && !validBarcodeChecksum(code)) {
       setChecksumHold(code);
-      setBarcodeNotice(`El código ${code} no es válido (dígito de control): revisa los dígitos. Si estás seguro de que está bien escrito, puedes buscarlo igual.`);
+      setBarcodeNotice(
+        tx(
+          lang,
+          `El código ${code} no es válido (dígito de control): revisa los dígitos. Si estás seguro de que está bien escrito, puedes buscarlo igual.`,
+          `Code ${code} is not valid (check digit): review the digits. If you are sure it is correct, you can search anyway.`,
+        ),
+      );
       return;
     }
     setBarcodeInput('');
@@ -225,23 +262,29 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
     const code = checksumHold;
     if (!code) return;
     setBarcodeInput('');
-    setBarcodeNotice(`Buscando el código ${code} aunque su dígito de control no cuadre…`);
+    setBarcodeNotice(
+      tx(
+        lang,
+        `Buscando el código ${code} aunque su dígito de control no cuadre…`,
+        `Looking up code ${code} even though its check digit does not match…`,
+      ),
+    );
     await processBarcode(code);
   };
 
   const createCustom = async () => {
     setError('');
     if (!custom.name.trim()) {
-      setError('Escribe el nombre del alimento.');
+      setError(tx(lang, 'Escribe el nombre del alimento.', 'Enter the food name.'));
       return;
     }
     if (custom.kcal < 0 || custom.protein < 0 || custom.carbs < 0 || custom.fat < 0 || custom.fiber < 0) {
-      setError('Los valores no pueden ser negativos.');
+      setError(tx(lang, 'Los valores no pueden ser negativos.', 'Values cannot be negative.'));
       return;
     }
     const barcode = normalizeBarcode(custom.barcode);
     if (barcode && findFoodByBarcode(foods, barcode)) {
-      setError('Ya existe un alimento con ese código de barras.');
+      setError(tx(lang, 'Ya existe un alimento con ese código de barras.', 'A food with that barcode already exists.'));
       return;
     }
     setSaving(true);
@@ -281,7 +324,7 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
       setCustomOpen(false);
       setQuery(food.name);
     } catch {
-      setError('No se pudo guardar el alimento. Inténtalo de nuevo.');
+      setError(tx(lang, 'No se pudo guardar el alimento. Inténtalo de nuevo.', 'Could not save the food. Try again.'));
     } finally {
       setSaving(false);
     }
@@ -290,19 +333,23 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
   return (
     <div className="food-log">
       <div className="food-search">
-        <span className="field-label">Buscar alimento</span>
+        <span className="field-label">{tx(lang, 'Buscar alimento', 'Search food')}</span>
         <div className="food-search-row">
           <input
             className="input"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={`${foods.length} alimentos: pollo, arroz, plátano...`}
-            aria-label="Buscar alimento"
+            placeholder={tx(
+              lang,
+              `${foods.length} alimentos: pollo, arroz, plátano...`,
+              `${foods.length} foods: chicken, rice, banana...`,
+            )}
+            aria-label={tx(lang, 'Buscar alimento', 'Search food')}
           />
         </div>
         <form className="food-barcode-row" onSubmit={submitBarcode}>
           <label className="field food-barcode-field">
-            <span className="field-label">Código de barras</span>
+            <span className="field-label">{tx(lang, 'Código de barras', 'Barcode')}</span>
             <input
               className="input"
               inputMode="numeric"
@@ -310,7 +357,7 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
               autoComplete="off"
               enterKeyHint="search"
               maxLength={14}
-              placeholder="Ej. 8412345678905"
+              placeholder={tx(lang, 'Ej. 8412345678905', 'e.g. 8412345678905')}
               value={barcodeInput}
               onChange={(event) => {
                 setBarcodeInput(normalizeBarcode(event.target.value).slice(0, 14));
@@ -320,7 +367,7 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
                   setBarcodeNotice(null);
                 }
               }}
-              aria-label="Escribe los dígitos del código de barras"
+              aria-label={tx(lang, 'Escribe los dígitos del código de barras', 'Enter the barcode digits')}
             />
           </label>
           <button
@@ -328,11 +375,15 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
             className="btn btn-tonal btn-sm food-barcode-submit"
             disabled={barcodeBusy || !barcodeInput.trim()}
           >
-            <Icon name="scan" size={15} /> {barcodeBusy ? 'Buscando…' : 'Buscar'}
+            <Icon name="scan" size={15} />{' '}
+            {barcodeBusy ? tx(lang, 'Buscando…', 'Searching…') : tx(lang, 'Buscar', 'Search')}
           </button>
           <span className="hint food-barcode-hint">
-            Escribe o pega 6–14 dígitos. También sirve un lector USB/Bluetooth que termine en Enter. Si el producto no
-            está en el catálogo local, el código se envía a Open Food Facts (world.openfoodfacts.org) para buscarlo.
+            {tx(
+              lang,
+              'Escribe o pega 6–14 dígitos. También sirve un lector USB/Bluetooth que termine en Enter. Si el producto no está en el catálogo local, el código se envía a Open Food Facts (world.openfoodfacts.org) para buscarlo.',
+              'Type or paste 6–14 digits. A USB/Bluetooth scanner ending in Enter also works. If the product is not in the local catalog, the code is sent to Open Food Facts (world.openfoodfacts.org) to look it up.',
+            )}
           </span>
         </form>
         {barcodeError && (
@@ -341,10 +392,14 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
             <span>{barcodeError}</span>
           </div>
         )}
-        <div className="food-results" role="listbox" aria-label="Resultados de alimentos">
+        <div className="food-results" role="listbox" aria-label={tx(lang, 'Resultados de alimentos', 'Food results')}>
           {results.length === 0 ? (
             <div className="food-result-empty">
-              No hay coincidencias. Puedes añadir este alimento con el formulario de abajo.
+              {tx(
+                lang,
+                'No hay coincidencias. Puedes añadir este alimento con el formulario de abajo.',
+                'No matches. You can add this food with the form below.',
+              )}
             </div>
           ) : (
             results.map((food) => (
@@ -355,8 +410,8 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
                 onClick={() => chooseFood(food)}
               >
                 <span>
-                  <strong>{food.name}</strong>
-                  <span className="small muted"> · {categoryLabel(food.category)}</span>
+                  <strong>{displayName(food)}</strong>
+                  <span className="small muted"> · {categoryLabel(food.category, lang)}</span>
                   {food.barcode && <span className="small muted mono"> · {food.barcode}</span>}
                 </span>
                 <span className="mono small">{food.per100.kcal} kcal/100 g</span>
@@ -371,10 +426,10 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
             {checksumHold && (
               <div className="row wrap" style={{ marginTop: 8 }}>
                 <button type="button" className="btn btn-ghost btn-sm" onClick={() => void searchChecksumHold()}>
-                  Buscar igual
+                  {tx(lang, 'Buscar igual', 'Search anyway')}
                 </button>
                 <button type="button" className="btn btn-ghost btn-sm" onClick={() => setChecksumHold(null)}>
-                  Descartar
+                  {tx(lang, 'Descartar', 'Discard')}
                 </button>
               </div>
             )}
@@ -386,47 +441,48 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
         <div className="food-preview">
           <div className="food-preview-head">
             <div>
-              <strong>{selected.name}</strong>
+              <strong>{displayName(selected)}</strong>
               <div className="small muted">
-                {selected.per100.kcal} kcal · {selected.per100.protein} g proteína · {selected.per100.carbs} g carbohidratos ·{' '}
-                {selected.per100.fat} g grasas por 100 g
-                {selected.barcode ? ` · código ${selected.barcode}` : ''}
+                {selected.per100.kcal} kcal · {selected.per100.protein} g {tx(lang, 'proteína', 'protein')} ·{' '}
+                {selected.per100.carbs} g {tx(lang, 'carbohidratos', 'carbs')} · {selected.per100.fat} g{' '}
+                {tx(lang, 'grasas por 100 g', 'fat per 100 g')}
+                {selected.barcode ? ` · ${tx(lang, 'código', 'code')} ${selected.barcode}` : ''}
               </div>
             </div>
-            <span className="badge badge-primary">{categoryLabel(selected.category)}</span>
+            <span className="badge badge-primary">{categoryLabel(selected.category, lang)}</span>
           </div>
           <div className="food-add-row">
             <label className="field">
-              <span className="field-label">Comida</span>
+              <span className="field-label">{tx(lang, 'Comida', 'Meal')}</span>
               <Select
                 value={meal}
                 onChange={(value) => setMeal(value as MealSlot)}
-                options={MEAL_SLOTS.map((slot) => ({ value: slot.id, label: slot.label }))}
+                options={mealSlots(lang).map((slot) => ({ value: slot.id, label: slot.label }))}
               />
             </label>
             <label className="field">
-              <span className="field-label">Cantidad</span>
+              <span className="field-label">{tx(lang, 'Cantidad', 'Quantity')}</span>
               <NumberInput value={quantity} onChange={setQuantity} min={0} step={unit === 'g' || unit === 'ml' ? 10 : 0.5} />
             </label>
             <label className="field">
-              <span className="field-label">Medida</span>
+              <span className="field-label">{tx(lang, 'Medida', 'Measure')}</span>
               <Select
                 value={unit}
                 onChange={changeUnit}
-                options={units.map((item) => ({ value: item, label: unitLabel(item) }))}
+                options={units.map((item) => ({ value: item, label: unitLabel(item, lang) }))}
               />
             </label>
             <button type="button" className="btn btn-primary btn-sm food-add-button" onClick={add}>
-              <Icon name="plus" size={14} /> Añadir
+              <Icon name="plus" size={14} /> {tx(lang, 'Añadir', 'Add')}
             </button>
           </div>
           <div className="food-preview-totals">
-            <span><strong>{preview.grams} g</strong> aprox.</span>
+            <span><strong>{preview.grams} g</strong> {tx(lang, 'aprox.', 'approx.')}</span>
             <span><strong>{preview.kcal} kcal</strong></span>
-            <span>P {preview.protein} g</span>
-            <span>C {preview.carbs} g</span>
-            <span>G {preview.fat} g</span>
-            <span>Fibra {preview.fiber} g</span>
+            <span>{tx(lang, 'P', 'P')} {preview.protein} g</span>
+            <span>{tx(lang, 'C', 'C')} {preview.carbs} g</span>
+            <span>{tx(lang, 'G', 'F')} {preview.fat} g</span>
+            <span>{tx(lang, 'Fibra', 'Fiber')} {preview.fiber} g</span>
           </div>
         </div>
       )}
@@ -434,21 +490,30 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
       <div className="food-day">
         <div className="row between wrap">
           <div>
-            <span className="field-label">Comidas de hoy</span>
-            <span className="hint"> Borrador efímero: se borra al terminar el día.</span>
+            <span className="field-label">{tx(lang, 'Comidas de hoy', "Today's meals")}</span>
+            <span className="hint">
+              {' '}
+              {tx(lang, 'Borrador efímero: se borra al terminar el día.', 'Ephemeral draft: cleared at the end of the day.')}
+            </span>
           </div>
           {items.length > 0 && (
             <button type="button" className="btn btn-ghost btn-sm" onClick={onClear}>
-              <Icon name="trash" size={14} /> Vaciar
+              <Icon name="trash" size={14} /> {tx(lang, 'Vaciar', 'Clear')}
             </button>
           )}
         </div>
 
         {items.length === 0 ? (
-          <div className="food-empty">Añade alimentos para estimar la ingesta del día. Después podrás guardar un único log diario.</div>
+          <div className="food-empty">
+            {tx(
+              lang,
+              'Añade alimentos para estimar la ingesta del día. Después podrás guardar un único log diario.',
+              'Add foods to estimate the day\'s intake. Then you can save a single daily log.',
+            )}
+          </div>
         ) : (
           <div className="stack-sm">
-            {MEAL_SLOTS.map((slot) => {
+            {mealSlots(lang).map((slot) => {
               const group = items.filter((item) => item.meal === slot.id);
               if (!group.length) return null;
               return (
@@ -463,22 +528,24 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
                       return (
                         <div key={item.id} className="food-item food-item-edit">
                           <div className="food-item-main">
-                            <strong>{item.name}</strong>
+                            <strong>{displayItemName(item)}</strong>
                             <span className="small muted">
-                              {editPreview ? `${editPreview.grams} g · ${editPreview.kcal} kcal` : 'Sin datos del alimento'}
+                              {editPreview
+                                ? `${editPreview.grams} g · ${editPreview.kcal} kcal`
+                                : tx(lang, 'Sin datos del alimento', 'No food data')}
                             </span>
                           </div>
                           <div className="food-edit-grid">
                             <label className="field">
-                              <span className="field-label">Comida</span>
+                              <span className="field-label">{tx(lang, 'Comida', 'Meal')}</span>
                               <Select
                                 value={editMeal}
                                 onChange={(value) => setEditMeal(value as MealSlot)}
-                                options={MEAL_SLOTS.map((option) => ({ value: option.id, label: option.label }))}
+                                options={mealSlots(lang).map((option) => ({ value: option.id, label: option.label }))}
                               />
                             </label>
                             <label className="field">
-                              <span className="field-label">Cantidad</span>
+                              <span className="field-label">{tx(lang, 'Cantidad', 'Quantity')}</span>
                               <NumberInput
                                 value={editQuantity}
                                 onChange={setEditQuantity}
@@ -487,23 +554,23 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
                               />
                             </label>
                             <label className="field">
-                              <span className="field-label">Medida</span>
+                              <span className="field-label">{tx(lang, 'Medida', 'Measure')}</span>
                               <Select
                                 value={editUnit}
                                 onChange={(value) => {
                                   setEditUnit(value);
                                   setEditQuantity(defaultQuantity(value));
                                 }}
-                                options={unitOptions.map((option) => ({ value: option, label: unitLabel(option) }))}
+                                options={unitOptions.map((option) => ({ value: option, label: unitLabel(option, lang) }))}
                               />
                             </label>
                           </div>
                           <div className="food-edit-actions">
                             <button type="button" className="btn btn-primary btn-sm" onClick={() => saveEdit(item)}>
-                              <Icon name="check" size={14} /> Guardar
+                              <Icon name="check" size={14} /> {tx(lang, 'Guardar', 'Save')}
                             </button>
                             <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditingId(null)}>
-                              Cancelar
+                              {tx(lang, 'Cancelar', 'Cancel')}
                             </button>
                           </div>
                         </div>
@@ -512,20 +579,20 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
                     return (
                       <div key={item.id} className="food-item">
                         <div className="food-item-main">
-                          <strong>{item.name}</strong>
+                          <strong>{displayItemName(item)}</strong>
                           <span className="small muted">
-                            {item.quantity} {unitLabel(item.unit)} · {item.grams} g
+                            {item.quantity} {unitLabel(item.unit, lang)} · {item.grams} g
                           </span>
                         </div>
                         <div className="food-item-macros">
                           <strong>{item.kcal} kcal</strong>
-                          <span>P {item.protein} · C {item.carbs} · G {item.fat}</span>
+                          <span>{tx(lang, 'P', 'P')} {item.protein} · {tx(lang, 'C', 'C')} {item.carbs} · {tx(lang, 'G', 'F')} {item.fat}</span>
                         </div>
                         <div className="food-item-actions">
                           <button
                             type="button"
                             className="icon-button"
-                            aria-label={`Editar ${item.name}`}
+                            aria-label={tx(lang, `Editar ${displayItemName(item)}`, `Edit ${displayItemName(item)}`)}
                             onClick={() => startEdit(item)}
                           >
                             <Icon name="edit" size={15} />
@@ -533,7 +600,7 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
                           <button
                             type="button"
                             className="icon-button icon-button-danger"
-                            aria-label={`Quitar ${item.name}`}
+                            aria-label={tx(lang, `Quitar ${displayItemName(item)}`, `Remove ${displayItemName(item)}`)}
                             onClick={() => onRemove(item.id)}
                           >
                             <Icon name="trash" size={15} />
@@ -550,79 +617,87 @@ export default function FoodLog({ foods, items, onAdd, onUpdate, onRemove, onCle
 
         {items.length > 0 && (
           <div className="food-totals">
-            <div><span>Calorías</span><strong>{totals.kcal} kcal</strong></div>
-            <div><span>Proteína</span><strong>{totals.protein} g</strong></div>
-            <div><span>Carbohidratos</span><strong>{totals.carbs} g</strong></div>
-            <div><span>Grasas</span><strong>{totals.fat} g</strong></div>
-            <div><span>Fibra</span><strong>{totals.fiber} g</strong></div>
+            <div><span>{tx(lang, 'Calorías', 'Calories')}</span><strong>{totals.kcal} kcal</strong></div>
+            <div><span>{tx(lang, 'Proteína', 'Protein')}</span><strong>{totals.protein} g</strong></div>
+            <div><span>{tx(lang, 'Carbohidratos', 'Carbohydrates')}</span><strong>{totals.carbs} g</strong></div>
+            <div><span>{tx(lang, 'Grasas', 'Fats')}</span><strong>{totals.fat} g</strong></div>
+            <div><span>{tx(lang, 'Fibra', 'Fiber')}</span><strong>{totals.fiber} g</strong></div>
           </div>
         )}
       </div>
 
       <div className="food-custom">
         <button type="button" className="btn btn-tonal btn-sm" onClick={() => setCustomOpen((open) => !open)}>
-          <Icon name="plus" size={14} /> {customOpen ? 'Cerrar' : 'Añadir alimento a la base'}
+          <Icon name="plus" size={14} />{' '}
+          {customOpen ? tx(lang, 'Cerrar', 'Close') : tx(lang, 'Añadir alimento a la base', 'Add food to database')}
         </button>
         {customOpen && (
           <div className="food-custom-form">
             <div className="grid grid-2" style={{ gap: 10 }}>
               <label className="field">
-                <span className="field-label">Nombre</span>
+                <span className="field-label">{tx(lang, 'Nombre', 'Name')}</span>
                 <input
                   className="input"
                   value={custom.name}
                   onChange={(event) => setCustom({ ...custom, name: event.target.value })}
-                  placeholder="Ej. tortilla casera"
+                  placeholder={tx(lang, 'Ej. tortilla casera', 'e.g. homemade omelette')}
                 />
               </label>
               <label className="field">
-                <span className="field-label">Categoría</span>
+                <span className="field-label">{tx(lang, 'Categoría', 'Category')}</span>
                 <Select
                   value={custom.category}
                   onChange={(value) => setCustom({ ...custom, category: value as FoodCategory })}
-                  options={FOOD_CATEGORIES.map((category) => ({ value: category.id, label: category.label }))}
+                  options={foodCategories(lang).map((category) => ({ value: category.id, label: category.label }))}
                 />
               </label>
               <label className="field">
-                <span className="field-label">Calorías / 100 g</span>
+                <span className="field-label">{tx(lang, 'Calorías / 100 g', 'Calories / 100 g')}</span>
                 <NumberInput value={custom.kcal} onChange={(value) => setCustom({ ...custom, kcal: value })} min={0} />
               </label>
               <label className="field">
-                <span className="field-label">Proteína / 100 g</span>
+                <span className="field-label">{tx(lang, 'Proteína / 100 g', 'Protein / 100 g')}</span>
                 <NumberInput value={custom.protein} onChange={(value) => setCustom({ ...custom, protein: value })} min={0} step={0.1} />
               </label>
               <label className="field">
-                <span className="field-label">Carbohidratos / 100 g</span>
+                <span className="field-label">{tx(lang, 'Carbohidratos / 100 g', 'Carbohydrates / 100 g')}</span>
                 <NumberInput value={custom.carbs} onChange={(value) => setCustom({ ...custom, carbs: value })} min={0} step={0.1} />
               </label>
               <label className="field">
-                <span className="field-label">Grasas / 100 g</span>
+                <span className="field-label">{tx(lang, 'Grasas / 100 g', 'Fats / 100 g')}</span>
                 <NumberInput value={custom.fat} onChange={(value) => setCustom({ ...custom, fat: value })} min={0} step={0.1} />
               </label>
               <label className="field">
-                <span className="field-label">Fibra / 100 g</span>
+                <span className="field-label">{tx(lang, 'Fibra / 100 g', 'Fiber / 100 g')}</span>
                 <NumberInput value={custom.fiber} onChange={(value) => setCustom({ ...custom, fiber: value })} min={0} step={0.1} />
               </label>
               <label className="field">
-                <span className="field-label">Peso de 1 unidad (g, opcional)</span>
+                <span className="field-label">{tx(lang, 'Peso de 1 unidad (g, opcional)', 'Weight of 1 unit (g, optional)')}</span>
                 <NumberInput value={custom.unitGrams} onChange={(value) => setCustom({ ...custom, unitGrams: value })} min={0} step={1} />
               </label>
               <label className="field">
-                <span className="field-label">Código de barras (opcional)</span>
+                <span className="field-label">{tx(lang, 'Código de barras (opcional)', 'Barcode (optional)')}</span>
                 <input
                   className="input"
                   value={custom.barcode}
                   onChange={(event) => setCustom({ ...custom, barcode: event.target.value })}
-                  placeholder="Ej. 8412345678905"
+                  placeholder={tx(lang, 'Ej. 8412345678905', 'e.g. 8412345678905')}
                   inputMode="numeric"
                 />
               </label>
             </div>
             {error && <div className="notice notice-error"><Icon name="alert" size={16} /><span>{error}</span></div>}
             <div className="row between">
-              <span className="hint">Se guarda en la bóveda local y estará disponible en el buscador.</span>
+              <span className="hint">
+                {tx(
+                  lang,
+                  'Se guarda en la bóveda local y estará disponible en el buscador.',
+                  'It is saved to the local vault and will be available in search.',
+                )}
+              </span>
               <button type="button" className="btn btn-primary btn-sm" onClick={() => void createCustom()} disabled={saving}>
-                <Icon name="check" size={14} /> {saving ? 'Guardando…' : 'Guardar alimento'}
+                <Icon name="check" size={14} />{' '}
+                {saving ? tx(lang, 'Guardando…', 'Saving…') : tx(lang, 'Guardar alimento', 'Save food')}
               </button>
             </div>
           </div>

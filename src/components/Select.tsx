@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { tx, useLanguage } from '../i18n';
 
 export interface SelectOption {
   value: string;
@@ -20,10 +21,12 @@ export default function Select({
   value,
   onChange,
   options,
-  placeholder = 'Seleccionar',
+  placeholder,
   disabled,
   className = '',
 }: Props) {
+  const { lang } = useLanguage();
+  const placeholderText = placeholder ?? tx(lang, 'Seleccionar', 'Select');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -94,7 +97,7 @@ export default function Select({
         onKeyDown={onKeyDown}
       >
         <span className={selected ? 'select-value' : 'select-placeholder'}>
-          {selected ? selected.label : placeholder}
+          {selected ? selected.label : placeholderText}
         </span>
         <svg className={`select-chevron ${open ? 'open' : ''}`} width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -102,7 +105,9 @@ export default function Select({
       </button>
       {open && (
         <div className="select-menu" role="listbox" tabIndex={-1}>
-          {options.length === 0 && <div className="select-empty">Sin opciones</div>}
+          {options.length === 0 && (
+            <div className="select-empty">{tx(lang, 'Sin opciones', 'No options')}</div>
+          )}
           {options.map((opt, i) => (
             <button
               key={opt.value}
