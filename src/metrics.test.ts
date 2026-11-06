@@ -11,6 +11,7 @@ import {
   latestNutrition,
   reduceExercises,
   reduceNutrition,
+  reduceRoutines,
   safeNum,
   startOfWeek,
   todayISO,
@@ -89,6 +90,18 @@ describe('metrics', () => {
       event('exercise.delete', { id: 'b' }, '2026-01-04T00:00:00.000Z'),
     ]);
     expect(exercises.map((e: Exercise) => [e.id, e.name])).toEqual([['a', 'Sentadilla frontal']]);
+  });
+
+  it('keeps the latest version of each routine when editing', () => {
+    const routines = reduceRoutines([
+      event('routine.saved', { id: 'r1', name: 'Torso', exercises: [{ exerciseId: 'a', sets: 3, reps: 10, load: 0, rest: 90 }] }),
+      event('routine.saved', { id: 'r2', name: 'Pierna', exercises: [{ exerciseId: 'b', sets: 4, reps: 8, load: 0, rest: 120 }] }, '2026-01-02T00:00:00.000Z'),
+      event('routine.saved', { id: 'r1', name: 'Torso actualizado', exercises: [{ exerciseId: 'a', sets: 4, reps: 8, load: 0, rest: 90 }] }, '2026-01-03T00:00:00.000Z'),
+      event('routine.deleted', { id: 'r2' }, '2026-01-04T00:00:00.000Z'),
+    ]);
+    expect(routines).toHaveLength(1);
+    expect(routines[0]).toMatchObject({ id: 'r1', name: 'Torso actualizado' });
+    expect(routines[0].exercises[0]).toMatchObject({ sets: 4, reps: 8 });
   });
 
   it('hides only training events before the last history cutoff', () => {

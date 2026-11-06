@@ -1406,6 +1406,14 @@ input[type='checkbox'] {
   }
 }
 
+.select-search {
+  position: sticky;
+  top: -4px;
+  z-index: 1;
+  padding: 4px;
+  background: var(--surface-2);
+}
+
 .select-option {
   display: flex;
   flex-direction: column;

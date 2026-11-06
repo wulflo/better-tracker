@@ -80,6 +80,10 @@ interface LiveEntry {
   rest: number;
 }
 
+interface EditableRoutineItem extends RoutineExercise {
+  included: boolean;
+}
+
 export default function TrainingView({ deviceId, events, exercises, onRefresh, notify }: Props) {
   const { lang } = useLanguage();
   const [tab, setTab] = useState<Tab>('library');
@@ -171,6 +175,8 @@ function LibraryTab({
   const [zone, setZone] = useState<ZoneId>('chest');
   const [type, setType] = useState('fuerza');
   const [search, setSearch] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
   const selectedZone = ZONE_MAP[zone];
   const zoneSummary = useMemo(() => trainingSummary(events, exercises), [events, exercises]);
 
@@ -200,6 +206,41 @@ function LibraryTab({
     notify(tx(lang, 'Ejercicio añadido.', 'Exercise added.'), 'success');
   };
 
+  const cancelRename = () => {
+    setEditingId(null);
+    setEditName('');
+  };
+
+  const startRename = (exercise: Exercise) => {
+    setEditingId(exercise.id);
+    setEditName(exercise.name);
+  };
+
+  const rename = async () => {
+    const current = exercises.find((exercise) => exercise.id === editingId);
+    if (!current) {
+      cancelRename();
+      return;
+    }
+    if (!editName.trim()) {
+      notify(tx(lang, 'El nombre del ejercicio no puede estar vacío.', 'The exercise name cannot be empty.'), 'error');
+      return;
+    }
+    const updated: Exercise = { ...current, name: editName.trim() };
+    try {
+      await appendEvent(newEvent(deviceId, 'exercise.upsert', updated));
+    } catch (e) {
+      notify(
+        tx(lang, `No se pudo renombrar el ejercicio: ${errorText(e)}`, `Could not rename the exercise: ${errorText(e)}`),
+        'error',
+      );
+      return;
+    }
+    cancelRename();
+    await onRefresh();
+    notify(tx(lang, 'Ejercicio renombrado.', 'Exercise renamed.'), 'success');
+  };
+
   const del = async (id: string) => {
     try {
       await appendEvent(newEvent(deviceId, 'exercise.delete', { id }));
@@ -210,6 +251,7 @@ function LibraryTab({
       );
       return;
     }
+    if (editingId === id) cancelRename();
     await onRefresh();
     notify(tx(lang, 'Ejercicio eliminado.', 'Exercise deleted.'), 'success');
   };
@@ -301,8 +343,22 @@ function LibraryTab({
                 const uses = usage(ex.id);
                 return (
                   <div key={ex.id} className="list-item">
-                    <div className="list-item-main">
-                      <span className="list-item-title">{ex.name}</span>
+                    <div className="list-item-main" style={{ flex: 1 }}>
+                      {editingId === ex.id ? (
+                        <input
+                          className="input input-sm"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void rename();
+                            else if (e.key === 'Escape') cancelRename();
+                          }}
+                          aria-label={tx(lang, 'Nuevo nombre del ejercicio', 'New exercise name')}
+                          autoFocus
+                        />
+                      ) : (
+                        <span className="list-item-title">{ex.name}</span>
+                      )}
                       <span className="list-item-sub">
                         {zoneNameOf(z, lang)} · {exerciseTypeLabel(ex.type, lang)} ·{' '}
                         {tx(lang, `${uses} uso(s)`, `${uses} ${uses === 1 ? 'use' : 'uses'}`)}
@@ -313,7 +369,17 @@ function LibraryTab({
                         <span className="chip-dot" style={{ background: z.color }} />
                         {zoneNameOf(z, lang)}
                       </span>
-                      <button className="btn-icon" aria-label={tx(lang, `Eliminar ${ex.name}`, `Delete ${ex.name}`)} onClick={() => void del(ex.id)}><Icon name="trash" size={14} /></button>
+                      {editingId === ex.id ? (
+                        <>
+                          <button className="btn-icon" aria-label={tx(lang, 'Guardar nombre', 'Save name')} onClick={() => void rename()}><Icon name="check" size={14} /></button>
+                          <button className="btn-icon" aria-label={tx(lang, 'Cancelar', 'Cancel')} onClick={cancelRename}><Icon name="close" size={14} /></button>
+                        </>
+                      ) : (
+                        <>
+                          <button className="btn-icon" aria-label={tx(lang, `Renombrar ${ex.name}`, `Rename ${ex.name}`)} onClick={() => startRename(ex)}><Icon name="edit" size={14} /></button>
+                          <button className="btn-icon" aria-label={tx(lang, `Eliminar ${ex.name}`, `Delete ${ex.name}`)} onClick={() => void del(ex.id)}><Icon name="trash" size={14} /></button>
+                        </>
+                      )}
                     </div>
                   </div>
                 );
@@ -386,19 +452,46 @@ function RoutinesTab({
 }) {
   const { lang } = useLanguage();
   const [name, setName] = useState('');
-  const [selected, setSelected] = useState('');
   const [items, setItems] = useState<RoutineExercise[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editItems, setEditItems] = useState<EditableRoutineItem[]>([]);
 
-  const exerciseOptions = exercises.map((e) => ({ value: e.id, label: e.name, hint: zoneName(zoneForExercise(e), lang) }));
-  const addExercise = () => {
-    if (!selected) return;
-    setItems((v) => [...v, { exerciseId: selected, sets: 3, reps: 10, load: 0, rest: 90 }]);
-    setSelected('');
+  const addExercise = (exerciseId: string) => {
+    setItems((v) => [...v, { exerciseId, sets: 3, reps: 10, load: 0, rest: 90 }]);
   };
   const updateItem = (i: number, key: keyof RoutineExercise, value: number) => {
     setItems((v) => v.map((item, idx) => (idx === i ? { ...item, [key]: value } : item)));
   };
   const removeItem = (i: number) => setItems((v) => v.filter((_, idx) => idx !== i));
+
+  const resetEdit = () => {
+    setEditingId(null);
+    setEditName('');
+    setEditItems([]);
+  };
+
+  const startEdit = (routine: Routine) => {
+    setEditingId(routine.id);
+    setEditName(routine.name);
+    setEditItems(routine.exercises.map((item) => ({ ...item, included: true })));
+  };
+
+  const toggleEditItem = (i: number) => {
+    setEditItems((v) => v.map((item, idx) => (idx === i ? { ...item, included: !item.included } : item)));
+  };
+  const updateEditItem = (i: number, key: keyof RoutineExercise, value: number) => {
+    setEditItems((v) => v.map((item, idx) => (idx === i ? { ...item, [key]: value } : item)));
+  };
+  const addEditExercise = (exerciseId: string) => {
+    setEditItems((v) => {
+      const existing = v.findIndex((item) => item.exerciseId === exerciseId);
+      if (existing >= 0) {
+        return v.map((item, idx) => (idx === existing ? { ...item, included: true } : item));
+      }
+      return [...v, { exerciseId, sets: 3, reps: 10, load: 0, rest: 90, included: true }];
+    });
+  };
 
   const save = async () => {
     if (!name.trim() || items.length === 0) {
@@ -420,6 +513,41 @@ function RoutinesTab({
     await onRefresh();
     notify(tx(lang, 'Rutina guardada.', 'Routine saved.'), 'success');
   };
+
+  const saveEdit = async (id: string) => {
+    const included = editItems.filter((item) => item.included);
+    if (!editName.trim() || included.length === 0) {
+      notify(
+        tx(lang, 'La rutina necesita nombre y al menos un ejercicio marcado.', 'The routine needs a name and at least one checked exercise.'),
+        'error',
+      );
+      return;
+    }
+    const r: Routine = {
+      id,
+      name: editName.trim(),
+      exercises: included.map((item) => ({
+        exerciseId: item.exerciseId,
+        sets: item.sets,
+        reps: item.reps,
+        load: item.load,
+        rest: item.rest,
+      })),
+    };
+    try {
+      await appendEvent(newEvent(deviceId, 'routine.saved', r));
+    } catch (e) {
+      notify(
+        tx(lang, `No se pudo actualizar la rutina: ${errorText(e)}`, `Could not update the routine: ${errorText(e)}`),
+        'error',
+      );
+      return;
+    }
+    resetEdit();
+    await onRefresh();
+    notify(tx(lang, 'Rutina actualizada.', 'Routine updated.'), 'success');
+  };
+
   const del = async (id: string) => {
     try {
       await appendEvent(newEvent(deviceId, 'routine.deleted', { id }));
@@ -430,6 +558,7 @@ function RoutinesTab({
       );
       return;
     }
+    if (editingId === id) resetEdit();
     await onRefresh();
     notify(tx(lang, 'Rutina eliminada.', 'Routine deleted.'), 'success');
   };
@@ -451,16 +580,13 @@ function RoutinesTab({
         </div>
         <div className="card-body stack">
           <div className="row wrap" style={{ alignItems: 'flex-end' }}>
-            <div className="field" style={{ minWidth: 220 }}>
+            <div className="field" style={{ minWidth: 220, flex: '1 1 220px' }}>
               <span className="field-label">{tx(lang, 'Nombre de la rutina', 'Routine name')}</span>
               <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={tx(lang, 'Torso, pierna, full body...', 'Upper body, legs, full body...')} />
             </div>
-            <div className="field grow" style={{ minWidth: 200 }}>
-              <span className="field-label">{tx(lang, 'Añadir ejercicio', 'Add exercise')}</span>
-              <Select value={selected} onChange={setSelected} options={exerciseOptions} placeholder={tx(lang, 'Elegir ejercicio', 'Choose exercise')} />
-            </div>
-            <button className="btn btn-tonal" onClick={addExercise}><Icon name="plus" size={15} /> {tx(lang, 'Añadir', 'Add')}</button>
           </div>
+
+          <ExercisePicker exercises={exercises} onAdd={addExercise} />
 
           {items.length > 0 && (
             <div className="list">
@@ -504,8 +630,8 @@ function RoutinesTab({
             <div className="card-sub">
               {tx(
                 lang,
-                `${routines.length} rutina(s). Las rutinas eliminadas desaparecen de sesión y plan.`,
-                `${routines.length} ${routines.length === 1 ? 'routine' : 'routines'}. Deleted routines disappear from session and plan.`,
+                `${routines.length} rutina(s). Puedes renombrarlas, desmarcar ejercicios y añadir más.`,
+                `${routines.length} ${routines.length === 1 ? 'routine' : 'routines'}. You can rename them, uncheck exercises and add more.`,
               )}
             </div>
           </div>
@@ -520,6 +646,71 @@ function RoutinesTab({
           ) : (
             <div className="grid grid-2">
               {routines.map((r) => {
+                if (editingId === r.id) {
+                  const includedCount = editItems.filter((item) => item.included).length;
+                  return (
+                    <div key={r.id} className="metric" style={{ gridColumn: '1 / -1' }}>
+                      <div className="row between wrap" style={{ alignItems: 'flex-end' }}>
+                        <div className="field grow" style={{ minWidth: 220 }}>
+                          <span className="field-label">{tx(lang, 'Renombrar rutina', 'Rename routine')}</span>
+                          <input className="input" value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus />
+                        </div>
+                        <button className="btn btn-ghost btn-sm" onClick={resetEdit}><Icon name="close" size={14} /> {tx(lang, 'Cancelar', 'Cancel')}</button>
+                      </div>
+
+                      <div className="list" style={{ marginTop: 12 }}>
+                        {editItems.map((it, i) => {
+                          const ex = exercises.find((e) => e.id === it.exerciseId);
+                          const z = ex ? ZONE_MAP[zoneForExercise(ex)] : null;
+                          return (
+                            <div key={`${it.exerciseId}-${i}`} className="list-item" style={{ alignItems: 'flex-start', opacity: it.included ? 1 : 0.52 }}>
+                              <div className="row" style={{ alignItems: 'center', gap: 10, minWidth: 0 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={it.included}
+                                  onChange={() => toggleEditItem(i)}
+                                  aria-label={tx(lang, `Incluir ${ex?.name ?? 'ejercicio'}`, `Include ${ex?.name ?? 'exercise'}`)}
+                                />
+                                <div className="list-item-main">
+                                  <span className="list-item-title" style={{ textDecoration: it.included ? 'none' : 'line-through' }}>
+                                    {ex?.name ?? tx(lang, 'Ejercicio', 'Exercise')}
+                                  </span>
+                                  <span className="list-item-sub">
+                                    {z ? zoneNameOf(z, lang) : tx(lang, 'Zona', 'Zone')} · {it.sets} {tx(lang, 'series', 'sets')} × {it.reps} reps
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="row wrap" style={{ justifyContent: 'flex-end' }}>
+                                <label className="field" style={{ width: 76 }}><span className="field-label">{tx(lang, 'Series', 'Sets')}</span><NumberInput value={it.sets} onChange={(v) => updateEditItem(i, 'sets', v)} min={1} max={20} /></label>
+                                <label className="field" style={{ width: 76 }}><span className="field-label">Reps</span><NumberInput value={it.reps} onChange={(v) => updateEditItem(i, 'reps', v)} min={1} max={100} /></label>
+                                <label className="field" style={{ width: 84 }}><span className="field-label">{tx(lang, 'Carga kg', 'Load kg')}</span><NumberInput value={it.load} onChange={(v) => updateEditItem(i, 'load', v)} min={0} max={500} step={0.5} /></label>
+                                <label className="field" style={{ width: 90 }}><span className="field-label">{tx(lang, 'Descanso s', 'Rest s')}</span><NumberInput value={it.rest} onChange={(v) => updateEditItem(i, 'rest', v)} min={0} max={600} /></label>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div style={{ marginTop: 12 }}>
+                        <ExercisePicker exercises={exercises} onAdd={addEditExercise} />
+                      </div>
+
+                      <div className="row between wrap" style={{ marginTop: 12 }}>
+                        <span className="hint">
+                          {tx(
+                            lang,
+                            `${includedCount} de ${editItems.length} ejercicios marcados`,
+                            `${includedCount} of ${editItems.length} exercises checked`,
+                          )}
+                        </span>
+                        <button className="btn btn-primary" onClick={() => void saveEdit(r.id)} disabled={includedCount === 0}>
+                          <Icon name="check" size={15} /> {tx(lang, 'Guardar cambios', 'Save changes')}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
                 const zones = [...new Set(r.exercises.map((it) => {
                   const ex = exercises.find((e) => e.id === it.exerciseId);
                   return ex ? zoneForExercise(ex) : 'fullbody';
@@ -528,7 +719,10 @@ function RoutinesTab({
                   <div key={r.id} className="metric">
                     <div className="row between">
                       <span className="strong">{r.name}</span>
-                      <button className="btn-icon" aria-label={tx(lang, `Eliminar ${r.name}`, `Delete ${r.name}`)} onClick={() => void del(r.id)}><Icon name="trash" size={14} /></button>
+                      <div className="row" style={{ gap: 6 }}>
+                        <button className="btn-icon" aria-label={tx(lang, `Editar ${r.name}`, `Edit ${r.name}`)} onClick={() => startEdit(r)}><Icon name="edit" size={14} /></button>
+                        <button className="btn-icon" aria-label={tx(lang, `Eliminar ${r.name}`, `Delete ${r.name}`)} onClick={() => void del(r.id)}><Icon name="trash" size={14} /></button>
+                      </div>
                     </div>
                     <div className="chips" style={{ marginTop: 8 }}>
                       {zones.map((z) => (
@@ -549,6 +743,62 @@ function RoutinesTab({
           )}
         </div>
       </section>
+    </div>
+  );
+}
+
+function ExercisePicker({ exercises, onAdd }: { exercises: Exercise[]; onAdd: (exerciseId: string) => void }) {
+  const { lang } = useLanguage();
+  const [zone, setZone] = useState('');
+  const [selected, setSelected] = useState('');
+  const filtered = useMemo(
+    () => exercises.filter((ex) => !zone || zoneForExercise(ex) === zone),
+    [exercises, zone],
+  );
+  const options = useMemo(
+    () => filtered.map((ex) => ({ value: ex.id, label: ex.name, hint: zoneName(zoneForExercise(ex), lang) })),
+    [filtered, lang],
+  );
+  const zoneFilterOptions = useMemo(
+    () => [
+      { value: '', label: tx(lang, 'Todas las zonas', 'All zones'), hint: tx(lang, 'Sin filtro', 'No filter') },
+      ...zoneOptions(lang),
+    ],
+    [lang],
+  );
+  const add = () => {
+    if (!selected) return;
+    onAdd(selected);
+    setSelected('');
+  };
+
+  return (
+    <div className="row wrap" style={{ alignItems: 'flex-end' }}>
+      <div className="field" style={{ minWidth: 150, maxWidth: 200 }}>
+        <span className="field-label">{tx(lang, 'Filtrar por zona', 'Filter by zone')}</span>
+        <Select
+          value={zone}
+          onChange={(value) => {
+            setZone(value);
+            setSelected('');
+          }}
+          options={zoneFilterOptions}
+        />
+      </div>
+      <div className="field grow" style={{ minWidth: 220 }}>
+        <span className="field-label">{tx(lang, 'Añadir ejercicio', 'Add exercise')}</span>
+        <Select
+          searchable
+          value={selected}
+          onChange={setSelected}
+          options={options}
+          placeholder={tx(lang, 'Elegir ejercicio', 'Choose exercise')}
+          searchPlaceholder={tx(lang, 'Buscar por nombre o zona...', 'Search by name or zone...')}
+        />
+      </div>
+      <button className="btn btn-tonal" onClick={add} disabled={!selected}>
+        <Icon name="plus" size={15} /> {tx(lang, 'Añadir', 'Add')}
+      </button>
     </div>
   );
 }
@@ -1406,7 +1656,7 @@ function ProgressTab({
               {prs.slice().reverse().slice(0, 20).map((p) => (
                 <div key={`${p.date}-${p.exerciseId}-${p.weight}`} className="list-item">
                   <div className="list-item-main">
-                    <span className="list-item-title"><Icon name="spark" size={12} /> {p.name}</span>
+                    <span className="list-item-title"><Icon name="spark" size={12} /> {exercises.find((exercise) => exercise.id === p.exerciseId)?.name ?? p.name}</span>
                     <span className="list-item-sub">{formatShort(p.date, lang)} · {p.weight} kg × {p.reps} reps</span>
                   </div>
                   <span className="badge badge-warning">{Math.round(estimate1RM(p.weight, p.reps).epley ?? p.weight)} kg 1RM</span>

@@ -414,7 +414,7 @@ export function CalendarHeatmap({ events, exercises, prs }: CalendarProps) {
           ))}
           {sel.prs.map((p) => (
             <div key={`${p.date}-${p.exerciseId}`} className="calendar-session">
-              <span>★ {p.name || exerciseMap.get(p.exerciseId)?.name}</span>
+              <span>★ {exerciseMap.get(p.exerciseId)?.name || p.name}</span>
               <span className="muted">{p.weight} kg × {p.reps}</span>
             </div>
           ))}

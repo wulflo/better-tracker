@@ -467,7 +467,7 @@ export default function HistoryView({ deviceId, events, exercises, onRefresh, no
               return (
                 <div key={row.id} className="list-item">
                   <div className="list-item-main">
-                    <span className="list-item-title"><Icon name="spark" size={12} /> {tx(lang, 'Marca personal', 'Personal record')} · {row.pr.name}</span>
+                    <span className="list-item-title"><Icon name="spark" size={12} /> {tx(lang, 'Marca personal', 'Personal record')} · {exerciseMap.get(row.pr.exerciseId)?.name ?? row.pr.name}</span>
                     <span className="list-item-sub">{formatShort(row.pr.date, lang)} · {formatNumber(row.pr.weight, lang)} kg × {formatNumber(row.pr.reps, lang)} {tx(lang, 'reps', 'reps')}</span>
                   </div>
                   <span className="badge badge-warning">PR</span>

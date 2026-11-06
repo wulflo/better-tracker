@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { tx, useLanguage } from '../i18n';
 
 export interface SelectOption {
@@ -15,6 +15,9 @@ interface Props {
   label?: string;
   disabled?: boolean;
   className?: string;
+  /** Muestra un campo de búsqueda dentro del menú. */
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }
 
 export default function Select({
@@ -24,14 +27,24 @@ export default function Select({
   placeholder,
   disabled,
   className = '',
+  searchable = false,
+  searchPlaceholder,
 }: Props) {
   const { lang } = useLanguage();
   const placeholderText = placeholder ?? tx(lang, 'Seleccionar', 'Select');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
+  const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const selected = options.find((o) => o.value === value);
+
+  const filteredOptions = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!searchable || !term) return options;
+    return options.filter((o) => `${o.label} ${o.hint ?? ''}`.toLowerCase().includes(term));
+  }, [options, query, searchable]);
 
   useEffect(() => {
     if (!open) return;
@@ -43,11 +56,17 @@ export default function Select({
   }, [open]);
 
   useEffect(() => {
+    if (!open) return;
+    setQuery('');
+    if (searchable) searchRef.current?.focus();
+  }, [open, searchable]);
+
+  useEffect(() => {
     if (open) {
-      const idx = options.findIndex((o) => o.value === value);
+      const idx = filteredOptions.findIndex((o) => o.value === value);
       setActive(idx >= 0 ? idx : 0);
     }
-  }, [open, options, value]);
+  }, [open, filteredOptions, value]);
 
   const choose = (v: string) => {
     onChange(v);
@@ -66,15 +85,20 @@ export default function Select({
     if (e.key === 'Escape') {
       e.preventDefault();
       setOpen(false);
+      triggerRef.current?.focus();
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setActive((i) => Math.min(options.length - 1, i + 1));
+      setActive((i) => Math.min(filteredOptions.length - 1, i + 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setActive((i) => Math.max(0, i - 1));
-    } else if (e.key === 'Enter' || e.key === ' ') {
+    } else if (e.key === 'Enter') {
       e.preventDefault();
-      const opt = options[active];
+      const opt = filteredOptions[active];
+      if (opt) choose(opt.value);
+    } else if (e.key === ' ' && !searchable) {
+      e.preventDefault();
+      const opt = filteredOptions[active];
       if (opt) choose(opt.value);
     }
   };
@@ -105,10 +129,23 @@ export default function Select({
       </button>
       {open && (
         <div className="select-menu" role="listbox" tabIndex={-1}>
-          {options.length === 0 && (
+          {searchable && (
+            <div className="select-search">
+              <input
+                ref={searchRef}
+                className="input input-sm"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={onKeyDown}
+                placeholder={searchPlaceholder ?? tx(lang, 'Buscar...', 'Search...')}
+                aria-label={searchPlaceholder ?? tx(lang, 'Buscar opciones', 'Search options')}
+              />
+            </div>
+          )}
+          {filteredOptions.length === 0 && (
             <div className="select-empty">{tx(lang, 'Sin opciones', 'No options')}</div>
           )}
-          {options.map((opt, i) => (
+          {filteredOptions.map((opt, i) => (
             <button
               key={opt.value}
               type="button"

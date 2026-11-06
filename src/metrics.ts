@@ -296,10 +296,16 @@ export function reduceRoutines(events: VaultEvent[]): Routine[] {
   const deleted = new Set(
     events.filter((e) => e.kind === 'routine.deleted').map((e) => e.payload?.id),
   );
-  return events
-    .filter((e) => e.kind === 'routine.saved')
-    .map((e) => e.payload as Routine)
-    .filter((r) => !deleted.has(r.id));
+  const routines = new Map<string, Routine>();
+  for (const event of events) {
+    if (event.kind !== 'routine.saved') continue;
+    const routine = event.payload as Routine;
+    if (!routine?.id) continue;
+    // Al renombrar o editar una rutina se guarda otro evento con el mismo id:
+    // el mapa conserva el orden original y se queda con la última versión.
+    routines.set(routine.id, routine);
+  }
+  return Array.from(routines.values()).filter((r) => !deleted.has(r.id));
 }
 
 export function reducePlans(events: VaultEvent[]): Plan[] {
