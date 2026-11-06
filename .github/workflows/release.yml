@@ -423,6 +423,9 @@ jobs:
       - name: Upload to draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Este job no hace checkout, así que gh no puede inferir el repo
+          # desde git y falla con "not a git repository".
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           TAG="${{ needs.version.outputs.tag }}"
