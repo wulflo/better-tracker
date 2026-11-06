@@ -25,6 +25,7 @@ import WellnessView from './WellnessView';
 import Select from './components/Select';
 import { Icon, LogoMark } from './components/Icons';
 import { useLanguage, t, tx } from './i18n';
+import { ACCENTS, useTheme } from './theme';
 import UpdatePanel from './components/UpdatePanel';
 import { errorText } from './errors';
 import { openRepository, REPOSITORY_URL } from './links';
@@ -69,6 +70,7 @@ export default function App() {
   const toastTimer = useRef<number | null>(null);
   const dropWarnedRef = useRef('');
   const { lang, setLang } = useLanguage();
+  const { mode, setMode, accent, setAccent } = useTheme();
 
   const notify = useCallback((message: string, tone: ToastTone = 'info') => {
     setToast({ message, tone });
@@ -639,6 +641,55 @@ export default function App() {
               <div className="settings-row">
                 <span className="muted">{tx(lang, 'Eventos', 'Events')}</span>
                 <span className="value">{events.length}</span>
+              </div>
+              <div className="settings-row">
+                <span className="muted">{tx(lang, 'Tema', 'Theme')}</span>
+                <div
+                  className="segmented theme-switch"
+                  role="group"
+                  aria-label={tx(lang, 'Tema', 'Theme')}
+                >
+                  <button
+                    type="button"
+                    className={`segment ${mode === 'dark' ? 'active' : ''}`}
+                    aria-pressed={mode === 'dark'}
+                    onClick={() => setMode('dark')}
+                  >
+                    <Icon name="moon" size={14} /> {tx(lang, 'Oscuro', 'Dark')}
+                  </button>
+                  <button
+                    type="button"
+                    className={`segment ${mode === 'light' ? 'active' : ''}`}
+                    aria-pressed={mode === 'light'}
+                    onClick={() => setMode('light')}
+                  >
+                    <Icon name="sun" size={14} /> {tx(lang, 'Claro', 'Light')}
+                  </button>
+                </div>
+              </div>
+              <div className="settings-row">
+                <span className="muted">{tx(lang, 'Color de acento', 'Accent color')}</span>
+                <div
+                  className="accent-picker"
+                  role="radiogroup"
+                  aria-label={tx(lang, 'Color de acento', 'Accent color')}
+                >
+                  {ACCENTS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={accent === option.id}
+                      aria-label={tx(lang, option.labelEs, option.labelEn)}
+                      title={tx(lang, option.labelEs, option.labelEn)}
+                      className={`accent-swatch ${accent === option.id ? 'active' : ''}`}
+                      style={{ '--swatch': option.color } as React.CSSProperties}
+                      onClick={() => setAccent(option.id)}
+                    >
+                      <Icon name="check" size={12} />
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="settings-row">
                 <span className="muted">{t('language', lang)}</span>

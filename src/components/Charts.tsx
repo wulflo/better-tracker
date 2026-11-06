@@ -363,7 +363,7 @@ export function CalendarHeatmap({ events, exercises, prs }: CalendarProps) {
               type="button"
               className={`calendar-cell ${selected === cell.date ? 'selected' : ''} ${isToday ? 'today' : ''}`}
               onClick={() => setSelected(cell.date)}
-              style={{ background: l.minutes > 0 ? `rgba(208, 188, 255, ${0.12 + intensity * 0.62})` : undefined }}
+              style={{ background: l.minutes > 0 ? `rgba(var(--primary-rgb), ${0.12 + intensity * 0.62})` : undefined }}
               title={tx(
                 lang,
                 `${cell.date} · ${Math.round(l.minutes)} min · ${l.sets} series`,
