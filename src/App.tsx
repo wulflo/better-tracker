@@ -27,6 +27,7 @@ import { Icon, LogoMark } from './components/Icons';
 import { useLanguage, t, tx } from './i18n';
 import { ACCENTS, useTheme } from './theme';
 import UpdatePanel from './components/UpdatePanel';
+import { WindowControls, WindowResizeHandles } from './components/WindowChrome';
 import { errorText } from './errors';
 import { openRepository, REPOSITORY_URL } from './links';
 
@@ -444,8 +445,9 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <WindowResizeHandles />
       <aside className="sidebar">
-        <div className="brand">
+        <div className="brand" data-tauri-drag-region="deep">
           <div className="brand-logo"><LogoMark size={40} /></div>
           <div className="brand-text">
             <strong>Better Tracker</strong>
@@ -499,7 +501,7 @@ export default function App() {
       </aside>
 
       <main className="main">
-        <header className="topbar">
+        <header className="topbar" data-tauri-drag-region="deep">
           <div className="row wrap">
             <span className="badge badge-success"><span className="status-dot" /> {tx(lang, 'Solo local', 'Local only')}</span>
             <span className="hint">
@@ -511,6 +513,7 @@ export default function App() {
             <button className="btn-icon" aria-label={t('settings', lang)} onClick={() => setSettingsOpen(true)}>
               <Icon name="settings" size={17} />
             </button>
+            <WindowControls />
           </div>
         </header>
 

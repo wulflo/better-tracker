@@ -466,7 +466,7 @@ p {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 18px 30px 14px;
+  padding: 18px 12px 14px 30px;
   border-bottom: 1px solid rgba(var(--primary-rgb), 0.07);
   background: var(--topbar-bg);
   backdrop-filter: blur(18px);
@@ -492,6 +492,129 @@ p {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+/* Controles de ventana integrados en la barra superior (ventana sin marco). */
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 2px;
+  flex: none;
+}
+
+.window-controls-divider {
+  width: 1px;
+  height: 20px;
+  margin-right: 6px;
+  background: rgba(var(--primary-rgb), 0.14);
+}
+
+.window-control {
+  width: 34px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--on-surface-variant);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.window-control:hover {
+  background: rgba(var(--overlay-rgb), 0.09);
+  color: var(--on-surface);
+}
+
+.window-control:active {
+  background: rgba(var(--overlay-rgb), 0.14);
+}
+
+.window-control-close:hover {
+  background: #e5484d;
+  color: #fff;
+}
+
+.window-control-close:active {
+  background: #cf383d;
+  color: #fff;
+}
+
+.window-control:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.45);
+}
+
+/* Tiradores invisibles para redimensionar la ventana sin marco. */
+.window-resize-handle {
+  position: fixed;
+  z-index: 9999;
+}
+
+.window-resize-top {
+  top: 0;
+  left: 10px;
+  right: 10px;
+  height: 4px;
+  cursor: ns-resize;
+}
+
+.window-resize-bottom {
+  bottom: 0;
+  left: 10px;
+  right: 10px;
+  height: 4px;
+  cursor: ns-resize;
+}
+
+.window-resize-left {
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 4px;
+  cursor: ew-resize;
+}
+
+.window-resize-right {
+  top: 10px;
+  bottom: 10px;
+  right: 0;
+  width: 3px;
+  cursor: ew-resize;
+}
+
+.window-resize-top-left {
+  top: 0;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nwse-resize;
+}
+
+.window-resize-top-right {
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nesw-resize;
+}
+
+.window-resize-bottom-left {
+  bottom: 0;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nesw-resize;
+}
+
+.window-resize-bottom-right {
+  bottom: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nwse-resize;
 }
 
 .content {
