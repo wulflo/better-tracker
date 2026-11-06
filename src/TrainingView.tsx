@@ -12,6 +12,7 @@ import type {
   Workout,
 } from './types';
 import { appendEvent, newEvent } from './vault';
+import { errorText } from './errors';
 import {
   estimate1RM,
   exerciseSeries,
@@ -185,14 +186,30 @@ function LibraryTab({
       type,
       muscle: selectedZone.muscles.join(', '),
     };
-    await appendEvent(newEvent(deviceId, 'exercise.upsert', ex));
+    try {
+      await appendEvent(newEvent(deviceId, 'exercise.upsert', ex));
+    } catch (e) {
+      notify(
+        tx(lang, `No se pudo guardar el ejercicio: ${errorText(e)}`, `Could not save the exercise: ${errorText(e)}`),
+        'error',
+      );
+      return;
+    }
     setName('');
     await onRefresh();
     notify(tx(lang, 'Ejercicio añadido.', 'Exercise added.'), 'success');
   };
 
   const del = async (id: string) => {
-    await appendEvent(newEvent(deviceId, 'exercise.delete', { id }));
+    try {
+      await appendEvent(newEvent(deviceId, 'exercise.delete', { id }));
+    } catch (e) {
+      notify(
+        tx(lang, `No se pudo eliminar el ejercicio: ${errorText(e)}`, `Could not delete the exercise: ${errorText(e)}`),
+        'error',
+      );
+      return;
+    }
     await onRefresh();
     notify(tx(lang, 'Ejercicio eliminado.', 'Exercise deleted.'), 'success');
   };
@@ -389,14 +406,30 @@ function RoutinesTab({
       return;
     }
     const r: Routine = { id: crypto.randomUUID(), name: name.trim(), exercises: items };
-    await appendEvent(newEvent(deviceId, 'routine.saved', r));
+    try {
+      await appendEvent(newEvent(deviceId, 'routine.saved', r));
+    } catch (e) {
+      notify(
+        tx(lang, `No se pudo guardar la rutina: ${errorText(e)}`, `Could not save the routine: ${errorText(e)}`),
+        'error',
+      );
+      return;
+    }
     setName('');
     setItems([]);
     await onRefresh();
     notify(tx(lang, 'Rutina guardada.', 'Routine saved.'), 'success');
   };
   const del = async (id: string) => {
-    await appendEvent(newEvent(deviceId, 'routine.deleted', { id }));
+    try {
+      await appendEvent(newEvent(deviceId, 'routine.deleted', { id }));
+    } catch (e) {
+      notify(
+        tx(lang, `No se pudo eliminar la rutina: ${errorText(e)}`, `Could not delete the routine: ${errorText(e)}`),
+        'error',
+      );
+      return;
+    }
     await onRefresh();
     notify(tx(lang, 'Rutina eliminada.', 'Routine deleted.'), 'success');
   };
@@ -554,14 +587,30 @@ function PlanTab({
       return;
     }
     const p: Plan = { id: crypto.randomUUID(), routineId, days, startTime, duration };
-    await appendEvent(newEvent(deviceId, 'plan.saved', p));
+    try {
+      await appendEvent(newEvent(deviceId, 'plan.saved', p));
+    } catch (e) {
+      notify(
+        tx(lang, `No se pudo guardar el plan: ${errorText(e)}`, `Could not save the plan: ${errorText(e)}`),
+        'error',
+      );
+      return;
+    }
     setDays([]);
     setRoutineId('');
     await onRefresh();
     notify(tx(lang, 'Plan semanal guardado.', 'Weekly plan saved.'), 'success');
   };
   const delPlan = async (id: string) => {
-    await appendEvent(newEvent(deviceId, 'plan.deleted', { id }));
+    try {
+      await appendEvent(newEvent(deviceId, 'plan.deleted', { id }));
+    } catch (e) {
+      notify(
+        tx(lang, `No se pudo eliminar el plan: ${errorText(e)}`, `Could not delete the plan: ${errorText(e)}`),
+        'error',
+      );
+      return;
+    }
     await onRefresh();
   };
   const saveMeso = async () => {
@@ -570,13 +619,29 @@ function PlanTab({
       return;
     }
     const m: Mesocycle = { id: crypto.randomUUID(), name: mesoName.trim(), weeks, deload, start };
-    await appendEvent(newEvent(deviceId, 'mesocycle.saved', m));
+    try {
+      await appendEvent(newEvent(deviceId, 'mesocycle.saved', m));
+    } catch (e) {
+      notify(
+        tx(lang, `No se pudo guardar el mesociclo: ${errorText(e)}`, `Could not save the mesocycle: ${errorText(e)}`),
+        'error',
+      );
+      return;
+    }
     setMesoName('');
     await onRefresh();
     notify(tx(lang, 'Mesociclo guardado.', 'Mesocycle saved.'), 'success');
   };
   const delMeso = async (id: string) => {
-    await appendEvent(newEvent(deviceId, 'mesocycle.deleted', { id }));
+    try {
+      await appendEvent(newEvent(deviceId, 'mesocycle.deleted', { id }));
+    } catch (e) {
+      notify(
+        tx(lang, `No se pudo eliminar el mesociclo: ${errorText(e)}`, `Could not delete the mesocycle: ${errorText(e)}`),
+        'error',
+      );
+      return;
+    }
     await onRefresh();
   };
 
@@ -848,7 +913,15 @@ function SessionTab({
       entries: cleanEntries,
       rpeSession: 7,
     };
-    await appendEvent(newEvent(deviceId, 'session.saved', session));
+    try {
+      await appendEvent(newEvent(deviceId, 'session.saved', session));
+    } catch (e) {
+      notify(
+        tx(lang, `No se pudo guardar la sesión: ${errorText(e)}`, `Could not save the session: ${errorText(e)}`),
+        'error',
+      );
+      return;
+    }
 
     const prs: PR[] = [];
     for (const entry of cleanEntries) {
@@ -865,7 +938,14 @@ function SessionTab({
       }
     }
     for (const pr of prs) {
-      await appendEvent(newEvent(deviceId, 'pr.achieved', pr));
+      try {
+        await appendEvent(newEvent(deviceId, 'pr.achieved', pr));
+      } catch (e) {
+        notify(
+          tx(lang, `La sesión se guardó, pero no la marca de ${pr.name}: ${errorText(e)}`, `The session was saved, but not the ${pr.name} record: ${errorText(e)}`),
+          'error',
+        );
+      }
     }
     setStartedAt(null);
     setEntries([]);
