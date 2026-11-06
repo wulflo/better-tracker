@@ -462,28 +462,103 @@ pub fn append_event(app: &AppHandle, event: &Event) -> Result<(), String> {
         current_location(app)?.ok_or_else(|| "No hay una bóveda seleccionada.".to_string())?;
     let payload = serde_json::to_vec(event).map_err(|e| e.to_string())?;
 
-    let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    {
+        let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
-    match location {
-        VaultLocation::Local(root) => write_local_event(&root, event, &file_name, &payload),
-        #[cfg(target_os = "android")]
-        VaultLocation::Saf(saf) => {
-            let relative = format!(
-                "{DATA_DIR}/{DEVICES_DIR}/{}/{EVENTS_DIR}/{file_name}",
-                event.device_id
-            );
-            if saf_lookup_file(app, &saf.root, &relative)?.is_some() {
-                return Ok(());
+        match &location {
+            VaultLocation::Local(root) => write_local_event(root, event, &file_name, &payload),
+            #[cfg(target_os = "android")]
+            VaultLocation::Saf(saf) => {
+                let relative = format!(
+                    "{DATA_DIR}/{DEVICES_DIR}/{}/{EVENTS_DIR}/{file_name}",
+                    event.device_id
+                );
+                if saf_lookup_file(app, &saf.root, &relative)?.is_some() {
+                    return Ok(());
+                }
+                let file = app
+                    .android_fs()
+                    .create_new_file(&saf.root, &relative, Some("application/json"))
+                    .map_err(|e| format!("No se pudo crear el evento: {e}"))?;
+                app.android_fs()
+                    .write(&file, &payload)
+                    .map_err(|e| format!("No se pudo guardar el evento: {e}"))
             }
-            let file = app
-                .android_fs()
-                .create_new_file(&saf.root, &relative, Some("application/json"))
-                .map_err(|e| format!("No se pudo crear el evento: {e}"))?;
-            app.android_fs()
-                .write(&file, &payload)
-                .map_err(|e| format!("No se pudo guardar el evento: {e}"))
         }
+    }?;
+
+    // La copia de hoy debe incluir lo que se acaba de guardar. Antes solo se
+    // hacía al arrancar (o cada 6 h), así que lo creado durante el día podía
+    // quedarse fuera de longlife hasta el día siguiente. Es best-effort: si
+    // falla la copia, el evento ya está guardado y no se debe deshacer.
+    match &location {
+        VaultLocation::Local(root) => {
+            let _ = sync_today_backup(app, root, event, &file_name);
+        }
+        #[cfg(target_os = "android")]
+        VaultLocation::Saf(_) => {}
     }
+
+    Ok(())
+}
+
+/// Refleja un evento recién guardado en la copia longlife de hoy. Si la copia
+/// todavía no existe (por ejemplo, la app arrancó con la bóveda vacía), crea
+/// la copia completa; si existe, copia solo el archivo nuevo y actualiza el
+/// manifiesto. Nunca toca una copia incompleta: de eso se encarga la
+/// reparación de `run_daily_backup`.
+fn sync_today_backup(
+    app: &AppHandle,
+    root: &Path,
+    event: &Event,
+    file_name: &str,
+) -> Result<(), String> {
+    let day = root
+        .join(BACKUP_DIR)
+        .join(&event.device_id)
+        .join(today());
+    if !day.join(BACKUP_MARKER).is_file() {
+        run_daily_backup(app, false)?;
+        return Ok(());
+    }
+
+    sync_backup_event_files(&day, root, event, file_name)
+}
+
+fn sync_backup_event_files(
+    day: &Path,
+    root: &Path,
+    event: &Event,
+    file_name: &str,
+) -> Result<(), String> {
+    let relative = Path::new(DEVICES_DIR)
+        .join(&event.device_id)
+        .join(EVENTS_DIR)
+        .join(file_name);
+    let target = day.join(&relative);
+    if target.is_file() {
+        return Ok(());
+    }
+
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("No se pudo preparar la copia: {e}"))?;
+        harden_permissions(parent, true);
+    }
+    fs::copy(root.join(DATA_DIR).join(&relative), &target)
+        .map_err(|e| format!("No se pudo actualizar la copia: {e}"))?;
+    harden_permissions(&target, false);
+
+    if let Some(mut meta) = read_local_meta(day) {
+        let (files, bytes) = count_dir(day)?;
+        meta.files = Some(files);
+        meta.bytes = Some(bytes);
+        let text = serde_json::to_vec_pretty(&meta).map_err(|e| e.to_string())?;
+        let meta_path = day.join(SNAPSHOT_META);
+        fs::write(&meta_path, text).map_err(|e| format!("No se pudo describir la copia: {e}"))?;
+        harden_permissions(&meta_path, false);
+    }
+
+    Ok(())
 }
 
 fn write_local_event(
@@ -859,6 +934,22 @@ fn read_local_meta(dir: &Path) -> Option<SnapshotMeta> {
         .and_then(|text| serde_json::from_str::<SnapshotMeta>(&text).ok())
 }
 
+/// ¿La copia de hoy se quedó atrás? Si `omega` tiene ahora más archivos que
+/// los que describe el manifiesto (o los mismos con más bytes), se guardaron
+/// datos después de crear la copia y hay que rehacerla. Nunca se considera
+/// atrasada cuando `omega` tiene menos: en ese caso la copia es la que
+/// protege los datos que faltan.
+fn local_backup_is_stale(omega: &Path, day: &Path) -> Result<bool, String> {
+    let Some(meta) = read_local_meta(day) else {
+        return Ok(false);
+    };
+    let (Some(expected_files), Some(expected_bytes)) = (meta.files, meta.bytes) else {
+        return Ok(false);
+    };
+    let (files, bytes) = count_dir(omega)?;
+    Ok(files > expected_files || (files == expected_files && bytes > expected_bytes))
+}
+
 /// Compara el contenido real de una copia con el manifiesto de su
 /// `snapshot.json`. Las copias antiguas (sin manifiesto) se consideran válidas:
 /// no hay nada con lo que compararlas.
@@ -1192,7 +1283,12 @@ pub fn run_daily_backup(app: &AppHandle, force: bool) -> Result<BackupRunResult,
                 // manifiesto está dañada (sincronización a medias, borrado
                 // externo…): se rehace en vez de darla por buena.
                 let healthy = day.join(BACKUP_MARKER).is_file() && manifest_matches(&day)?;
-                if healthy {
+                // La copia de hoy pudo crearse al arrancar, antes de que el
+                // usuario guardara ejercicios, rutinas o planes. Si `omega`
+                // creció desde entonces, se rehace para que longlife no se
+                // quede con una foto vieja hasta el día siguiente.
+                let stale = healthy && local_backup_is_stale(&omega, &day)?;
+                if healthy && !stale {
                     skipped = Some("La copia de hoy ya existe.".to_string());
                 } else {
                     if day.exists() {
@@ -2196,6 +2292,59 @@ mod tests {
         let (files, bytes) = count_dir(&dir).unwrap();
         assert_eq!(files, 1, "snapshot.json y el marcador no son datos");
         assert_eq!(bytes, 4);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn backup_is_stale_only_when_omega_gained_events() {
+        let root = temp_dir("stale");
+        let omega = root.join(DATA_DIR);
+        fs::create_dir_all(omega.join("events")).unwrap();
+        fs::write(omega.join("events/a.json"), b"aaaa").unwrap();
+
+        let day = snapshot_with_manifest(&root, &[("events/a.json", b"aaaa")]);
+        assert!(!local_backup_is_stale(&omega, &day).unwrap());
+
+        // Un evento guardado después de la copia obliga a rehacerla.
+        fs::write(omega.join("events/b.json"), b"bbbb").unwrap();
+        assert!(local_backup_is_stale(&omega, &day).unwrap());
+
+        // Si `omega` pierde datos, la copia no se toca: es la que protege.
+        fs::remove_file(omega.join("events/b.json")).unwrap();
+        fs::remove_file(omega.join("events/a.json")).unwrap();
+        assert!(!local_backup_is_stale(&omega, &day).unwrap());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn syncs_new_events_into_todays_backup() {
+        let root = temp_dir("sync-backup");
+        let day = snapshot_with_manifest(&root, &[("devices/device-a/events/a.json", b"aaaa")]);
+
+        let event = Event {
+            id: "b".to_string(),
+            device_id: "device-a".to_string(),
+            timestamp: "2026-11-07T21:00:00.000Z".to_string(),
+            kind: "routine.saved".to_string(),
+            payload: serde_json::json!({ "id": "r" }),
+        };
+        let relative = Path::new(DEVICES_DIR)
+            .join("device-a")
+            .join(EVENTS_DIR)
+            .join("b.json");
+        let source = root.join(DATA_DIR).join(&relative);
+        fs::create_dir_all(source.parent().unwrap()).unwrap();
+        fs::write(&source, b"bbbb").unwrap();
+
+        sync_backup_event_files(&day, &root, &event, "b.json").unwrap();
+
+        assert!(day.join(&relative).is_file(), "el evento debe llegar a longlife");
+        let meta = read_local_meta(&day).expect("la copia conserva su manifiesto");
+        assert_eq!(meta.files, Some(2));
+        assert_eq!(meta.bytes, Some(8));
+        assert!(manifest_matches(&day).unwrap());
 
         let _ = fs::remove_dir_all(root);
     }
