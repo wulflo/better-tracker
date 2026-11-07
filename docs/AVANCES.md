@@ -31,6 +31,9 @@
 - Iconos: master único en `src-tauri/icons/app-icon.png`; `npm run icons` regenera escritorio y mipmaps (legacy + adaptativos) y los copia al proyecto `gen/`. Antes solo se hacía en CI, así que los builds locales mostraban el icono genérico de Tauri.
 - `tauri-plugin-android-fs` 30.2.0 con `compileSdk = 36`: la APK vuelve a compilar en CI sin parches manuales del registro de Cargo. Las rutas SAF guardadas por 2.x se siguen leyendo.
 
+## Escritorio Linux
+- El AppImage fuerza `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` al arrancar. Esto evita el `SIGABRT` de `WebKitWebProcess` durante el cierre con la ruta EGL/DMA-BUF de Mesa, mantiene la composición acelerada y solo se aplica dentro de un AppImage. Un valor previo de la variable (incluido `0`) se respeta.
+
 ## Interfaz y marca
 - Logo actualizado a mancuernas moradas (`public/logo.png`, iconos Tauri y Android).
 - Selector de tema **oscuro/claro** y de **color de acento** con 9 variantes (violeta, azul, turquesa, verde, ámbar, naranja, rojo, rosa e índigo) en Ajustes. Se guardan en `localStorage` y se aplican antes del primer pintado con `public/theme-init.js`.

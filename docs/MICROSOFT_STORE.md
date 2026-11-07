@@ -73,7 +73,7 @@ El workflow falla si el nombre está vacío o contiene espacios.
 El manifiesto se genera desde
 `packaging/windows-store/AppxManifest.template.xml` con
 `node scripts/prepare-store-msix.mjs`. La versión de `package.json` se
-convierte a cuatro componentes (`0.9.15` → `0.9.15.0`); cada envío a la Store
+convierte a cuatro componentes (`0.9.16` → `0.9.16.0`); cada envío a la Store
 debe subir ese número. Sincroniza la versión con `node scripts/sync-version.mjs`
 antes de compilar.
 

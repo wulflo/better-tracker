@@ -9,7 +9,7 @@
 # desde el snap de plataforma gnome-42-2204.
 name: better-tracker
 base: core22
-version: '0.9.15'
+version: '0.9.16'
 title: Better Fitness Tracker
 contact: https://github.com/wulflo/better-tracker/issues
 issues: https://github.com/wulflo/better-tracker/issues

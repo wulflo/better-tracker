@@ -2,7 +2,7 @@
 
 Entrenamiento, composición corporal, nutrición y carga semanal en una app de escritorio local-first.
 
-Versión actual: **0.9.15**.
+Versión actual: **0.9.16**.
 
 [Read in English](README.md)
 
