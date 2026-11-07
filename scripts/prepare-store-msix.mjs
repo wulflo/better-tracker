@@ -12,7 +12,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const DEFAULT_IDENTITY_NAME = "wulflo.BetterTracker";
+const DEFAULT_IDENTITY_NAME = "wulflo.BetterFitnessTracker";
 const DEFAULT_PUBLISHER = "CN=7F51EF66-8407-4798-A8F4-3C4A407DA359";
 const RESERVED_NAMES = new Set([
   ".",
@@ -90,7 +90,7 @@ function validateIdentityName(name) {
 
 const identityName = (process.env.MS_STORE_PACKAGE_NAME ?? DEFAULT_IDENTITY_NAME).trim();
 const publisher = (process.env.MS_STORE_PUBLISHER ?? DEFAULT_PUBLISHER).trim();
-const displayName = (process.env.MS_STORE_DISPLAY_NAME ?? "Better Tracker").trim();
+const displayName = (process.env.MS_STORE_DISPLAY_NAME ?? "Better Fitness Tracker").trim();
 const publisherDisplayName = (process.env.MS_STORE_PUBLISHER_DISPLAY_NAME ?? "wulflo").trim();
 const stagingDir = resolve(process.env.MS_STORE_STAGING_DIR ?? resolve(ROOT, "store-msix"));
 

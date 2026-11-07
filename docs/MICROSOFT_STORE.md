@@ -27,14 +27,24 @@ de **Product management → Product identity**:
 - `Package/Identity/Name` (no es el nombre comercial y no puede tener espacios).
 - `Package/Identity/Publisher`.
 - `Package/Properties/PublisherDisplayName`.
+- `Package/Properties/DisplayName`: tiene que ser un nombre reservado en
+  Partner Center. En esta cuenta el valor es **Better Fitness Tracker**.
+
+La identidad actual de la app es:
+
+| Campo | Valor |
+| --- | --- |
+| Package/Identity/Name | `wulflo.BetterFitnessTracker` |
+| Package family name | `wulflo.BetterFitnessTracker_m5406cz1kxxs8` |
+| Display name | `Better Fitness Tracker` |
 
 El workflow usa estos valores por defecto:
 
 | Campo | Valor por defecto |
 | --- | --- |
-| `MS_STORE_PACKAGE_NAME` | `wulflo.BetterTracker` |
+| `MS_STORE_PACKAGE_NAME` | `wulflo.BetterFitnessTracker` |
 | `MS_STORE_PUBLISHER` | `CN=7F51EF66-8407-4798-A8F4-3C4A407DA359` |
-| `MS_STORE_DISPLAY_NAME` | `Better Tracker` |
+| `MS_STORE_DISPLAY_NAME` | `Better Fitness Tracker` |
 | `MS_STORE_PUBLISHER_DISPLAY_NAME` | `wulflo` |
 
 Si la Store asigna otro nombre de paquete o el publisher cambia, define las

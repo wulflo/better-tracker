@@ -22,10 +22,10 @@ jobs:
       # Package/Identity/Name de Partner Center. No es el nombre comercial y
       # no puede contener espacios. Se puede sobrescribir con una variable de
       # repositorio si la Store asigna otro nombre.
-      MS_STORE_PACKAGE_NAME: ${{ vars.MS_STORE_PACKAGE_NAME || 'wulflo.BetterTracker' }}
+      MS_STORE_PACKAGE_NAME: ${{ vars.MS_STORE_PACKAGE_NAME || 'wulflo.BetterFitnessTracker' }}
       # Package/Identity/Publisher de Partner Center.
       MS_STORE_PUBLISHER: ${{ vars.MS_STORE_PUBLISHER || 'CN=7F51EF66-8407-4798-A8F4-3C4A407DA359' }}
-      MS_STORE_DISPLAY_NAME: ${{ vars.MS_STORE_DISPLAY_NAME || 'Better Tracker' }}
+      MS_STORE_DISPLAY_NAME: ${{ vars.MS_STORE_DISPLAY_NAME || 'Better Fitness Tracker' }}
       MS_STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.MS_STORE_PUBLISHER_DISPLAY_NAME || 'wulflo' }}
     steps:
       - name: Checkout repository
