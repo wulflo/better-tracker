@@ -184,7 +184,7 @@ if (!Object.keys(platforms).length) {
 const notesPath = join(ROOT, 'docs', 'releases', `${tag}.md`);
 const notes = existsSync(notesPath)
   ? readFileSync(notesPath, 'utf8').trim()
-  : `Better Tracker ${version}`;
+  : `Better Fitness Tracker ${version}`;
 
 const manifest = {
   version,

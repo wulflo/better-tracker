@@ -14,7 +14,7 @@
 Pega esto al inicio de una nueva conversación:
 
 ```text
-Estamos en /home/alonso/Documentos/Repositorios/better-tracker (Better Tracker
+Estamos en /home/alonso/Documentos/Repositorios/better-tracker (Better Fitness Tracker
 0.9.8, base git 057e3cc). Lee docs/CHECKLIST_CODIGO_MANUAL.md y continúa desde
 la primera casilla sin marcar de la sección 5. El objetivo es quitar la cámara
 y la imagen del escáner y dejar solo la entrada manual de dígitos del código de

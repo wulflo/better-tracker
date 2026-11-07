@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Firma un APK local con el keystore de release de Better Tracker.
+# Firma un APK local con el keystore de release de Better Fitness Tracker.
 # No guarda secretos en el repo: los lee de /home/alonso/.config/better-tracker/secrets/signing.env
 #
 # Uso:

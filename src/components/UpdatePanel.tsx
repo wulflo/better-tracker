@@ -64,7 +64,7 @@ export default function UpdatePanel({
       const result = await checkForUpdate(installFormat, lang);
       if (!result) {
         setStatus('current');
-        notify(tx(lang, 'Better Tracker ya está actualizado.', 'Better Tracker is up to date.'), 'success');
+        notify(tx(lang, 'Better Fitness Tracker ya está actualizado.', 'Better Fitness Tracker is up to date.'), 'success');
         return;
       }
       setTarget(result);

@@ -64,7 +64,7 @@ fn update_client() -> Result<reqwest::Client, String> {
 
 fn validate_release_url(url: &str) -> Result<(), String> {
     if !url.starts_with(RELEASE_PREFIX) {
-        return Err("La URL de actualización no pertenece a las releases de Better Tracker.".into());
+        return Err("La URL de actualización no pertenece a las releases de Better Fitness Tracker.".into());
     }
     if !url.starts_with("https://") {
         return Err("La URL de actualización debe usar HTTPS.".into());
@@ -713,7 +713,7 @@ fn validate_external_url(value: &str) -> Result<(), String> {
     }
     let rest = url
         .strip_prefix(REPOSITORY)
-        .ok_or_else(|| "El enlace no pertenece a Better Tracker.".to_string())?;
+        .ok_or_else(|| "El enlace no pertenece a Better Fitness Tracker.".to_string())?;
     if rest.is_empty()
         || rest == "/"
         || rest == "/releases"
@@ -722,7 +722,7 @@ fn validate_external_url(value: &str) -> Result<(), String> {
     {
         Ok(())
     } else {
-        Err("El enlace no pertenece a Better Tracker.".into())
+        Err("El enlace no pertenece a Better Fitness Tracker.".into())
     }
 }
 

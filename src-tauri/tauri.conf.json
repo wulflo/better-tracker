@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "splash",
-        "title": "Better Tracker",
+        "title": "Better Fitness Tracker",
         "width": 420,
         "height": 260,
         "resizable": false,
@@ -24,7 +24,7 @@
       },
       {
         "label": "main",
-        "title": "Better Tracker",
+        "title": "Better Fitness Tracker",
         "width": 1200,
         "height": 800,
         "minWidth": 900,

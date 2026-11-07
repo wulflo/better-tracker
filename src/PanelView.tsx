@@ -376,7 +376,7 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
         if (firedRef.current.has(fired)) continue;
         firedRef.current.add(fired);
         if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification('Better Tracker', { body: r.title });
+          new Notification('Better Fitness Tracker', { body: r.title });
         }
         notify(tx(lang, `Recordatorio: ${r.title}`, `Reminder: ${r.title}`), 'info');
       }

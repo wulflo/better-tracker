@@ -1,4 +1,4 @@
-# Snap de Better Tracker.
+# Snap de Better Fitness Tracker.
 #
 # El binario, los iconos y el .desktop se toman del .deb que genera
 # `tauri build --bundles deb` (ver .github/workflows/package-linux.yml y
@@ -10,13 +10,13 @@
 name: better-tracker
 base: core22
 version: '0.9.14'
-title: Better Tracker
+title: Better Fitness Tracker
 contact: https://github.com/wulflo/better-tracker/issues
 issues: https://github.com/wulflo/better-tracker/issues
 source-code: https://github.com/wulflo/better-tracker
 summary: Entrenamiento, composición corporal y nutrición local-first
 description: |
-  Better Tracker reúne entrenamiento, composición corporal, nutrición y carga
+  Better Fitness Tracker reúne entrenamiento, composición corporal, nutrición y carga
   semanal en una app de escritorio local-first.
 
   Registra entrenamientos, peso, medidas, comidas y agua; consulta el progreso

@@ -2,7 +2,7 @@
 
 Estado: fases 1–3 implementadas; pendiente la verificación manual y la release de prueba de la fase 2.
 Fecha de revisión: 2026-11-03.
-Alcance: Better Tracker escritorio (Linux/Windows/macOS) y Android.
+Alcance: Better Fitness Tracker escritorio (Linux/Windows/macOS) y Android.
 
 Este documento recoge las medidas de seguridad detectadas en la revisión
 estática. Está pensado para aplicarse por fases, sin cambiar el formato de la

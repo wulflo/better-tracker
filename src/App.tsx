@@ -424,7 +424,7 @@ export default function App() {
       <div className="hero">
         <div className="hero-card">
           <div className="hero-logo"><LogoMark size={64} /></div>
-          <h1>Better Tracker</h1>
+          <h1>Better Fitness Tracker</h1>
           <p>
             {tx(
               lang,
@@ -450,7 +450,7 @@ export default function App() {
         <div className="brand" data-tauri-drag-region="deep">
           <div className="brand-logo"><LogoMark size={40} /></div>
           <div className="brand-text">
-            <strong>Better Tracker</strong>
+            <strong>Better Fitness Tracker</strong>
             <span>{t('app.subtitle', lang)}</span>
           </div>
         </div>
@@ -564,7 +564,7 @@ export default function App() {
           )}
           <div className="row between wrap" style={{ marginTop: 18 }}>
             <span className="hint">
-              Better Tracker · {info ? `v${info.version}` : 'v—'} ·{' '}
+              Better Fitness Tracker · {info ? `v${info.version}` : 'v—'} ·{' '}
               {tx(lang, `${events.length} eventos locales`, `${events.length} local events`)}
             </span>
             <span className="hint">
@@ -601,8 +601,8 @@ export default function App() {
                 <div className="card-sub">
                   {tx(
                     lang,
-                    'Estado local de Better Tracker. Sin cuentas ni telemetría; actualizaciones opcionales.',
-                    'Local Better Tracker status. No accounts or telemetry; optional updates.',
+                    'Estado local de Better Fitness Tracker. Sin cuentas ni telemetría; actualizaciones opcionales.',
+                    'Local Better Fitness Tracker status. No accounts or telemetry; optional updates.',
                   )}
                 </div>
               </div>

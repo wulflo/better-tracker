@@ -1,4 +1,4 @@
-# Flatpak de Better Tracker.
+# Flatpak de Better Fitness Tracker.
 #
 # Empaqueta el contenido del .deb generado por `tauri build --bundles deb`
 # (ver .github/workflows/package-linux.yml y scripts/package-linux.sh). El

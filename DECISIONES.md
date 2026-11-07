@@ -1,7 +1,16 @@
 # Decisiones técnicas
 
 ## Nombre e identidad
-Better Tracker. El nombre se define en `tauri.conf.json` (`productName`) y se usa en los nombres de archivo. El logo se guarda como master en `src-tauri/icons/app-icon.png` con el manifiesto `app-icon.json`; `npm run icons` regenera desde ahí los iconos de escritorio (`.ico`, `.icns`, PNG y Store) y los mipmaps de Android (legacy y adaptativos), incluidos los del proyecto generado en `src-tauri/gen/`. La marca sin fondo de la interfaz vive en `public/logo.png` y en el splash.
+El nombre comercial es **Better Fitness Tracker**. Para no romper los nombres de
+archivo, el binario, el repositorio ni la cadena de actualizaciones, el
+`productName` de `tauri.conf.json` se mantiene como `Better Tracker`; el nombre
+visible (ventanas, interfaz, splash, README y MSIX) usa
+`Better Fitness Tracker`. El logo se guarda como master en
+`src-tauri/icons/app-icon.png` con el manifiesto `app-icon.json`; `npm run icons`
+regenera desde ahí los iconos de escritorio (`.ico`, `.icns`, PNG y Store) y los
+mipmaps de Android (legacy y adaptativos), incluidos los del proyecto generado en
+`src-tauri/gen/`. La marca sin fondo de la interfaz vive en `public/logo.png` y en
+el splash.
 
 ## Plataformas
 Escritorio y Android:

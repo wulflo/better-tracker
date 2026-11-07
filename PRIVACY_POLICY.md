@@ -1,8 +1,8 @@
-# Privacy Policy — Better Tracker
+# Privacy Policy — Better Fitness Tracker
 
 Last updated: November 2026
 
-Better Tracker is a local-first app for training, body composition, nutrition,
+Better Fitness Tracker is a local-first app for training, body composition, nutrition,
 and weekly load. This policy explains what the app does with your data. It
 applies to the desktop app distributed through GitHub Releases, the Microsoft
 Store (MSIX), and Android.
@@ -23,7 +23,7 @@ system picker.
 
 The data is plain JSON. It is not encrypted by the app. You control the
 folder, its backups, and any synchronization you configure yourself (for
-example, FolderSync). Better Tracker does not operate any server, cloud
+example, FolderSync). Better Fitness Tracker does not operate any server, cloud
 storage, or account system.
 
 ## Data the app does not collect
@@ -50,10 +50,10 @@ The app makes a network request only in these cases:
 
 ## Microsoft Store
 
-When you install Better Tracker from the Microsoft Store, Microsoft may
+When you install Better Fitness Tracker from the Microsoft Store, Microsoft may
 collect diagnostic and usage information according to the Microsoft Privacy
 Statement and your Windows settings. That collection is controlled by
-Microsoft, not by Better Tracker, and the app itself does not send telemetry.
+Microsoft, not by Better Fitness Tracker, and the app itself does not send telemetry.
 Store builds receive updates through the Microsoft Store.
 
 ## Security
@@ -65,7 +65,7 @@ private and encrypt it yourself if you store sensitive information. Backups in
 
 ## Children
 
-Better Tracker is not directed at children and does not knowingly collect
+Better Fitness Tracker is not directed at children and does not knowingly collect
 personal information from anyone.
 
 ## Changes
@@ -82,11 +82,11 @@ repository:
 
 ---
 
-# Política de privacidad — Better Tracker
+# Política de privacidad — Better Fitness Tracker
 
 Última actualización: noviembre de 2026
 
-Better Tracker es una app local-first para entrenamiento, composición corporal,
+Better Fitness Tracker es una app local-first para entrenamiento, composición corporal,
 nutrición y carga semanal. Esta política explica qué hace la app con tus datos.
 Se aplica a la app de escritorio distribuida por GitHub Releases, a la
 Microsoft Store (MSIX) y a Android.
@@ -107,7 +107,7 @@ con el selector del sistema.
 
 Los datos son JSON en claro. La app no los cifra. Tú controlas la carpeta, sus
 copias y cualquier sincronización que configures por tu cuenta (por ejemplo,
-FolderSync). Better Tracker no opera servidores, almacenamiento en la nube ni
+FolderSync). Better Fitness Tracker no opera servidores, almacenamiento en la nube ni
 sistemas de cuentas.
 
 ## Datos que la app no recopila
@@ -135,10 +135,10 @@ La app hace una petición de red solo en estos casos:
 
 ## Microsoft Store
 
-Si instalas Better Tracker desde la Microsoft Store, Microsoft puede recopilar
+Si instalas Better Fitness Tracker desde la Microsoft Store, Microsoft puede recopilar
 información de diagnóstico y uso según la Declaración de privacidad de
 Microsoft y la configuración de Windows. Esa recopilación la controla
-Microsoft, no Better Tracker, y la app no envía telemetría. Las builds de la
+Microsoft, no Better Fitness Tracker, y la app no envía telemetría. Las builds de la
 Store reciben las actualizaciones a través de la Microsoft Store.
 
 ## Seguridad
@@ -150,7 +150,7 @@ copias de `longlife` son copias de los mismos datos JSON en claro.
 
 ## Menores
 
-Better Tracker no está dirigida a menores y no recopila conscientemente
+Better Fitness Tracker no está dirigida a menores y no recopila conscientemente
 información personal de nadie.
 
 ## Cambios

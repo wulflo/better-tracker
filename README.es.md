@@ -1,4 +1,4 @@
-# Better Tracker
+# Better Fitness Tracker
 
 Entrenamiento, composición corporal, nutrición y carga semanal en una app de escritorio local-first.
 
@@ -8,7 +8,7 @@ Versión actual: **0.9.14**.
 
 ## Plataformas
 
-Better Tracker se compila y publica para Linux, Windows y Android.
+Better Fitness Tracker se compila y publica para Linux, Windows y Android.
 
 | Sistema | Artefactos | Actualización integrada |
 | --- | --- | --- |

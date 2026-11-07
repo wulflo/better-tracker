@@ -1,4 +1,4 @@
-# Better Tracker
+# Better Fitness Tracker
 
 Training, body composition, nutrition, and weekly load in a local-first desktop app.
 
@@ -8,7 +8,7 @@ Current version: **0.9.14**.
 
 ## Platforms
 
-Better Tracker is built and published for Linux, Windows and Android.
+Better Fitness Tracker is built and published for Linux, Windows and Android.
 
 | System | Artifacts | Built-in updates |
 | --- | --- | --- |
