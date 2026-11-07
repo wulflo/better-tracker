@@ -98,47 +98,24 @@ Es normal en apps de escritorio Win32 empaquetadas como MSIX (Tauri usa
 WebView2 y necesita acceso a la bóveda que el usuario elige fuera del
 contenedor). No hay que añadir nada al manifiesto: `runFullTrust` ya está
 declarado. En la sección de capacidades restringidas del envío hay que pegar
-una justificación. Texto listo para usar en inglés:
+una justificación de 50 palabras. Texto listo para usar en inglés:
 
 ```text
-Better Fitness Tracker is a desktop Win32 application packaged as MSIX (Tauri
-and WebView2). The runFullTrust capability is required for the app to run its
-desktop UI and to read and write the local data folder that the user explicitly
-selects on their device (the vault). That folder is outside the MSIX package
-container, so standard app-container permissions are not sufficient.
-
-The app does not request administrator elevation, does not install services or
-drivers, does not modify system settings, and does not run in the background. It
-has no accounts, telemetry, analytics, or advertising. All user data remains
-local. Network access is limited to an optional barcode lookup and a manual
-update check in the GitHub build; the Microsoft Store build does not include the
-updater.
-
-runFullTrust is the only restricted capability used and is essential for the
-app's core functionality. Without it, the app cannot access the user-selected
-data folder.
+Better Fitness Tracker is a Win32 desktop app packaged as MSIX. runFullTrust is
+required to run its WebView2 interface and read/write the local vault folder the
+user selects outside the package container. It does not elevate, install
+services, modify system settings, run in background, or collect telemetry. Data
+stays local.
 ```
 
 En español:
 
 ```text
-Better Fitness Tracker es una aplicación de escritorio Win32 empaquetada como
-MSIX (Tauri y WebView2). La capacidad runFullTrust es necesaria para ejecutar la
-interfaz de escritorio y para leer y escribir la carpeta local de datos que el
-usuario elige explícitamente en su dispositivo (la bóveda). Esa carpeta está
-fuera del contenedor del paquete MSIX, por lo que los permisos estándar del
-contenedor no son suficientes.
-
-La app no solicita elevación de administrador, no instala servicios ni
-controladores, no modifica la configuración del sistema y no se ejecuta en
-segundo plano. No tiene cuentas, telemetría, analítica ni publicidad. Todos los
-datos permanecen en local. El acceso a la red se limita a la consulta opcional
-de códigos de barras y a la comprobación manual de actualizaciones en la build
-de GitHub; la build de Microsoft Store no incluye el actualizador.
-
-runFullTrust es la única capacidad restringida utilizada y es imprescindible
-para la funcionalidad principal. Sin ella, la app no puede acceder a la carpeta
-de datos elegida por el usuario.
+Better Fitness Tracker es una app Win32 empaquetada como MSIX. runFullTrust es
+necesaria para ejecutar su interfaz WebView2 y leer/escribir la carpeta de
+bóveda que el usuario elige fuera del contenedor. No eleva privilegios, instala
+servicios, modifica ajustes ni se ejecuta en segundo plano. No recopila
+telemetría. Todo es local.
 ```
 
 Microsoft revisa la justificación y suele aprobar `runFullTrust` para apps de
