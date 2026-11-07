@@ -2,7 +2,7 @@
 
 Training, body composition, nutrition, and weekly load in a local-first desktop app.
 
-Current version: **0.9.14**.
+Current version: **0.9.15**.
 
 [Leer en español](README.es.md)
 

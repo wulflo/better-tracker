@@ -33,7 +33,8 @@
 
 ## Interfaz y marca
 - Logo actualizado a mancuernas moradas (`public/logo.png`, iconos Tauri y Android).
-- Selector de tema **oscuro/claro** y de **color de acento** con 5 variantes (violeta, azul, verde, naranja y rosa) en Ajustes. Se guardan en `localStorage` y se aplican antes del primer pintado con `public/theme-init.js`.
+- Selector de tema **oscuro/claro** y de **color de acento** con 9 variantes (violeta, azul, turquesa, verde, ámbar, naranja, rojo, rosa e índigo) en Ajustes. Se guardan en `localStorage` y se aplican antes del primer pintado con `public/theme-init.js`.
+- Cada acento tiñe fondo, superficies, tarjetas, sidebar, topbar y navegación inferior también en tema oscuro; el tema claro mantiene sus propios tonos y añade fondo a las tarjetas de métricas.
 - El fondo ambiental de las páginas (base y resplandor radial) se tiñe con el acento activo, y el logo ya no lleva halo.
 - Soporte de idioma inglés (selector en Ajustes, persistencia en `localStorage`).
 - Los menús desplegables usan en todos lados el componente `components/Select.tsx` con su propio menú temático; los `<select>` nativos (nivel de actividad, frecuencia de hábitos, idioma) dibujaban el popup del sistema operativo con padding grande y colores ajenos al tema.
