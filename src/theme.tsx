@@ -1,7 +1,16 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
 export type ThemeMode = 'dark' | 'light';
-export type Accent = 'violet' | 'blue' | 'green' | 'orange' | 'pink';
+export type Accent =
+  | 'violet'
+  | 'blue'
+  | 'teal'
+  | 'green'
+  | 'amber'
+  | 'orange'
+  | 'red'
+  | 'pink'
+  | 'indigo';
 
 export interface AccentOption {
   id: Accent;
@@ -10,13 +19,17 @@ export interface AccentOption {
   color: string;
 }
 
-/** Las cinco variantes de acento disponibles en Ajustes. */
+/** Variantes de acento disponibles en Ajustes. */
 export const ACCENTS: AccentOption[] = [
   { id: 'violet', labelEs: 'Violeta', labelEn: 'Violet', color: '#8f6fe8' },
   { id: 'blue', labelEs: 'Azul', labelEn: 'Blue', color: '#4f8ef7' },
+  { id: 'teal', labelEs: 'Turquesa', labelEn: 'Teal', color: '#2b9d8f' },
   { id: 'green', labelEs: 'Verde', labelEn: 'Green', color: '#3aa876' },
+  { id: 'amber', labelEs: 'Ámbar', labelEn: 'Amber', color: '#d99a1b' },
   { id: 'orange', labelEs: 'Naranja', labelEn: 'Orange', color: '#e07b32' },
+  { id: 'red', labelEs: 'Rojo', labelEn: 'Red', color: '#e5484d' },
   { id: 'pink', labelEs: 'Rosa', labelEn: 'Pink', color: '#e0579a' },
+  { id: 'indigo', labelEs: 'Índigo', labelEn: 'Indigo', color: '#6366f1' },
 ];
 
 const MODE_KEY = 'bt.theme';
@@ -46,7 +59,11 @@ export function applyTheme(mode: ThemeMode, accent: Accent) {
   root.dataset.theme = mode;
   root.dataset.accent = accent;
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', mode === 'dark' ? '#130f1b' : '#f7f4fb');
+  if (meta) {
+    // El color de la barra del sistema sigue al fondo real del acento activo.
+    const bg = getComputedStyle(root).getPropertyValue('--bg').trim();
+    meta.setAttribute('content', bg || (mode === 'dark' ? '#130f1b' : '#f7f4fb'));
+  }
 }
 
 // Se aplica al importar el módulo para que el primer pintado ya use el tema
