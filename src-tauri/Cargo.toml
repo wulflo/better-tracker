@@ -38,8 +38,11 @@ reqwest = { version = "0.12.28", default-features = false, features = ["json", "
 sha2 = "0.10"
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
-tauri-plugin-updater = "2"
-tauri-plugin-process = "2"
+# El actualizador nativo y el relanzado solo existen en escritorio. Son
+# opcionales para que la build de Microsoft Store pueda excluirlos por completo
+# (`--no-default-features --features microsoft-store`).
+tauri-plugin-updater = { version = "2", optional = true }
+tauri-plugin-process = { version = "2", optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 # minSdk es 33 (Android 13+), así que no hace falta la feature
@@ -47,6 +50,14 @@ tauri-plugin-process = "2"
 # de almacenamiento desde Android 10 y WRITE/READ_EXTERNAL solo existiría
 # para Android 9 o anterior.
 tauri-plugin-android-fs = { version = "30.2" }
+
+[features]
+# Las builds normales (GitHub Releases) incluyen el actualizador nativo.
+# Microsoft Store compila con `--no-default-features --features microsoft-store`:
+# el paquete MSIX es de solo lectura y lo actualiza la Store.
+default = ["updater"]
+updater = ["dep:tauri-plugin-updater", "dep:tauri-plugin-process"]
+microsoft-store = []
 
 [profile.release]
 opt-level = "s"

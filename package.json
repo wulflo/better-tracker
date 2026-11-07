@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:store": "tauri build --no-bundle --config src-tauri/tauri.store.conf.json -- --no-default-features --features microsoft-store",
     "icons": "node scripts/generate-icons.mjs",
     "preview": "vite preview",
     "tauri": "tauri",

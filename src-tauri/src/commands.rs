@@ -716,6 +716,8 @@ fn validate_external_url(value: &str) -> Result<(), String> {
         .ok_or_else(|| "El enlace no pertenece a Better Tracker.".to_string())?;
     if rest.is_empty() || rest == "/" || rest == "/releases" || rest.starts_with("/releases/") {
         Ok(())
+    } else if rest == "/blob/main/PRIVACY_POLICY.md" {
+        Ok(())
     } else {
         Err("El enlace no pertenece a Better Tracker.".into())
     }

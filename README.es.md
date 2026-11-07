@@ -2,7 +2,7 @@
 
 Entrenamiento, composición corporal, nutrición y carga semanal en una app de escritorio local-first.
 
-Versión actual: **0.9.11**.
+Versión actual: **0.9.13**.
 
 [Read in English](README.md)
 
@@ -14,7 +14,13 @@ Better Tracker se compila y publica para Linux, Windows y Android.
 | --- | --- | --- |
 | Linux x86_64 | `.AppImage`, `.deb`, `.rpm`, `.snap`, `.flatpak` | Solo AppImage. `.deb` y `.rpm` se actualizan instalando el paquete nuevo; `.snap` y `.flatpak` se actualizan desde su tienda. |
 | Windows 10/11 x64 | NSIS `.exe` (instalación por usuario), `.msi` | NSIS. |
+| Microsoft Store (Windows 10/11 x64) | `.msix` (firmado por la Store) | Sin actualizador integrado; las actualizaciones las instala Microsoft Store. |
 | Android (arm64) | `.apk` firmada | Requiere Android 13 o superior (minSdk 33). La app descarga y verifica la APK, la guarda en `Descargas/BetterTracker` y el usuario la instala manualmente. |
+
+La build de Microsoft Store se genera aparte con `npm run build:store` y no
+compila `tauri-plugin-updater`; el panel de actualizaciones solo explica que
+las actualizaciones llegan desde la Store. Ver
+[Microsoft Store (MSIX)](docs/MICROSOFT_STORE.md).
 
 En Linux la app usa GTK/WebKit y funciona en Wayland de forma nativa. Si un driver propietario provoca fallos de renderizado, iníciala con `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
 
@@ -84,9 +90,12 @@ En Linux la app usa GTK/WebKit y funciona en Wayland de forma nativa. Si un driv
 - Si el número de eventos baja respecto al último visto en esa bóveda, la app avisa: una bóveda append-only no debe decrecer (suele indicar que FolderSync u otro equipo ha revertido archivos). Si sincronizas con FolderSync, usa modo copia incremental del móvil al PC (sin propagar borrados) y nunca subas una copia antigua del PC sobre el móvil.
 - El código de barras se introduce a mano en Ingesta: escribe o pega entre 6 y 14 dígitos y pulsa «Buscar» (o usa un lector USB/Bluetooth que termine en Enter). Los códigos UPC-A/EAN-13/GTIN se prueban en sus variantes (con y sin ceros iniciales, 12/13/14 dígitos) tanto en la app como en Open Food Facts. La app no pide permiso de cámara ni lee imágenes.
 - **No hay cifrado:** la bóveda se guarda como JSON en claro en `<bóveda>/omega` y las copias en `<bóveda>/longlife`. No la sincronices con la nube ni compartas el equipo sin cifrarla tú mismo. No se guardan fotos ni archivos: el pegado se limita a texto plano.
-- Las únicas conexiones de red son la comprobación **manual** de actualizaciones y la consulta opcional a Open Food Facts al buscar un código de barras. El código buscado se envía a `world.openfoodfacts.org`; nada se envía en segundo plano.
+- Las únicas conexiones de red son la comprobación **manual** de actualizaciones y la consulta opcional a Open Food Facts al buscar un código de barras. El código buscado se envía a `world.openfoodfacts.org`; nada se envía en segundo plano. Las builds de Microsoft Store no incluyen el actualizador y se actualizan desde la Store.
 - En escritorio las actualizaciones se firman con minisign y se verifican antes de instalar. En Android se descarga la APK de la release, se verifica su SHA-256 publicado y se guarda en Descargas para instalarla manualmente.
 - Al ser eventos JSON inmutables (con los JSONL antiguos aún legibles), los datos siguen siendo legibles y portables sin la app.
+
+La política de privacidad completa, incluido el caso de Microsoft Store, está en
+[PRIVACY_POLICY.md](PRIVACY_POLICY.md).
 
 ## Compilar
 

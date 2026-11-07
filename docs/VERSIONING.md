@@ -48,8 +48,9 @@ Los cambios que solo tocan `*.md` o `docs/**` no disparan el workflow por `paths
 | --- | --- | --- | --- |
 | Linux x86_64 | `.AppImage`, `.deb`, `.rpm`, `.snap`, `.flatpak` | El propio `.AppImage` + `.AppImage.sig` | `linux-x86_64` |
 | Windows x64 | NSIS `.exe`, `.msi` | El `.exe` de NSIS + `.exe.sig` (preferido; MSI como alternativa) | `windows-x86_64` |
+| Microsoft Store x64 | `.msix` (sin firmar; la Store lo firma) | — | — |
 
-Tauri verifica la firma minisign del artefacto del updater antes de instalar. El `.deb` y `.rpm` no son artefactos de actualización automática; se descargan manualmente. El `.snap` y el `.flatpak` se actualizan desde su tienda, no desde el updater de la app.
+Tauri verifica la firma minisign del artefacto del updater antes de instalar. El `.deb` y `.rpm` no son artefactos de actualización automática; se descargan manualmente. El `.snap`, el `.flatpak` y el `.msix` se actualizan desde su tienda, no desde el updater de la app. El MSIX se genera aparte con `.github/workflows/store-msix.yml`; ver `docs/MICROSOFT_STORE.md`.
 
 ## `latest.json`
 
@@ -103,5 +104,5 @@ Verificación en el workflow:
 - Si no hay versión nueva, se muestra “Ya tienes la última versión”.
 - Si hay una, se muestra la versión y las notas; el usuario decide instalar.
 - En Linux el botón se desactiva para `.deb`, `.rpm`, binarios portables y formatos desconocidos. Solo AppImage puede autoactualizarse.
-- En Snap y Flatpak el panel indica que la app se actualiza desde la tienda y no ofrece botón de comprobación.
+- En Snap, Flatpak y Microsoft Store el panel indica que la app se actualiza desde la tienda y no ofrece botón de comprobación. La build MSIX no incluye `tauri-plugin-updater`.
 - Tras instalar, la app se reinicia. En Windows el instalador NSIS se encarga del cierre.

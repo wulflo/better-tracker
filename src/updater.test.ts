@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isNewerVersion } from './updater';
+import { isNewerVersion, updaterUnavailableReason } from './updater';
 
 describe('detección de versiones', () => {
   it('detecta la actualización de 0.9.3 a 0.9.4', () => {
@@ -22,5 +22,12 @@ describe('detección de versiones', () => {
   it('trata versiones incompletas como ceros', () => {
     expect(isNewerVersion('1', '0.9.9')).toBe(true);
     expect(isNewerVersion('0.9', '0.9.0')).toBe(false);
+  });
+});
+
+describe('actualizaciones gestionadas por la tienda', () => {
+  it('explica que MSIX se actualiza desde Microsoft Store', () => {
+    expect(updaterUnavailableReason('msix', 'es')).toContain('Microsoft Store');
+    expect(updaterUnavailableReason('msix', 'en')).toContain('Microsoft Store');
   });
 });

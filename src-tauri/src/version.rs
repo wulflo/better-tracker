@@ -51,6 +51,13 @@ pub fn compare_versions(a: &str, b: &str) -> i8 {
 
 /// Explicit, documented install-format detection. Never infers from file paths.
 pub fn detect_install_format() -> &'static str {
+    // La build de Microsoft Store no incluye el plugin updater; el frontend
+    // debe mostrar el aviso de la tienda aunque no haya variables de entorno.
+    #[cfg(all(target_os = "windows", feature = "microsoft-store"))]
+    {
+        return "msix";
+    }
+
     // Snap y Flatpak se actualizan desde su tienda. El updater de Tauri
     // descargaría un AppImage/.deb y lo instalaría con dpkg, algo que no puede
     // reemplazar un paquete de solo lectura ni actualizaría la revisión.

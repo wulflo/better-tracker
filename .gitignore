@@ -59,6 +59,11 @@ packaging/linux/deb-root/
 snap-login.txt
 *.snapcraft-credentials
 
+# --- Microsoft Store / MSIX ---
+# Payload intermedio y paquete generados por store-msix.yml.
+store-msix/
+*.msix
+
 # --- Logs y Temporales ---
 logs
 *.log

@@ -49,7 +49,9 @@ export default function UpdatePanel({
   const android = installFormat === 'apk';
   const packageFormat = installFormat === 'deb' || installFormat === 'rpm' ? installFormat : null;
   const storeFormat =
-    installFormat === 'snap' || installFormat === 'flatpak' ? installFormat : null;
+    installFormat === 'snap' || installFormat === 'flatpak' || installFormat === 'msix'
+      ? installFormat
+      : null;
   const busy = status === 'checking' || status === 'downloading';
 
   const onCheck = useCallback(async () => {

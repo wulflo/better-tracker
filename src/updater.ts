@@ -9,6 +9,8 @@
  *   del sistema. El plugin nativo no puede reemplazar estos formatos.
  * - Android: Rust descarga la APK, verifica tamaño y SHA-256 y la publica en
  *   Descargas. La instalación sigue siendo manual, como exige Android.
+ * - MSIX (Microsoft Store): la build no incluye el plugin updater. El panel
+ *   solo explica que las actualizaciones llegan desde la Store.
  */
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
@@ -94,9 +96,11 @@ interface UpdateManifest {
 export function canUseUpdater(installFormat?: string): boolean {
   if (!isTauri()) return false;
   if (installFormat === 'apk') return true;
-  // Snap y Flatpak se actualizan desde su tienda: el updater de Tauri no puede
-  // reemplazar esos paquetes (son de solo lectura y no usan dpkg).
-  if (installFormat === 'snap' || installFormat === 'flatpak') return false;
+  // Snap, Flatpak y MSIX (Microsoft Store) se actualizan desde su tienda: el
+  // updater de Tauri no puede reemplazar esos paquetes de solo lectura.
+  if (installFormat === 'snap' || installFormat === 'flatpak' || installFormat === 'msix') {
+    return false;
+  }
   // Linux empaquetado (.deb/.rpm) se actualiza con Descargas + instalador del
   // sistema; AppImage y Windows usan el plugin nativo. Un binario portable sin
   // formato detectable no puede reemplazarse solo.
@@ -112,13 +116,6 @@ export function canUseUpdater(installFormat?: string): boolean {
 }
 
 export function updaterUnavailableReason(installFormat?: string, lang: Lang = 'es'): string {
-  if (!isTauri()) {
-    return tx(
-      lang,
-      'La actualización está disponible solo en la app nativa.',
-      'Updates are only available in the native app.',
-    );
-  }
   if (installFormat === 'snap') {
     return tx(
       lang,
@@ -131,6 +128,20 @@ export function updaterUnavailableReason(installFormat?: string, lang: Lang = 'e
       lang,
       'Esta versión se actualiza desde Flatpak. No hace falta buscar actualizaciones aquí.',
       'This version updates from Flatpak. No need to check for updates here.',
+    );
+  }
+  if (installFormat === 'msix') {
+    return tx(
+      lang,
+      'Esta versión se actualiza desde Microsoft Store. No hace falta buscar actualizaciones aquí.',
+      'This version updates from Microsoft Store. No need to check for updates here.',
+    );
+  }
+  if (!isTauri()) {
+    return tx(
+      lang,
+      'La actualización está disponible solo en la app nativa.',
+      'Updates are only available in the native app.',
     );
   }
   if (installFormat === 'linux') {
@@ -160,7 +171,7 @@ export async function checkForUpdate(
       ),
     );
   }
-  if (installFormat === 'snap' || installFormat === 'flatpak') {
+  if (installFormat === 'snap' || installFormat === 'flatpak' || installFormat === 'msix') {
     throw new Error(updaterUnavailableReason(installFormat, lang));
   }
   if (installFormat === 'apk') {

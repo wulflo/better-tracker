@@ -3,6 +3,7 @@ import { isTauri } from './vault';
 
 export const REPOSITORY_URL = 'https://github.com/wulflo/better-tracker';
 export const RELEASES_URL = `${REPOSITORY_URL}/releases`;
+export const PRIVACY_URL = `${REPOSITORY_URL}/blob/main/PRIVACY_POLICY.md`;
 
 /**
  * Abre una URL en el navegador del sistema. En modo navegador usa una pestaña
@@ -22,4 +23,8 @@ export async function openExternal(url: string): Promise<void> {
 
 export function openRepository(): Promise<void> {
   return openExternal(REPOSITORY_URL);
+}
+
+export function openPrivacyPolicy(): Promise<void> {
+  return openExternal(PRIVACY_URL);
 }

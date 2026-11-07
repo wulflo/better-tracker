@@ -10,6 +10,9 @@ pub mod version;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // La build de Store no registra plugins opcionales en escritorio, así que
+    // el binding deja de necesitar `mut`; se mantiene para el resto de builds.
+    #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -17,7 +20,11 @@ pub fn run() {
 
     // El actualizador nativo y el relanzado solo existen en escritorio. En
     // Android el frontend descarga el APK y el backend lo publica en Descargas.
-    #[cfg(not(target_os = "android"))]
+    //
+    // La build de Microsoft Store (`--no-default-features --features
+    // microsoft-store`) no compila el plugin: dentro de un MSIX la app es de
+    // solo lectura y las actualizaciones las instala la Store.
+    #[cfg(all(not(target_os = "android"), feature = "updater"))]
     {
         builder = builder
             .plugin(tauri_plugin_updater::Builder::new().build())

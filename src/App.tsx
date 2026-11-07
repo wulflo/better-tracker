@@ -29,7 +29,7 @@ import { ACCENTS, useTheme } from './theme';
 import UpdatePanel from './components/UpdatePanel';
 import { WindowControls, WindowResizeHandles } from './components/WindowChrome';
 import { errorText } from './errors';
-import { openRepository, REPOSITORY_URL } from './links';
+import { openPrivacyPolicy, openRepository, REPOSITORY_URL } from './links';
 
 type View = 'panel' | 'training' | 'history' | 'body' | 'wellness';
 type ToastTone = 'success' | 'error' | 'info';
@@ -727,6 +727,15 @@ export default function App() {
                   onClick={() => void openRepository().catch((e) => notify(errorText(e), 'error'))}
                 >
                   <Icon name="repo" size={14} /> {tx(lang, 'Abrir GitHub', 'Open GitHub')}
+                </button>
+              </div>
+              <div className="settings-row">
+                <span className="muted">{tx(lang, 'Privacidad', 'Privacy')}</span>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => void openPrivacyPolicy().catch((e) => notify(errorText(e), 'error'))}
+                >
+                  <Icon name="info" size={14} /> {tx(lang, 'Ver política de privacidad', 'View privacy policy')}
                 </button>
               </div>
               <UpdatePanel installFormat={info?.install_format} notify={notify} />

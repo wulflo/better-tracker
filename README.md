@@ -2,7 +2,7 @@
 
 Training, body composition, nutrition, and weekly load in a local-first desktop app.
 
-Current version: **0.9.11**.
+Current version: **0.9.13**.
 
 [Leer en español](README.es.md)
 
@@ -14,7 +14,13 @@ Better Tracker is built and published for Linux, Windows and Android.
 | --- | --- | --- |
 | Linux x86_64 | `.AppImage`, `.deb`, `.rpm`, `.snap`, `.flatpak` | AppImage only. `.deb`/`.rpm` update by installing the new package; `.snap`/`.flatpak` update through their store. |
 | Windows 10/11 x64 | NSIS `.exe` (per-user install), `.msi` | NSIS. |
+| Microsoft Store (Windows 10/11 x64) | `.msix` (signed by the Store) | No in-app updater; the Microsoft Store installs updates. |
 | Android (arm64) | Signed `.apk` | Requires Android 13 or later (minSdk 33). The app downloads and verifies the APK, saves it to `Downloads/BetterTracker`, and the user installs it manually. |
+
+The Microsoft Store build is produced separately with
+`npm run build:store` and does not compile `tauri-plugin-updater`; the update
+panel only explains that updates come from the Store. See
+[Microsoft Store (MSIX)](docs/MICROSOFT_STORE.md).
 
 On Linux the app uses GTK/WebKit and runs natively on Wayland. If a proprietary driver causes rendering issues, start it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
 
@@ -84,9 +90,12 @@ On Linux the app uses GTK/WebKit and runs natively on Wayland. If a proprietary 
 - If the event count drops below the last count seen for that vault, the app warns: an append-only vault should never shrink (this usually means FolderSync or another machine reverted files). If you sync with FolderSync, use incremental copy mode from the phone to the PC (do not propagate deletions) and never sync an old PC copy back over the phone.
 - Barcodes are entered by hand in Intake: type or paste 6–14 digits and press "Search" (or use a USB/Bluetooth scanner that ends with Enter). UPC-A/EAN-13/GTIN codes are tried in their zero-padded and unpadded forms (12/13/14 digits), both in the app and against Open Food Facts. The app does not request camera permission and does not read images.
 - **There is no encryption:** the vault is stored as plain JSON under `<vault>/omega`, and backups under `<vault>/longlife`. Do not sync it to a cloud service or share the machine without encrypting it yourself. Photos and files are not stored; pasted content is limited to plain text.
-- The only network connections are the **manual** update check and the optional Open Food Facts barcode lookup when searching a code. The searched barcode is sent to `world.openfoodfacts.org`; nothing is sent in the background.
+- The only network connections are the **manual** update check and the optional Open Food Facts barcode lookup when searching a code. The searched barcode is sent to `world.openfoodfacts.org`; nothing is sent in the background. Microsoft Store builds do not include the in-app updater and update through the Store.
 - Desktop updates are signed with minisign and verified before installation. Android downloads a release APK with a published SHA-256 hash, verifies it, and saves it to Downloads for manual installation.
 - Because events are immutable JSON files (legacy JSONL is still readable), the data remains readable and portable without the app.
+
+The full privacy policy, including the Microsoft Store case, is in
+[PRIVACY_POLICY.md](PRIVACY_POLICY.md).
 
 ## Build
 
