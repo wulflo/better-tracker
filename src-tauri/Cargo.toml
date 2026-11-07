@@ -21,7 +21,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 uuid = { version = "1.0", features = ["v4"] }
 chrono = { version = "0.4", features = ["clock", "serde"] }
-base64 = "0.22"
+base64 = "0.23"
 # Misma versión que usa tauri-plugin-updater: verifica la firma minisign de
 # .deb/.rpm antes de abrir el instalador.
 minisign-verify = "0.3"
