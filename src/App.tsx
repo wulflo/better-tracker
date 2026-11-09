@@ -390,7 +390,8 @@ export default function App() {
     await appendEvent(newEvent(deviceId, 'routine.saved', routine));
     await appendEvent(newEvent(deviceId, 'measurement.saved', {
       date: iso(0), sex: 'male', age: 30, weight: 76, height: 176,
-      neck: 38, chest: 102, waist: 84, hip: 96, arm: 33, thigh: 56, calf: 38, wrist: 17,
+      neck: 38, chest: 102, waist: 84, abdomen: 87, hip: 96, arm: 33, forearm: 26,
+      thigh: 56, calf: 38, wrist: 17,
     }));
     await appendEvent(newEvent(deviceId, 'weight.logged', { date: iso(-6), kg: 77.4 }));
     await appendEvent(newEvent(deviceId, 'weight.logged', { date: iso(0), kg: 76 }));

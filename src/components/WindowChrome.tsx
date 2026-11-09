@@ -93,6 +93,8 @@ function WindowControlsInner() {
   useEffect(() => {
     const appWindow = getCurrentWindow();
     let active = true;
+    let timer: number | undefined;
+    let unlisten: (() => void) | undefined;
 
     const sync = () => {
       appWindow
@@ -103,11 +105,37 @@ function WindowControlsInner() {
         .catch(() => {});
     };
 
+    // `onResized` entrega eventos del sistema operativo y evita depender del
+    // `resize` del DOM, que se dispara muchas veces por fotograma. Aun así lo
+    // agrupamos: una sola consulta IPC tras el último cambio, no 60 por segundo.
+    const schedule = () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        sync();
+      }, 140);
+    };
+
     sync();
-    window.addEventListener('resize', sync);
+    appWindow
+      .onResized(schedule)
+      .then((fn) => {
+        if (active) unlisten = fn;
+        else fn();
+      })
+      .catch(() => {
+        // En navegador o si el evento no está disponible, mantenemos el
+        // comportamiento antiguo con un temporizador para no consultar en cada
+        // fotograma.
+        if (!active) return;
+        window.addEventListener('resize', schedule);
+        unlisten = () => window.removeEventListener('resize', schedule);
+      });
+
     return () => {
       active = false;
-      window.removeEventListener('resize', sync);
+      if (timer !== undefined) window.clearTimeout(timer);
+      unlisten?.();
     };
   }, []);
 

@@ -27,8 +27,10 @@ const BODY: BodyMeasures = {
   neck: 38,
   chest: 102,
   waist: 85,
+  abdomen: 88,
   hip: 96,
   arm: 33,
+  forearm: 26,
   thigh: 56,
   calf: 38,
   wrist: 17,
@@ -149,6 +151,82 @@ describe('metrics', () => {
     ]);
     expect(noScale[0].bodyFat).not.toBeNull();
     expect(noScale[0].fatMass).toBeNull();
+  });
+
+  it('adds military equations and weights the consensus', () => {
+    const comp = bodyComposition(BODY);
+    const ids = comp.methods.map((method) => method.id);
+    expect(ids).toEqual(expect.arrayContaining(['navy', 'army', 'army-2023', 'marine', 'friedl', 'rfm']));
+    expect(comp.avg).not.toBeNull();
+    expect(comp.avg as number).toBeGreaterThan(5);
+    expect(comp.avg as number).toBeLessThan(45);
+    expect(comp.methods.every((method) => method.value >= 1.5 && method.value <= 70)).toBe(true);
+    const totalWeight = comp.methods.reduce((sum, method) => sum + (method.weight ?? 0), 0);
+    expect(totalWeight).toBeCloseTo(100, 6);
+    expect(comp.confidence).not.toBeNull();
+    expect(comp.confidence as number).toBeGreaterThan(20);
+    expect(comp.coverage).toBeGreaterThan(60);
+    // Pecho y pantorrilla no alimentan ninguna fórmula de grasa: no deben
+    // cambiar la cobertura ni la confianza.
+    expect(bodyComposition({ ...BODY, chest: 0, calf: 0 }).coverage).toBe(comp.coverage);
+
+    // Sin abdomen explícito se usa la cintura como aproximación, pero con el
+    // dato del ombligo la estimación abdominal cambia.
+    const withAbdomen = bodyComposition({ ...BODY, abdomen: 95 });
+    const withoutAbdomen = bodyComposition({ ...BODY, abdomen: 0 });
+    const armyWith = withAbdomen.methods.find((method) => method.id === 'army')!.value;
+    const armyWithout = withoutAbdomen.methods.find((method) => method.id === 'army')!.value;
+    expect(armyWith).toBeGreaterThan(armyWithout);
+  });
+
+  it('matches the published military equation examples', () => {
+    // DA Form 5500/5501 (2023): 210 lb + 35 in abdomen -> 17.48 %.
+    const male = bodyComposition({
+      ...BODY,
+      weight: 210 / 2.2046226218,
+      abdomen: 35 * 2.54,
+    });
+    expect(male.methods.find((method) => method.id === 'army-2023')!.value).toBeCloseTo(17.48, 1);
+
+    // The female one-site example uses 165 lb and 30 in -> 26.475 %.
+    const female = bodyComposition({
+      ...BODY,
+      sex: 'female',
+      weight: 165 / 2.2046226218,
+      abdomen: 30 * 2.54,
+    });
+    expect(female.methods.find((method) => method.id === 'army-2023')!.value).toBeCloseTo(26.475, 1);
+
+    // Wright (1980): Marine men use abdomen and neck in centimetres.
+    const marine = bodyComposition({ ...BODY, abdomen: 88, neck: 38 });
+    expect(marine.methods.find((method) => method.id === 'marine')!.value).toBeCloseTo(18.64, 1);
+  });
+
+  it('unlocks the female military equations with forearm and wrist', () => {
+    const female = {
+      ...BODY,
+      sex: 'female' as const,
+      weight: 65,
+      height: 165,
+      neck: 33,
+      waist: 80,
+      abdomen: 83,
+      hip: 100,
+      arm: 30,
+      forearm: 25,
+      thigh: 58,
+      wrist: 16,
+    };
+    const full = bodyComposition(female);
+    const ids = full.methods.map((method) => method.id);
+    expect(ids).toEqual(expect.arrayContaining(['army-women', 'marine-women', 'army-2023']));
+
+    const noForearm = bodyComposition({ ...female, forearm: 0 });
+    const missingIds = noForearm.methods.map((method) => method.id);
+    expect(missingIds).not.toContain('army-women');
+    expect(missingIds).not.toContain('marine-women');
+    expect(noForearm.coverage).toBeLessThan(full.coverage);
+    expect(noForearm.missing).toContain('antebrazo');
   });
 
   it('restores the last saved goal mode from the vault', () => {

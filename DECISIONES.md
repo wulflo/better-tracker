@@ -99,6 +99,8 @@ Cuatro secciones: Panel, Entrenamiento, Historial y Figura corporal. Entrenamien
 ## Progreso de grasa
 La serie se calcula con las medidas guardadas. `bodyProgressSeries` deduplica por fecha y usa `bodyComposition` para obtener % grasa, masa grasa, masa magra y cintura. El % de grasa puede estimarse sin báscula mediante RFM/Navy; la masa grasa en kg solo aparece si hay peso. El gráfico no usa base cero para que los cambios pequeños sean visibles, y es orientativo.
 
+`bodyComposition` combina métodos civiles (RFM, Deurenberg, CUN-BAE) con ecuaciones militares (Navy/Air Force, Ejército de Vogel 1988, Ejército de una medida 2023, Marines de Wright 1980 y Friedl 1997). Las medidas `abdomen` (ombligo) y `forearm` son opcionales y compatibles con los eventos antiguos. Si falta el abdomen se usa la cintura; las ecuaciones femeninas del Ejército y Marines solo se activan con antebrazo y muñeca. El consenso es una media ponderada por el error publicado y por el número de entradas, agrupada por familias de medidas para que varias ecuaciones abdominales no dominen el resultado. La confianza combina precisión, cobertura y acuerdo entre métodos; se muestra como orientación, no como intervalo estadístico.
+
 ## Ingesta, comidas y alimentos
 - La base de alimentos es local y estática (`src/foodDb.ts`), con más de 200 alimentos comunes y valores aproximados por 100 g/ml. Los alimentos personalizados se guardan como eventos `food.saved` en la bóveda y se reducen al último evento por id.
 - Las comidas del día son un borrador efímero en `localStorage` (`bt.meal.draft.v1`), con fecha. Si la fecha no coincide con hoy, se elimina al cargar; un intervalo de 30 s también lo limpia al cruzar medianoche. No forman parte de la bóveda.

@@ -213,9 +213,14 @@ export interface BodyMeasures {
   height: number;
   neck: number;
   chest: number;
+  /** Cintura natural, en el punto más estrecho del torso. */
   waist: number;
+  /** Abdomen a la altura del ombligo; si falta se usa la cintura. */
+  abdomen: number;
   hip: number;
   arm: number;
+  /** Antebrazo en su punto de mayor perímetro. */
+  forearm: number;
   thigh: number;
   calf: number;
   wrist: number;
@@ -257,8 +262,10 @@ export const EMPTY_MEASURES: BodyMeasures = {
   neck: 0,
   chest: 0,
   waist: 0,
+  abdomen: 0,
   hip: 0,
   arm: 0,
+  forearm: 0,
   thigh: 0,
   calf: 0,
   wrist: 0,

@@ -33,6 +33,14 @@
 
 ## Escritorio Linux
 - El AppImage fuerza `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` al arrancar. Esto evita el `SIGABRT` de `WebKitWebProcess` durante el cierre con la ruta EGL/DMA-BUF de Mesa, mantiene la composición acelerada y solo se aplica dentro de un AppImage. Un valor previo de la variable (incluido `0`) se respeta.
+- **Sin `backdrop-filter`**: se retiraron los cuatro desenfoques de fondo (sidebar, topbar, modal y navegación inferior). Cada blur obliga a WebKitGTK a recomponer la escena en cada fotograma al arrastrar o redimensionar; era el principal sospechoso de los artefactos grises, el consumo de CPU/VRAM y los cierres. Los paneles usan ahora fondos casi opacos del tema.
+- **Menos IPC al redimensionar**: `WindowControls` deja de escuchar `resize` del DOM y consultar `isMaximized()` en cada evento. Usa `onResized` de Tauri y agrupa las consultas (140 ms) para hacer una sola llamada tras el último cambio.
+
+## Composición corporal
+- Se añadieron las ecuaciones militares que faltaban: Ejército de EE. UU. (Vogel 1988, hombres y mujeres), Ejército actual de una sola medida (2023), Marines (Wright 1980, hombres y mujeres) y Friedl/Vogel (1997). Navy/Air Force ya estaba.
+- Nuevas medidas opcionales: **abdomen al ombligo** y **antebrazo**. Si falta el abdomen se usa la cintura como aproximación; el antebrazo y la muñeca activan las ecuaciones femeninas del Ejército y Marines.
+- El consenso deja de ser una media simple: cada método pesa según su error publicado y sus entradas, y las familias correlacionadas (abdominal, IMC, cintura-altura, multi-sitio) se reparten el peso para no contar dos veces la misma información. La tarjeta muestra el peso de cada método, la cobertura de medidas y una confianza orientativa 0–100.
+- Las medidas antiguas siguen cargando: los campos nuevos se rellenan con cero y la app calcula con lo que haya.
 
 ## Interfaz y marca
 - Logo actualizado a mancuernas moradas (`public/logo.png`, iconos Tauri y Android).

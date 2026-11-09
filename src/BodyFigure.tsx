@@ -12,8 +12,10 @@ const NEUTRAL: Record<string, Limits> = {
   neck: { min: 28, max: 48 },
   chest: { min: 78, max: 122 },
   waist: { min: 58, max: 112 },
+  abdomen: { min: 60, max: 115 },
   hip: { min: 82, max: 118 },
   arm: { min: 22, max: 42 },
+  forearm: { min: 20, max: 33 },
   thigh: { min: 42, max: 68 },
   calf: { min: 28, max: 44 },
   wrist: { min: 14, max: 21 },
@@ -23,8 +25,10 @@ const LIMITS: Record<string, { male: Limits; female: Limits }> = {
   neck: { male: { min: 28, max: 50 }, female: { min: 25, max: 45 } },
   chest: { male: { min: 78, max: 135 }, female: { min: 72, max: 125 } },
   waist: { male: { min: 55, max: 135 }, female: { min: 50, max: 125 } },
+  abdomen: { male: { min: 58, max: 140 }, female: { min: 52, max: 130 } },
   hip: { male: { min: 78, max: 135 }, female: { min: 78, max: 140 } },
   arm: { male: { min: 22, max: 50 }, female: { min: 18, max: 44 } },
+  forearm: { male: { min: 19, max: 38 }, female: { min: 16, max: 34 } },
   thigh: { male: { min: 38, max: 78 }, female: { min: 38, max: 78 } },
   calf: { male: { min: 26, max: 52 }, female: { min: 24, max: 48 } },
   wrist: { male: { min: 14, max: 23 }, female: { min: 12, max: 21 } },
@@ -35,12 +39,21 @@ function limitsFor(key: string, sex: BodyMeasures['sex']): Limits {
   return LIMITS[key]?.[sex] ?? NEUTRAL[key] ?? { min: 0, max: 1 };
 }
 
-const NODES: Array<{ key: keyof BodyMeasures; label: string; labelEn: string; x: number; y: number }> = [
+const NODES: Array<{
+  key: keyof BodyMeasures;
+  label: string;
+  labelEn: string;
+  x: number;
+  y: number;
+  labelLeft?: boolean;
+}> = [
   { key: 'neck', label: 'Cuello', labelEn: 'Neck', x: 150, y: 90 },
   { key: 'chest', label: 'Pecho', labelEn: 'Chest', x: 150, y: 132 },
   { key: 'waist', label: 'Cintura', labelEn: 'Waist', x: 150, y: 190 },
+  { key: 'abdomen', label: 'Abdomen', labelEn: 'Abdomen', x: 150, y: 214, labelLeft: true },
   { key: 'hip', label: 'Cadera', labelEn: 'Hip', x: 150, y: 240 },
   { key: 'arm', label: 'Brazo', labelEn: 'Arm', x: 72, y: 160 },
+  { key: 'forearm', label: 'Antebrazo', labelEn: 'Forearm', x: 64, y: 208 },
   { key: 'thigh', label: 'Muslo', labelEn: 'Thigh', x: 126, y: 320 },
   { key: 'calf', label: 'Pantorrilla', labelEn: 'Calf', x: 128, y: 382 },
   { key: 'wrist', label: 'Muñeca', labelEn: 'Wrist', x: 54, y: 246 },
@@ -104,7 +117,8 @@ export default function BodyFigure({
   };
 
   const chest = 38 + scaleOf('chest') * 26;
-  const waist = 29 + scaleOf('waist') * 20;
+  const waistKey = measures.waist > 0 ? 'waist' : 'abdomen';
+  const waist = 29 + scaleOf(waistKey) * 20;
   const hip = 35 + scaleOf('hip') * 25;
   const arm = 10 + scaleOf('arm') * 9;
   const thigh = 18 + scaleOf('thigh') * 13;
@@ -124,13 +138,6 @@ export default function BodyFigure({
             <stop offset="0%" stopColor="#eadcff" />
             <stop offset="100%" stopColor="#a98bff" />
           </linearGradient>
-          <filter id="figure-glow" x="-40%" y="-40%" width="180%" height="180%">
-            <feGaussianBlur stdDeviation="7" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
         </defs>
 
         <ellipse cx="150" cy="214" rx="82" ry="172" fill="url(#figure-fill)" opacity="0.08" />
@@ -212,7 +219,7 @@ export default function BodyFigure({
         {NODES.map((node) => {
           const active = dragging === node.key;
           const value = valueOf(node.key);
-          const toRight = node.x >= 150;
+          const toRight = node.labelLeft ? false : node.x >= 150;
           const dx = toRight ? 14 : -14;
           const anchor = toRight ? 'start' : 'end';
           return (
@@ -224,7 +231,7 @@ export default function BodyFigure({
                 fill={active ? '#ffd27d' : '#d0bcff'}
                 stroke="#24124a"
                 strokeWidth="2"
-                style={{ cursor: 'grab', filter: active ? 'url(#figure-glow)' : undefined }}
+                style={{ cursor: 'grab' }}
                 onPointerDown={onPointerDown(node.key)}
                 onPointerMove={onPointerMove(node.key)}
                 onPointerUp={onPointerUp}

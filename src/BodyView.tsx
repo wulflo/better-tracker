@@ -124,7 +124,11 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
           value={comp.avg !== null ? `${comp.avg.toFixed(1)}%` : '—'}
           caption={
             comp.min !== null && comp.max !== null
-              ? tx(lang, `Rango ${comp.min.toFixed(1)}–${comp.max.toFixed(1)}% · ${fatStatus.label}`, `Range ${comp.min.toFixed(1)}–${comp.max.toFixed(1)}% · ${fatStatus.label}`)
+              ? tx(
+                  lang,
+                  `Rango ${comp.min.toFixed(1)}–${comp.max.toFixed(1)}% · ${fatStatus.label}${comp.confidence !== null ? ` · confianza ${comp.confidence}%` : ''}`,
+                  `Range ${comp.min.toFixed(1)}–${comp.max.toFixed(1)}% · ${fatStatus.label}${comp.confidence !== null ? ` · ${comp.confidence}% confidence` : ''}`,
+                )
               : tx(lang, 'Añade datos para estimar', 'Add data to estimate')
           }
         />
@@ -247,30 +251,50 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
               <div className="card-title"><Icon name="target" /> {tx(lang, 'Composición', 'Composition')}</div>
               <div className="card-sub">{tx(lang, 'Resultados con los datos actuales, sin exigir el formulario completo.', 'Results from the current data, without requiring the full form.')}</div>
             </div>
-            <span className="badge badge-muted">{tx(lang, `${comp.methods.length} método(s)`, `${comp.methods.length} method(s)`)}</span>
+            <span className="badge badge-muted">
+              {tx(lang, `${comp.methods.length} método(s)`, `${comp.methods.length} method(s)`)}
+              {comp.confidence !== null ? ` · ${comp.confidence}%` : ''}
+            </span>
           </div>
           <div className="card-body stack">
             {comp.methods.length === 0 ? (
               <EmptyState
                 icon={<Icon name="scale" />}
                 title={tx(lang, 'Faltan datos para estimar', 'Not enough data to estimate')}
-                sub={tx(lang, 'Con cintura + altura se activa RFM y Navy. Con peso + altura + edad se activan Deurenberg y CUN-BAE.', 'Waist + height enables RFM and Navy. Weight + height + age enables Deurenberg and CUN-BAE.')}
+                sub={tx(lang, 'Con cintura/abdomen + altura se activa RFM. Añade cuello (y cadera en mujeres) para Navy; abdomen al ombligo para Ejército, Marines y Friedl. En mujeres, antebrazo, muñeca, brazo y muslo completan las ecuaciones del Ejército y Marines.', 'Waist/abdomen + height enables RFM. Add neck (and hip for women) for Navy; navel abdomen for Army, Marine Corps and Friedl. For women, forearm, wrist, arm and thigh complete the Army and Marine equations.')}
               />
             ) : (
-              <table className="table">
-                <thead>
-                  <tr><th>{tx(lang, 'Método', 'Method')}</th><th>{tx(lang, '% grasa', '% fat')}</th><th>{tx(lang, 'Datos', 'Data')}</th></tr>
-                </thead>
-                <tbody>
-                  {comp.methods.map((m) => (
-                    <tr key={m.id}>
-                      <td>{m.name}</td>
-                      <td className="mono strong">{m.value.toFixed(1)}%</td>
-                      <td className="small muted">{m.note}</td>
+              <>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>{tx(lang, 'Método', 'Method')}</th>
+                      <th>{tx(lang, '% grasa', '% fat')}</th>
+                      <th title={tx(lang, 'Peso dentro del consenso ponderado', 'Weight inside the weighted consensus')}>
+                        {tx(lang, 'Peso', 'Weight')}
+                      </th>
+                      <th>{tx(lang, 'Datos', 'Data')}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {comp.methods.map((m) => (
+                      <tr key={m.id}>
+                        <td>{m.name}</td>
+                        <td className="mono strong">{m.value.toFixed(1)}%</td>
+                        <td className="small muted">{Math.round(m.weight ?? 0)}%</td>
+                        <td className="small muted">{m.note}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="hint">
+                  {tx(
+                    lang,
+                    `Consenso ponderado por el error publicado de cada ecuación y por los datos disponibles. Cobertura de medidas útiles: ${comp.coverage}%. Los métodos de la misma familia se reparten el peso para no contar dos veces la misma información.`,
+                    `Weighted consensus based on each equation's published error and the available data. Useful measurement coverage: ${comp.coverage}%. Methods in the same family share their weight so the same information is not counted twice.`,
+                  )}
+                </p>
+              </>
             )}
 
             <div className="grid grid-2" style={{ gap: 10 }}>
@@ -355,8 +379,10 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
             <Field label={tx(lang, 'Cuello (cm)', 'Neck (cm)')}><NumberInput value={form.neck} onChange={(v) => set('neck', v)} placeholder="38" min={20} max={70} /></Field>
             <Field label={tx(lang, 'Pecho (cm)', 'Chest (cm)')}><NumberInput value={form.chest} onChange={(v) => set('chest', v)} placeholder="100" min={50} max={180} /></Field>
             <Field label={tx(lang, 'Cintura (cm)', 'Waist (cm)')}><NumberInput value={form.waist} onChange={(v) => set('waist', v)} placeholder="85" min={40} max={180} /></Field>
+            <Field label={tx(lang, 'Abdomen ombligo (cm)', 'Navel abdomen (cm)')}><NumberInput value={form.abdomen} onChange={(v) => set('abdomen', v)} placeholder="85" min={40} max={180} /></Field>
             <Field label={tx(lang, 'Cadera (cm)', 'Hip (cm)')}><NumberInput value={form.hip} onChange={(v) => set('hip', v)} placeholder="95" min={40} max={180} /></Field>
             <Field label={tx(lang, 'Brazo (cm)', 'Arm (cm)')}><NumberInput value={form.arm} onChange={(v) => set('arm', v)} placeholder="32" min={15} max={70} /></Field>
+            <Field label={tx(lang, 'Antebrazo (cm)', 'Forearm (cm)')}><NumberInput value={form.forearm} onChange={(v) => set('forearm', v)} placeholder="25" min={15} max={45} /></Field>
             <Field label={tx(lang, 'Muslo (cm)', 'Thigh (cm)')}><NumberInput value={form.thigh} onChange={(v) => set('thigh', v)} placeholder="55" min={25} max={100} /></Field>
             <Field label={tx(lang, 'Pantorrilla (cm)', 'Calf (cm)')}><NumberInput value={form.calf} onChange={(v) => set('calf', v)} placeholder="38" min={20} max={70} /></Field>
             <Field label={tx(lang, 'Muñeca (cm)', 'Wrist (cm)')}><NumberInput value={form.wrist} onChange={(v) => set('wrist', v)} placeholder="17" min={10} max={30} /></Field>
@@ -365,8 +391,8 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
             <span className="hint">
               {tx(
                 lang,
-                'Fórmulas: Navy, RFM (sin peso), Deurenberg, CUN-BAE, Mifflin-St Jeor, Katch-McArdle y Cunningham. Son estimaciones, no diagnóstico médico.',
-                'Formulas: Navy, RFM (weight-free), Deurenberg, CUN-BAE, Mifflin-St Jeor, Katch-McArdle and Cunningham. These are estimates, not a medical diagnosis.',
+                'Fórmulas: Navy/Air Force, RFM (sin peso), Deurenberg, CUN-BAE, Ejército (Vogel y versión 2023), Marines (Wright), Friedl, Mifflin-St Jeor, Katch-McArdle y Cunningham. El abdomen se mide a la altura del ombligo y la cintura en su punto más estrecho. Son estimaciones, no diagnóstico médico.',
+                'Formulas: Navy/Air Force, RFM (weight-free), Deurenberg, CUN-BAE, Army (Vogel and 2023), Marine Corps (Wright), Friedl, Mifflin-St Jeor, Katch-McArdle and Cunningham. Abdomen is measured at the navel and waist at its narrowest point. These are estimates, not a medical diagnosis.',
               )}
             </span>
             <button className="btn btn-primary" onClick={save}><Icon name="check" size={15} /> {tx(lang, 'Guardar medidas', 'Save measurements')}</button>

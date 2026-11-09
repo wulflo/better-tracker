@@ -1125,6 +1125,14 @@ export interface BodyFatMethod {
   name: string;
   value: number;
   note?: string;
+  /** Peso dentro del consenso, en porcentaje (0–100). */
+  weight?: number;
+  /** Fiabilidad orientativa 0–1 derivada del error publicado. */
+  reliability?: number;
+  /** Familia de medidas; evita que varios métodos correlacionados dominen. */
+  family?: string;
+  /** Número de entradas propias que usa la ecuación. */
+  inputs?: number;
 }
 
 export interface BodyComposition {
@@ -1143,23 +1151,48 @@ export interface BodyComposition {
   tdee: number | null;
   missing: string[];
   used: string[];
+  /** Consenso ponderado 0–100 según precisión, cobertura y acuerdo. */
+  confidence: number | null;
+  /** Porcentaje de campos relevantes informados 0–100. */
+  coverage: number;
+}
+
+const LB_PER_KG = 2.2046226218;
+
+function validBodyFat(value: number | null): value is number {
+  return value !== null && Number.isFinite(value) && value >= 1.5 && value <= 70;
+}
+
+/** Abdomen al ombligo; si no existe, la cintura como aproximación. */
+function bellyCircumference(m: BodyMeasures): number {
+  if (m.abdomen > 0) return m.abdomen;
+  return m.waist > 0 ? m.waist : 0;
+}
+
+/** Cintura natural; si no existe, el abdomen como aproximación. */
+function naturalWaist(m: BodyMeasures): number {
+  if (m.waist > 0) return m.waist;
+  return m.abdomen > 0 ? m.abdomen : 0;
 }
 
 function navy(m: BodyMeasures): number | null {
-  const { neck, waist, hip, height, sex } = m;
-  if (sex === 'unspecified' || !neck || !waist || !height) return null;
+  const { neck, hip, height, sex } = m;
+  const waist = naturalWaist(m);
+  const abdomen = bellyCircumference(m);
+  if (sex === 'unspecified' || !neck || !height) return null;
   if (sex === 'male') {
-    if (waist <= neck) return null;
-    return 495 / (1.0324 - 0.19077 * Math.log10(waist - neck) + 0.15456 * Math.log10(height)) - 450;
+    if (!abdomen || abdomen <= neck) return null;
+    return 495 / (1.0324 - 0.19077 * Math.log10(abdomen - neck) + 0.15456 * Math.log10(height)) - 450;
   }
   if (!hip || waist + hip <= neck) return null;
   return 495 / (1.29579 - 0.35004 * Math.log10(waist + hip - neck) + 0.221 * Math.log10(height)) - 450;
 }
 
 function rfm(m: BodyMeasures): number | null {
-  if (m.sex === 'unspecified' || !m.waist || !m.height) return null;
+  const waist = naturalWaist(m);
+  if (m.sex === 'unspecified' || !waist || !m.height) return null;
   const base = m.sex === 'male' ? 64 : 76;
-  return base - 20 * (m.height / m.waist);
+  return base - 20 * (m.height / waist);
 }
 
 function deurenberg(m: BodyMeasures, bmi: number): number | null {
@@ -1184,66 +1217,297 @@ function cunBae(m: BodyMeasures, bmi: number): number | null {
   );
 }
 
+/** Army (Vogel et al., 1988), hombres: cm. */
+function armyMen(m: BodyMeasures): number | null {
+  const abdomen = bellyCircumference(m);
+  if (m.sex !== 'male' || !abdomen || !m.neck || !m.height || abdomen <= m.neck) return null;
+  return 76.5 * Math.log10(abdomen - m.neck) - 68.7 * Math.log10(m.height) + 46.9;
+}
+
+/** Army (Vogel et al., 1988), mujeres: kg y cm. */
+function armyWomen(m: BodyMeasures): number | null {
+  if (
+    m.sex !== 'female' ||
+    !m.weight ||
+    !m.wrist ||
+    !m.neck ||
+    !m.forearm ||
+    !m.hip ||
+    !m.height
+  ) {
+    return null;
+  }
+  return (
+    105.3 * Math.log10(m.weight) -
+    0.2 * m.wrist -
+    0.533 * m.neck -
+    1.574 * m.forearm +
+    0.173 * m.hip -
+    0.515 * m.height -
+    35.6
+  );
+}
+
+/** Army one-site (2023): solo peso y abdomen al ombligo. */
+function armyOneSite(m: BodyMeasures): number | null {
+  const abdomen = bellyCircumference(m);
+  if (m.sex === 'unspecified' || !m.weight || !abdomen) return null;
+  const lb = m.weight * LB_PER_KG;
+  const inches = abdomen / 2.54;
+  if (m.sex === 'male') return -26.97 - 0.12 * lb + 1.99 * inches;
+  return -9.15 - 0.015 * lb + 1.27 * inches;
+}
+
+/** Marine Corps (Wright et al., 1980), hombres: cm. */
+function marineMen(m: BodyMeasures): number | null {
+  const abdomen = bellyCircumference(m);
+  if (m.sex !== 'male' || !abdomen || !m.neck) return null;
+  return 0.74 * abdomen - 1.249 * m.neck + 0.985;
+}
+
+/** Marine Corps (Wright et al., 1980), mujeres: cm. */
+function marineWomen(m: BodyMeasures): number | null {
+  const abdomen = bellyCircumference(m);
+  if (m.sex !== 'female' || !m.arm || !m.forearm || !m.neck || !abdomen || !m.thigh) {
+    return null;
+  }
+  return (
+    1.051 * m.arm -
+    1.522 * m.forearm -
+    0.879 * m.neck +
+    0.326 * abdomen +
+    0.597 * m.thigh +
+    0.707
+  );
+}
+
+/** Friedl & Vogel (1997), hombres: cm. */
+function friedl(m: BodyMeasures): number | null {
+  const abdomen = bellyCircumference(m);
+  if (m.sex !== 'male' || !abdomen || !m.neck || !m.height || abdomen <= m.neck) return null;
+  return 0.771 * (abdomen - m.neck) - 0.132 * m.height + 4.29;
+}
+
+interface FatCandidate {
+  id: string;
+  name: string;
+  value: number;
+  note: string;
+  family: string;
+  see: number;
+  inputs: number;
+}
+
 export function bodyComposition(m: BodyMeasures, lang: Lang = 'es'): BodyComposition {
-  const methods: BodyFatMethod[] = [];
-  const missing: string[] = [];
+  const candidates: FatCandidate[] = [];
+  const missing = new Set<string>();
+
+  const add = (
+    id: string,
+    name: string,
+    value: number | null,
+    note: string,
+    family: string,
+    see: number,
+    inputs: number,
+  ) => {
+    if (validBodyFat(value)) candidates.push({ id, name, value, note, family, see, inputs });
+  };
 
   const n = navy(m);
-  if (n !== null && Number.isFinite(n)) {
-    methods.push({
-      id: 'navy',
-      name: tx(lang, 'Marina (Navy)', 'Navy'),
-      value: n,
-      note: tx(lang, 'Circunferencias + altura', 'Circumferences + height'),
-    });
-  }
+  add(
+    'navy',
+    tx(lang, 'Marina/Air Force', 'Navy/Air Force'),
+    n,
+    tx(lang, 'Cuello, cintura/abdomen, altura y cadera (mujeres)', 'Neck, waist/abdomen, height and hip (women)'),
+    m.sex === 'female' ? 'waist-hip' : 'abdominal',
+    3.5,
+    m.sex === 'female' ? 4 : 3,
+  );
   const r = rfm(m);
-  if (r !== null && Number.isFinite(r)) {
-    methods.push({
-      id: 'rfm',
-      name: 'RFM',
-      value: r,
-      note: tx(lang, 'Cintura + altura, sin peso', 'Waist + height, no weight'),
-    });
-  }
+  add(
+    'rfm',
+    'RFM',
+    r,
+    tx(lang, 'Cintura + altura, sin peso', 'Waist + height, no weight'),
+    'waist-height',
+    4.5,
+    2,
+  );
   const hasWeightHeight = m.weight > 0 && m.height > 0;
   const bmi = hasWeightHeight ? m.weight / (m.height / 100) ** 2 : null;
   if (bmi !== null) {
-    const d = deurenberg(m, bmi);
-    if (d !== null && Number.isFinite(d)) {
+    add(
+      'deurenberg',
+      'Deurenberg',
+      deurenberg(m, bmi),
+      tx(lang, 'IMC + edad + sexo', 'BMI + age + sex'),
+      'bmi',
+      4.6,
+      3,
+    );
+    add(
+      'cunbae',
+      'CUN-BAE',
+      cunBae(m, bmi),
+      tx(lang, 'IMC + edad + sexo', 'BMI + age + sex'),
+      'bmi',
+      4.0,
+      3,
+    );
+  }
+  add(
+    'army',
+    tx(lang, 'Ejército (Vogel)', 'Army (Vogel)'),
+    armyMen(m),
+    tx(lang, 'Abdomen + cuello + altura', 'Abdomen + neck + height'),
+    'abdominal',
+    4.02,
+    3,
+  );
+  add(
+    'army-women',
+    tx(lang, 'Ejército mujeres (Vogel)', 'Army women (Vogel)'),
+    armyWomen(m),
+    tx(lang, 'Peso + muñeca + cuello + antebrazo + cadera + altura', 'Weight + wrist + neck + forearm + hip + height'),
+    'multi-site',
+    3.6,
+    6,
+  );
+  add(
+    'army-2023',
+    tx(lang, 'Ejército actual (2023)', 'Current Army (2023)'),
+    armyOneSite(m),
+    tx(lang, 'Peso + abdomen al ombligo', 'Weight + navel abdomen'),
+    'abdominal',
+    4.0,
+    2,
+  );
+  add(
+    'marine',
+    tx(lang, 'Marines (Wright)', 'Marine Corps (Wright)'),
+    marineMen(m),
+    tx(lang, 'Abdomen + cuello', 'Abdomen + neck'),
+    'abdominal',
+    3.67,
+    2,
+  );
+  add(
+    'marine-women',
+    tx(lang, 'Marines mujeres (Wright)', 'Marine women (Wright)'),
+    marineWomen(m),
+    tx(lang, 'Brazo + antebrazo + cuello + abdomen + muslo', 'Arm + forearm + neck + abdomen + thigh'),
+    'multi-site',
+    4.11,
+    5,
+  );
+  add(
+    'friedl',
+    'Friedl',
+    friedl(m),
+    tx(lang, 'Abdomen + cuello + altura', 'Abdomen + neck + height'),
+    'abdominal',
+    3.9,
+    3,
+  );
+
+  // Peso por familia: cada familia aporta como mucho la media de sus métodos,
+  // así cinco ecuaciones abdominales no eclipsan a las de IMC o multi-sitio.
+  const byFamily = new Map<string, FatCandidate[]>();
+  for (const c of candidates) {
+    const list = byFamily.get(c.family) ?? [];
+    list.push(c);
+    byFamily.set(c.family, list);
+  }
+  const rawOf = (c: FatCandidate) => {
+    const reliability = clamp(1 - (c.see - 3) / 6, 0.45, 0.98);
+    return reliability ** 2 * (1 + 0.04 * Math.max(0, c.inputs - 2));
+  };
+  const familyWeight = new Map<string, number>();
+  for (const [family, list] of byFamily) {
+    familyWeight.set(
+      family,
+      list.reduce((sum, c) => sum + rawOf(c), 0) / list.length,
+    );
+  }
+  const totalFamilyWeight = [...familyWeight.values()].reduce((a, b) => a + b, 0);
+  const methods: BodyFatMethod[] = [];
+  let weighted = 0;
+  for (const [family, list] of byFamily) {
+    const familyRaw = list.reduce((sum, c) => sum + rawOf(c), 0);
+    for (const c of list) {
+      const weight = totalFamilyWeight > 0
+        ? ((familyWeight.get(family) ?? 0) * (rawOf(c) / familyRaw) / totalFamilyWeight) * 100
+        : 0;
       methods.push({
-        id: 'deurenberg',
-        name: 'Deurenberg',
-        value: d,
-        note: tx(lang, 'IMC + edad + sexo', 'BMI + age + sex'),
+        id: c.id,
+        name: c.name,
+        value: c.value,
+        note: c.note,
+        weight,
+        reliability: clamp(1 - (c.see - 3) / 6, 0.45, 0.98),
+        family: c.family,
+        inputs: c.inputs,
       });
-    }
-    const c = cunBae(m, bmi);
-    if (c !== null && Number.isFinite(c)) {
-      methods.push({
-        id: 'cunbae',
-        name: 'CUN-BAE',
-        value: c,
-        note: tx(lang, 'IMC + edad + sexo', 'BMI + age + sex'),
-      });
+      weighted += c.value * weight;
     }
   }
 
   const values = methods.map((x) => x.value);
-  const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+  const avg = totalFamilyWeight > 0 ? weighted / 100 : null;
+  const min = values.length ? Math.min(...values) : null;
+  const max = values.length ? Math.max(...values) : null;
   const fatMass = avg !== null && m.weight > 0 ? (m.weight * avg) / 100 : null;
   const leanMass = fatMass !== null ? m.weight - fatMass : null;
 
-  if (!n && !r) {
-    if (!m.waist) missing.push(tx(lang, 'cintura', 'waist'));
-    if (!m.height) missing.push(tx(lang, 'altura', 'height'));
-    if (m.sex === 'unspecified') missing.push(tx(lang, 'sexo', 'sex'));
-    if (!m.neck) missing.push(tx(lang, 'cuello', 'neck'));
-    if (m.sex !== 'male' && !m.hip) missing.push(tx(lang, 'cadera', 'hip'));
+  // Cobertura: solo campos que alguna ecuación puede aprovechar para ese
+  // sexo. Pecho y pantorrilla siguen en la silueta, pero no inflan la
+  // confianza porque ninguna fórmula de grasa los usa.
+  const relevant =
+    m.sex === 'female'
+      ? [m.age, m.weight, m.height, m.neck, m.waist, m.abdomen, m.hip, m.arm, m.forearm, m.thigh, m.wrist]
+      : m.sex === 'male'
+        ? [m.age, m.weight, m.height, m.neck, m.waist, m.abdomen]
+        : [m.age, m.weight, m.height, m.neck, m.waist, m.abdomen, m.hip, m.arm, m.forearm, m.thigh, m.wrist];
+  const covered = (m.sex !== 'unspecified' ? 1 : 0) + relevant.filter((value) => value > 0).length;
+  const coverage = Math.round((covered / (relevant.length + 1)) * 100);
+
+  let confidence: number | null = null;
+  if (methods.length && avg !== null) {
+    const meanReliability = methods.reduce(
+      (sum, method) => sum + (method.reliability ?? 0.5) * ((method.weight ?? 0) / 100),
+      0,
+    );
+    const spread = values.length > 1
+      ? Math.sqrt(
+          methods.reduce(
+            (sum, method) => sum + ((method.value - avg) ** 2) * ((method.weight ?? 0) / 100),
+            0,
+          ),
+        )
+      : 0;
+    const agreement = clamp(1 - spread / 20, 0.65, 1);
+    const coverageFactor = 0.55 + 0.45 * (coverage / 100);
+    const methodFactor = clamp(methods.length / 3, 0.75, 1);
+    confidence = Math.round(
+      clamp(meanReliability * coverageFactor * agreement * methodFactor * 100, 15, 95),
+    );
   }
-  if (!hasWeightHeight && m.weight > 0) missing.push(tx(lang, 'altura', 'height'));
-  if (m.weight <= 0) missing.push(tx(lang, 'peso', 'weight'));
-  if (!m.age) missing.push(tx(lang, 'edad', 'age'));
+
+  if (m.sex === 'unspecified') missing.add(tx(lang, 'sexo', 'sex'));
+  if (m.age <= 0) missing.add(tx(lang, 'edad', 'age'));
+  if (m.weight <= 0) missing.add(tx(lang, 'peso', 'weight'));
+  if (m.height <= 0) missing.add(tx(lang, 'altura', 'height'));
+  if (m.neck <= 0) missing.add(tx(lang, 'cuello', 'neck'));
+  if (m.waist <= 0 && m.abdomen <= 0) missing.add(tx(lang, 'cintura', 'waist'));
+  if (m.abdomen <= 0) missing.add(tx(lang, 'abdomen (ombligo)', 'abdomen (navel)'));
+  if (m.sex === 'female') {
+    if (m.hip <= 0) missing.add(tx(lang, 'cadera', 'hip'));
+    if (m.forearm <= 0) missing.add(tx(lang, 'antebrazo', 'forearm'));
+    if (m.wrist <= 0) missing.add(tx(lang, 'muñeca', 'wrist'));
+    if (m.arm <= 0) missing.add(tx(lang, 'brazo', 'arm'));
+    if (m.thigh <= 0) missing.add(tx(lang, 'muslo', 'thigh'));
+  }
 
   let bmrMifflin: number | null = null;
   if (m.weight > 0 && m.height > 0) {
@@ -1258,8 +1522,8 @@ export function bodyComposition(m: BodyMeasures, lang: Lang = 'es'): BodyComposi
   return {
     methods,
     avg,
-    min: values.length ? Math.min(...values) : null,
-    max: values.length ? Math.max(...values) : null,
+    min,
+    max,
     bmi,
     fatMass,
     leanMass,
@@ -1269,8 +1533,10 @@ export function bodyComposition(m: BodyMeasures, lang: Lang = 'es'): BodyComposi
     bmrKatch,
     bmrCunningham,
     tdee,
-    missing: [...new Set(missing)],
+    missing: [...missing],
     used: methods.map((x) => x.name),
+    confidence,
+    coverage,
   };
 }
 

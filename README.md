@@ -61,8 +61,8 @@ On Linux the app uses GTK/WebKit and runs natively on Wayland. If a proprietary 
 ### Body
 
 - Adaptive silhouette whose shape follows the saved circumferences; nodes can be dragged to preview changes.
-- Measurements for weight, height, age, sex, neck, chest, waist, hip, arm, thigh, calf, and wrist.
-- Body-fat estimates from RFM, US Navy, Deurenberg, and CUN-BAE, with the available methods shown separately and averaged.
+- Measurements for weight, height, age, sex, neck, chest, waist, abdomen (navel), hip, arm, forearm, thigh, calf, and wrist.
+- Body-fat estimates from RFM, US Navy, Deurenberg, CUN-BAE, Army (Vogel and the 2023 one-site equation), Marine Corps, and Friedl, shown separately and combined in a weighted consensus by measurement family.
 - BMI, waist-to-hip ratio, waist-to-height ratio, fat mass, and lean mass.
 - BMR estimates using Mifflin-St Jeor, Katch-McArdle, and Cunningham when the required data is available.
 - Estimated TDEE and fat-loss trend. Body-fat percentage and waist can be tracked with measurements alone, without a scale; fat mass in kilograms appears when weight is also available.

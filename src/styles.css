@@ -33,9 +33,9 @@
   --underlay-rgb: 10, 8, 15;
   --card-top-rgb: 43, 37, 58;
   --card-bottom-rgb: 24, 20, 34;
-  --sidebar-bg: rgba(19, 15, 27, 0.88);
-  --topbar-bg: rgba(17, 13, 24, 0.55);
-  --bottom-nav-bg: rgba(17, 13, 24, 0.92);
+  --sidebar-bg: rgba(19, 15, 27, 0.97);
+  --topbar-bg: rgba(17, 13, 24, 0.94);
+  --bottom-nav-bg: rgba(17, 13, 24, 0.97);
   --toast-bg: #2a2338;
   --scrollbar: #3a3150;
   --scrollbar-hover: #52456f;
@@ -91,9 +91,9 @@
   --underlay-rgb: 7, 11, 18;
   --card-top-rgb: 32, 42, 58;
   --card-bottom-rgb: 18, 24, 35;
-  --sidebar-bg: rgba(14, 19, 29, 0.88);
-  --topbar-bg: rgba(12, 16, 25, 0.55);
-  --bottom-nav-bg: rgba(12, 16, 25, 0.92);
+  --sidebar-bg: rgba(14, 19, 29, 0.97);
+  --topbar-bg: rgba(12, 16, 25, 0.94);
+  --bottom-nav-bg: rgba(12, 16, 25, 0.97);
   --toast-bg: #1c2839;
   --scrollbar: #2c3a4f;
   --scrollbar-hover: #3f5370;
@@ -124,9 +124,9 @@
   --underlay-rgb: 6, 10, 9;
   --card-top-rgb: 28, 44, 40;
   --card-bottom-rgb: 16, 26, 23;
-  --sidebar-bg: rgba(12, 20, 18, 0.88);
-  --topbar-bg: rgba(10, 16, 14, 0.55);
-  --bottom-nav-bg: rgba(10, 16, 14, 0.92);
+  --sidebar-bg: rgba(12, 20, 18, 0.97);
+  --topbar-bg: rgba(10, 16, 14, 0.94);
+  --bottom-nav-bg: rgba(10, 16, 14, 0.97);
   --toast-bg: #1a2d29;
   --scrollbar: #2b403c;
   --scrollbar-hover: #3d5a55;
@@ -157,9 +157,9 @@
   --underlay-rgb: 7, 11, 9;
   --card-top-rgb: 30, 42, 35;
   --card-bottom-rgb: 17, 24, 20;
-  --sidebar-bg: rgba(13, 20, 16, 0.88);
-  --topbar-bg: rgba(11, 17, 14, 0.55);
-  --bottom-nav-bg: rgba(11, 17, 14, 0.92);
+  --sidebar-bg: rgba(13, 20, 16, 0.97);
+  --topbar-bg: rgba(11, 17, 14, 0.94);
+  --bottom-nav-bg: rgba(11, 17, 14, 0.97);
   --toast-bg: #1b2c24;
   --scrollbar: #2c4035;
   --scrollbar-hover: #3f5a4b;
@@ -190,9 +190,9 @@
   --underlay-rgb: 10, 8, 5;
   --card-top-rgb: 43, 37, 26;
   --card-bottom-rgb: 25, 21, 15;
-  --sidebar-bg: rgba(24, 19, 12, 0.88);
-  --topbar-bg: rgba(21, 16, 10, 0.55);
-  --bottom-nav-bg: rgba(21, 16, 10, 0.92);
+  --sidebar-bg: rgba(24, 19, 12, 0.97);
+  --topbar-bg: rgba(21, 16, 10, 0.94);
+  --bottom-nav-bg: rgba(21, 16, 10, 0.97);
   --toast-bg: #2f271a;
   --scrollbar: #3e3424;
   --scrollbar-hover: #574a35;
@@ -223,9 +223,9 @@
   --underlay-rgb: 11, 8, 5;
   --card-top-rgb: 44, 34, 25;
   --card-bottom-rgb: 26, 20, 14;
-  --sidebar-bg: rgba(25, 18, 12, 0.88);
-  --topbar-bg: rgba(22, 16, 10, 0.55);
-  --bottom-nav-bg: rgba(22, 16, 10, 0.92);
+  --sidebar-bg: rgba(25, 18, 12, 0.97);
+  --topbar-bg: rgba(22, 16, 10, 0.94);
+  --bottom-nav-bg: rgba(22, 16, 10, 0.97);
   --toast-bg: #30241a;
   --scrollbar: #3f3123;
   --scrollbar-hover: #584635;
@@ -256,9 +256,9 @@
   --underlay-rgb: 11, 6, 6;
   --card-top-rgb: 45, 32, 32;
   --card-bottom-rgb: 26, 18, 18;
-  --sidebar-bg: rgba(25, 16, 16, 0.88);
-  --topbar-bg: rgba(22, 13, 13, 0.55);
-  --bottom-nav-bg: rgba(22, 13, 13, 0.92);
+  --sidebar-bg: rgba(25, 16, 16, 0.97);
+  --topbar-bg: rgba(22, 13, 13, 0.94);
+  --bottom-nav-bg: rgba(22, 13, 13, 0.97);
   --toast-bg: #301c1c;
   --scrollbar: #3f2b2b;
   --scrollbar-hover: #583d3d;
@@ -289,9 +289,9 @@
   --underlay-rgb: 11, 6, 10;
   --card-top-rgb: 45, 32, 41;
   --card-bottom-rgb: 26, 18, 24;
-  --sidebar-bg: rgba(25, 16, 22, 0.88);
-  --topbar-bg: rgba(22, 13, 19, 0.55);
-  --bottom-nav-bg: rgba(22, 13, 19, 0.92);
+  --sidebar-bg: rgba(25, 16, 22, 0.97);
+  --topbar-bg: rgba(22, 13, 19, 0.94);
+  --bottom-nav-bg: rgba(22, 13, 19, 0.97);
   --toast-bg: #301c2b;
   --scrollbar: #3f2b38;
   --scrollbar-hover: #583d4f;
@@ -322,9 +322,9 @@
   --underlay-rgb: 8, 8, 15;
   --card-top-rgb: 35, 35, 55;
   --card-bottom-rgb: 21, 21, 34;
-  --sidebar-bg: rgba(15, 15, 26, 0.88);
-  --topbar-bg: rgba(13, 13, 22, 0.55);
-  --bottom-nav-bg: rgba(13, 13, 22, 0.92);
+  --sidebar-bg: rgba(15, 15, 26, 0.97);
+  --topbar-bg: rgba(13, 13, 22, 0.94);
+  --bottom-nav-bg: rgba(13, 13, 22, 0.97);
   --toast-bg: #1d1d30;
   --scrollbar: #303048;
   --scrollbar-hover: #464664;
@@ -358,9 +358,9 @@
   --underlay-rgb: 255, 255, 255;
   --card-top-rgb: 255, 255, 255;
   --card-bottom-rgb: 250, 247, 255;
-  --sidebar-bg: rgba(255, 255, 255, 0.86);
-  --topbar-bg: rgba(255, 255, 255, 0.74);
-  --bottom-nav-bg: rgba(255, 255, 255, 0.94);
+  --sidebar-bg: rgba(255, 255, 255, 0.97);
+  --topbar-bg: rgba(255, 255, 255, 0.94);
+  --bottom-nav-bg: rgba(255, 255, 255, 0.98);
   --toast-bg: #ffffff;
   --scrollbar: #cfc4e0;
   --scrollbar-hover: #b4a6ca;
@@ -578,7 +578,6 @@ p {
   padding: 22px 16px 16px;
   background: var(--sidebar-bg);
   border-right: 1px solid rgba(var(--primary-rgb), 0.08);
-  backdrop-filter: blur(18px);
 }
 
 .brand {
@@ -743,7 +742,6 @@ p {
   padding: 18px 12px 14px 30px;
   border-bottom: 1px solid rgba(var(--primary-rgb), 0.07);
   background: var(--topbar-bg);
-  backdrop-filter: blur(18px);
 }
 
 .topbar-title {
@@ -2102,8 +2100,7 @@ input[type='checkbox'] {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(5, 3, 10, 0.65);
-  backdrop-filter: blur(8px);
+  background: rgba(5, 3, 10, 0.78);
   animation: fade-in 0.15s ease;
 }
 
@@ -3702,7 +3699,6 @@ option {
     padding: 6px 6px calc(6px + var(--safe-bottom));
     background: var(--bottom-nav-bg);
     border-top: 1px solid rgba(var(--primary-rgb), 0.12);
-    backdrop-filter: blur(20px);
     box-shadow: 0 -12px 30px rgba(0, 0, 0, 0.35);
   }
 

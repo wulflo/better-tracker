@@ -660,6 +660,7 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
               <Field label={tx(lang, 'Peso composición (kg)', 'Composition weight (kg)')}><NumberInput value={measForm.weight} onChange={(v) => changeBody('weight', v)} placeholder="75" min={20} max={400} step={0.1} /></Field>
               <Field label={tx(lang, 'Cuello (cm)', 'Neck (cm)')}><NumberInput value={measForm.neck} onChange={(v) => changeBody('neck', v)} placeholder="38" min={20} max={70} /></Field>
               <Field label={tx(lang, 'Cintura (cm)', 'Waist (cm)')}><NumberInput value={measForm.waist} onChange={(v) => changeBody('waist', v)} placeholder="85" min={40} max={180} /></Field>
+              <Field label={tx(lang, 'Abdomen ombligo (cm)', 'Navel abdomen (cm)')}><NumberInput value={measForm.abdomen} onChange={(v) => changeBody('abdomen', v)} placeholder="85" min={40} max={180} /></Field>
               <Field label={tx(lang, 'Cadera (cm)', 'Hip (cm)')}><NumberInput value={measForm.hip} onChange={(v) => changeBody('hip', v)} placeholder="95" min={40} max={180} /></Field>
             </div>
 
@@ -668,6 +669,7 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
               <div className="grid grid-4" style={{ marginTop: 12 }}>
                 <Field label={tx(lang, 'Pecho (cm)', 'Chest (cm)')}><NumberInput value={measForm.chest} onChange={(v) => changeBody('chest', v)} placeholder="100" /></Field>
                 <Field label={tx(lang, 'Brazo (cm)', 'Arm (cm)')}><NumberInput value={measForm.arm} onChange={(v) => changeBody('arm', v)} placeholder="32" /></Field>
+                <Field label={tx(lang, 'Antebrazo (cm)', 'Forearm (cm)')}><NumberInput value={measForm.forearm} onChange={(v) => changeBody('forearm', v)} placeholder="25" /></Field>
                 <Field label={tx(lang, 'Muslo (cm)', 'Thigh (cm)')}><NumberInput value={measForm.thigh} onChange={(v) => changeBody('thigh', v)} placeholder="55" /></Field>
                 <Field label={tx(lang, 'Pantorrilla (cm)', 'Calf (cm)')}><NumberInput value={measForm.calf} onChange={(v) => changeBody('calf', v)} placeholder="38" /></Field>
                 <Field label={tx(lang, 'Muñeca (cm)', 'Wrist (cm)')}><NumberInput value={measForm.wrist} onChange={(v) => changeBody('wrist', v)} placeholder="17" /></Field>
