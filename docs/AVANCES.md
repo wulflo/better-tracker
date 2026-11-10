@@ -46,6 +46,11 @@
 - El consenso deja de ser una media simple: cada método pesa según su error publicado y sus entradas, y las familias correlacionadas (abdominal, IMC, cintura-altura, multi-sitio) se reparten el peso para no contar dos veces la misma información. La tarjeta muestra el peso de cada método, la cobertura de medidas y una confianza orientativa 0–100.
 - Las medidas antiguas siguen cargando: los campos nuevos se rellenan con cero y la app calcula con lo que haya.
 
+## Proyección de peso
+- El peso objetivo ya no se recorta al IMC cuando hay composición: se calcula desde la masa magra que se espera conservar o ganar y la masa grasa necesaria para el porcentaje objetivo. La tarjeta muestra ambas cantidades y avisa si el IMC objetivo queda fuera del rango orientativo.
+- Nuevo indicador mensual de fuerza: días distintos con ejercicio de tipo `fuerza` en los últimos 30 días. Ajusta la retención de masa magra, el ritmo seguro y la proporción del cambio de peso atribuible a grasa.
+- Nuevo campo opcional de **pasos promedio al día** (evento `steps.average`) en Nutrición. Se traduce a un multiplicador de actividad orientativo y se usa el mayor entre ese valor y el nivel declarado/automático, para no duplicar el gasto. Los hitos de peso en fechas futuras se recalculan con ese TDEE.
+
 ## Interfaz y marca
 - Logo actualizado a mancuernas moradas (`public/logo.png`, iconos Tauri y Android).
 - Selector de tema **oscuro/claro** y de **color de acento** con 9 variantes (violeta, azul, turquesa, verde, ámbar, naranja, rojo, rosa e índigo) en Ajustes. Se guardan en `localStorage` y se aplican antes del primer pintado con `public/theme-init.js`.

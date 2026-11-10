@@ -5,6 +5,7 @@ import { appendEvent, newEvent } from './vault';
 import {
   activityLevelFromEvents,
   activityOption,
+  averageStepsFromEvents,
   bodyComposition,
   computeMacros,
   formatShort,
@@ -55,13 +56,33 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
     () => trainingSummary(events, reduceExercises(events)),
     [events],
   );
+  const avgSteps = useMemo(() => averageStepsFromEvents(events), [events]);
   const projection = useMemo(
-    () => projectBody(form, goal, exerciseSummary.weekMinutes, activity, comp, lang),
-    [form, goal, exerciseSummary.weekMinutes, activity, comp, lang],
+    () =>
+      projectBody(
+        form,
+        goal,
+        exerciseSummary.weekMinutes,
+        activity,
+        comp,
+        lang,
+        exerciseSummary.strengthPerMonth,
+        avgSteps,
+      ),
+    [
+      form,
+      goal,
+      exerciseSummary.weekMinutes,
+      exerciseSummary.strengthPerMonth,
+      activity,
+      comp,
+      lang,
+      avgSteps,
+    ],
   );
   const macros = useMemo(
-    () => computeMacros(form, exerciseSummary.weekMinutes, goal, activity, lang),
-    [form, exerciseSummary.weekMinutes, goal, activity, lang],
+    () => computeMacros(form, exerciseSummary.weekMinutes, goal, activity, lang, avgSteps),
+    [form, exerciseSummary.weekMinutes, goal, activity, lang, avgSteps],
   );
   const bmiRange = safeBmiRange(form.age, lang);
   const fatRange = safeBodyFatRange(form.sex, form.age, lang);
@@ -158,8 +179,8 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
             <div className="card-sub">
               {tx(
                 lang,
-                'Detectado automáticamente con sexo, edad, peso, altura y composición. El ritmo parte del objetivo calórico y del nivel de actividad guardados en el Panel.',
-                'Detected automatically from sex, age, weight, height and composition. The pace comes from the calorie goal and activity level saved on the Dashboard.',
+                'El objetivo se recalcula con tu masa magra y grasa cuando hay medidas; el ritmo y las fechas incorporan tus sesiones de fuerza y tus pasos medios diarios.',
+                'The target is recalculated from your lean and fat mass when measurements are available; pace and dates factor in your strength sessions and average daily steps.',
               )}
             </div>
           </div>
@@ -180,12 +201,25 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
               <div className="metric-caption">{fatRange ? fatStatus.label : tx(lang, 'Añade sexo y edad', 'Add sex and age')}</div>
             </div>
             <div className="metric">
-              <div className="metric-label">{tx(lang, 'Objetivo', 'Target')}</div>
+              <div className="metric-label">
+                {projection.targetSource === 'composition'
+                  ? tx(lang, 'Objetivo por composición', 'Composition target')
+                  : tx(lang, 'Objetivo', 'Target')}
+              </div>
               <div className="metric-value-lg">{projection.targetWeight !== null ? `${projection.targetWeight.toFixed(1)} kg` : '—'}</div>
               <div className="metric-caption">
                 {projection.targetBodyFat !== null ? tx(lang, `${projection.targetBodyFat.toFixed(0)}% grasa`, `${projection.targetBodyFat.toFixed(0)}% fat`) : tx(lang, 'Sin estimación', 'No estimate')}
                 {projection.targetBmi !== null ? tx(lang, ` · IMC ${projection.targetBmi.toFixed(1)}`, ` · BMI ${projection.targetBmi.toFixed(1)}`) : ''}
               </div>
+              {projection.targetFatMass !== null && projection.targetLeanMass !== null && (
+                <div className="metric-caption">
+                  {tx(
+                    lang,
+                    `${projection.targetLeanMass.toFixed(1)} kg magra · ${projection.targetFatMass.toFixed(1)} kg grasa`,
+                    `${projection.targetLeanMass.toFixed(1)} kg lean · ${projection.targetFatMass.toFixed(1)} kg fat`,
+                  )}
+                </div>
+              )}
             </div>
             <div className="metric">
               <div className="metric-label">{tx(lang, 'Ritmo y fecha', 'Pace and date')}</div>
@@ -196,6 +230,13 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
                 {projection.weeklyRateKg > 0 ? tx(lang, 'por semana', 'per week') : tx(lang, 'sin déficit ni superávit', 'no deficit or surplus')}
                 {projection.etaDate ? ` · ${formatShort(projection.etaDate, lang)}` : ''}
               </div>
+              <div className="metric-caption">
+                {tx(lang, `Fuerza: ${projection.strengthPerMonth}/mes`, `Strength: ${projection.strengthPerMonth}/mo`)}
+                {' · '}
+                {avgSteps > 0
+                  ? tx(lang, `${Math.round(avgSteps)} pasos/día`, `${Math.round(avgSteps)} steps/day`)
+                  : tx(lang, 'Pasos: sin dato', 'Steps: no data')}
+              </div>
             </div>
           </div>
 
@@ -203,6 +244,7 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
             <Icon name={projection.safe ? 'info' : 'alert'} size={16} />
             <div>
               <strong>{projection.message}</strong>
+              {projection.note && <div className="small">{projection.note}</div>}
               <div className="small muted">
                 {bmiRange.note} {fatRange?.note ?? ''} {tx(lang, 'El cálculo es orientativo y no sustituye una valoración médica.', 'This calculation is a guide and does not replace a medical assessment.')}
               </div>
@@ -218,6 +260,14 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
                     <strong>{milestone.weight.toFixed(1)} kg</strong>
                     <span className="small muted">{formatShort(milestone.date, lang)}</span>
                     {milestone.bodyFat !== null && <span className="small">≈{milestone.bodyFat.toFixed(1)}%</span>}
+                    {milestone.fatMass !== null && (
+                      <span className="small muted">
+                        {tx(lang, `${milestone.fatMass.toFixed(1)} kg grasa`, `${milestone.fatMass.toFixed(1)} kg fat`)}
+                        {milestone.leanMass !== null
+                          ? tx(lang, ` · ${milestone.leanMass.toFixed(1)} kg magra`, ` · ${milestone.leanMass.toFixed(1)} kg lean`)
+                          : ''}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>

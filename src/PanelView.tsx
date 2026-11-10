@@ -19,6 +19,7 @@ import {
   AUTO_ACTIVITY,
   activityLevelFromEvents,
   activityOption,
+  averageStepsFromEvents,
   bodyComposition,
   computeMacros,
   computeSatiety,
@@ -31,6 +32,7 @@ import {
   minutesLabel,
   reduceReminders,
   reduceWeights,
+  stepActivityMultiplier,
   todayISO,
   trainingAlerts,
   trainingSummary,
@@ -106,6 +108,8 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
   const dirtyNutrition = useRef(false);
   const [goalMode, setGoalMode] = useState<GoalMode>(() => goalModeFromEvents(events));
   const [activity, setActivity] = useState<ActivityLevel>(() => activityLevelFromEvents(events));
+  const lastStepsEventId = [...events].reverse().find((e) => e.kind === 'steps.average')?.id;
+  const [steps, setSteps] = useState(() => averageStepsFromEvents(events));
   const [waterBusy, setWaterBusy] = useState(false);
   const waterSaving = useRef(false);
   const [remTitle, setRemTitle] = useState('');
@@ -119,6 +123,10 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
     setGoalMode(goalModeFromEvents(events));
     setActivity(activityLevelFromEvents(events));
   }, [events]);
+
+  useEffect(() => {
+    setSteps(averageStepsFromEvents(events));
+  }, [lastStepsEventId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const weights = useMemo(() => reduceWeights(events), [events]);
   const exerciseSummary = useMemo(() => trainingSummary(events, exercises), [events, exercises]);
@@ -136,11 +144,31 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
     ...(lastMeas ?? {}),
     weight: currentWeight || lastMeas?.weight || 0,
   };
-  const macros = computeMacros(baseMeasures, exerciseSummary.weekMinutes, goalMode, activity, lang);
+  const macros = computeMacros(baseMeasures, exerciseSummary.weekMinutes, goalMode, activity, lang, steps);
+  const stepActivity = stepActivityMultiplier(steps);
   const comp = bodyComposition(baseMeasures, lang);
   const projection = useMemo(
-    () => projectBody(baseMeasures, goalMode, exerciseSummary.weekMinutes, activity, comp, lang),
-    [baseMeasures, goalMode, exerciseSummary.weekMinutes, activity, comp, lang],
+    () =>
+      projectBody(
+        baseMeasures,
+        goalMode,
+        exerciseSummary.weekMinutes,
+        activity,
+        comp,
+        lang,
+        exerciseSummary.strengthPerMonth,
+        steps,
+      ),
+    [
+      baseMeasures,
+      goalMode,
+      exerciseSummary.weekMinutes,
+      exerciseSummary.strengthPerMonth,
+      activity,
+      comp,
+      lang,
+      steps,
+    ],
   );
   const bmiRange = safeBmiRange(baseMeasures.age, lang);
   const fatRange = safeBodyFatRange(baseMeasures.sex, baseMeasures.age, lang);
@@ -264,6 +292,17 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
     setActivity(level);
     await appendEvent(newEvent(deviceId, 'activity.level', { level }));
     await onRefresh();
+  };
+
+  const saveSteps = async () => {
+    const value = Math.max(0, Math.round(Number(steps) || 0));
+    setSteps(value);
+    await appendEvent(newEvent(deviceId, 'steps.average', { steps: value }));
+    await onRefresh();
+    notify(
+      tx(lang, 'Pasos promedio guardados.', 'Average steps saved.'),
+      'success',
+    );
   };
 
   const remainingMacros = macros
@@ -708,8 +747,8 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
               <div className="card-sub">
                 {tx(
                   lang,
-                  'Rangos deducidos de tu sexo y edad, y progreso estimado con el balance energético actual. Son referencias orientativas, no diagnóstico médico.',
-                  'Ranges inferred from your sex and age, and estimated progress from your current energy balance. These are guides, not medical diagnosis.',
+                  'Rangos deducidos de tu sexo y edad. El peso objetivo se recalcula con tu composición y la proyección incorpora tus sesiones de fuerza y pasos medios. Son referencias orientativas, no diagnóstico médico.',
+                  'Ranges inferred from your sex and age. Target weight is recalculated from composition and the projection factors in your strength sessions and average steps. These are guides, not medical diagnosis.',
                 )}
               </div>
             </div>
@@ -732,7 +771,11 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
                 </div>
               </div>
               <div className="metric">
-                <div className="metric-label">{tx(lang, 'Peso objetivo', 'Target weight')}</div>
+                <div className="metric-label">
+                  {projection.targetSource === 'composition'
+                    ? tx(lang, 'Peso objetivo por composición', 'Composition target weight')
+                    : tx(lang, 'Peso objetivo', 'Target weight')}
+                </div>
                 <div className="metric-value-lg">{projection.targetWeight !== null ? `${projection.targetWeight.toFixed(1)} kg` : '—'}</div>
                 <div className="metric-caption">
                   {projection.targetBmi !== null ? tx(lang, `IMC ${projection.targetBmi.toFixed(1)}`, `BMI ${projection.targetBmi.toFixed(1)}`) : tx(lang, 'Faltan datos', 'Missing data')}
@@ -740,6 +783,15 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
                     ? tx(lang, ` · ${projection.targetBodyFat.toFixed(0)}% grasa`, ` · ${projection.targetBodyFat.toFixed(0)}% fat`)
                     : ''}
                 </div>
+                {projection.targetFatMass !== null && projection.targetLeanMass !== null && (
+                  <div className="metric-caption">
+                    {tx(
+                      lang,
+                      `${projection.targetLeanMass.toFixed(1)} kg magra · ${projection.targetFatMass.toFixed(1)} kg grasa`,
+                      `${projection.targetLeanMass.toFixed(1)} kg lean · ${projection.targetFatMass.toFixed(1)} kg fat`,
+                    )}
+                  </div>
+                )}
               </div>
               <div className="metric">
                 <div className="metric-label">{tx(lang, 'Ritmo estimado', 'Estimated rate')}</div>
@@ -757,6 +809,13 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
                         `${projection.dailyKcalDelta > 0 ? '+' : ''}${projection.dailyKcalDelta} kcal/day`,
                       )}
                 </div>
+                <div className="metric-caption">
+                  {tx(lang, `Fuerza: ${projection.strengthPerMonth}/mes`, `Strength: ${projection.strengthPerMonth}/mo`)}
+                  {' · '}
+                  {steps > 0
+                    ? tx(lang, `${Math.round(steps)} pasos/día`, `${Math.round(steps)} steps/day`)
+                    : tx(lang, 'Pasos: sin dato', 'Steps: no data')}
+                </div>
               </div>
             </div>
 
@@ -764,6 +823,7 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
               <Icon name={projection.safe ? 'info' : 'alert'} size={16} />
               <div>
                 <strong>{projection.message}</strong>
+                {projection.note && <div className="small">{projection.note}</div>}
                 {projection.etaDate && (
                   <div className="small">
                     {tx(lang, 'Fecha estimada:', 'Estimated date:')} {formatShort(projection.etaDate, lang)} ·{' '}
@@ -787,6 +847,14 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
                           ≈{milestone.bodyFat.toFixed(1)}% {tx(lang, 'grasa', 'fat')}
                         </span>
                       )}
+                      {milestone.fatMass !== null && (
+                        <span className="small muted">
+                          {tx(lang, `${milestone.fatMass.toFixed(1)} kg grasa`, `${milestone.fatMass.toFixed(1)} kg fat`)}
+                          {milestone.leanMass !== null
+                            ? tx(lang, ` · ${milestone.leanMass.toFixed(1)} kg magra`, ` · ${milestone.leanMass.toFixed(1)} kg lean`)
+                            : ''}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -795,8 +863,8 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
             <p className="hint">
               {tx(
                 lang,
-                'El cálculo asume que mantienes el nivel de actividad y el balance actual. Una variación de peso de 0,5–1 % por semana al perder grasa y de 0,25–0,5 % al ganar es un ritmo sostenible.',
-                'The calculation assumes you keep your activity level and current balance. A weight change of 0.5–1% per week when losing fat and 0.25–0.5% when gaining is a sustainable rate.',
+                'El cálculo asume que mantienes el nivel de actividad, la fuerza, los pasos y el balance actual. Una variación de peso de 0,5–1 % por semana al perder grasa y de 0,25–0,5 % al ganar es un ritmo sostenible; con más fuerza se conserva mejor la masa magra.',
+                'The calculation assumes you keep your current activity level, strength work, steps and balance. A weight change of 0.5–1% per week when losing fat and 0.25–0.5% when gaining is a sustainable rate; more strength work preserves lean mass better.',
               )}
             </p>
           </div>
@@ -854,6 +922,38 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
               <span className="hint">{activityOption(activity, lang).description}</span>
             </label>
 
+            <div className="field">
+              <span className="field-label">{tx(lang, 'Pasos promedio al día', 'Average daily steps')}</span>
+              <div className="row">
+                <NumberInput
+                  value={steps}
+                  onChange={setSteps}
+                  min={0}
+                  max={60000}
+                  step={500}
+                  className="grow"
+                  placeholder={tx(lang, 'Ej. 8000', 'E.g. 8000')}
+                  ariaLabel={tx(lang, 'Pasos promedio al día', 'Average daily steps')}
+                />
+                <button type="button" className="btn btn-tonal" onClick={() => void saveSteps()}>
+                  {tx(lang, 'Guardar', 'Save')}
+                </button>
+              </div>
+              <span className="hint">
+                {stepActivity !== null
+                  ? tx(
+                      lang,
+                      `Se usa como ×${stepActivity.toFixed(2)} de actividad si supera al nivel elegido. Ajusta el gasto y las fechas de la proyección.`,
+                      `Used as an activity multiplier of ×${stepActivity.toFixed(2)} if it exceeds the selected level. It adjusts expenditure and projection dates.`,
+                    )
+                  : tx(
+                      lang,
+                      'Opcional. Si lo indicas, el gasto y la proyección se ajustan a tu actividad diaria real.',
+                      'Optional. If set, expenditure and projection adjust to your actual daily activity.',
+                    )}
+              </span>
+            </div>
+
             {macros ? (
               <>
                 <div className="grid grid-2" style={{ gap: 10 }}>
@@ -866,8 +966,8 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
                     value={`${macros.tdee}`}
                     caption={
                       activity === 'auto'
-                        ? `BMR ${macros.bmr} · ${tx(lang, 'actividad', 'activity')} ×${macros.activity}`
-                        : `BMR ${macros.bmr} · ${tx(lang, 'nivel', 'level')} ${activityOption(activity, lang).label}`
+                        ? `BMR ${macros.bmr} · ${tx(lang, 'actividad', 'activity')} ×${macros.activity.toFixed(3)}`
+                        : `BMR ${macros.bmr} · ${activityOption(activity, lang).label} ×${macros.activity.toFixed(3)}`
                     }
                   />
                   <Stat

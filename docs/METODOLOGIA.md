@@ -79,6 +79,7 @@ La ecuación femenina requiere brazo, antebrazo, cuello, abdomen y muslo.
 - BMR Katch-McArdle: `370 + 21.6·masa magra`.
 - BMR Cunningham: `500 + 22·masa magra`.
 - Factor de actividad según minutos semanales: `1.2` (<60), `1.375` (60–149), `1.55` (150–299), `1.725` (≥300).
+- Pasos diarios medios: se traducen a un PAL orientativo (`<4000` → `1.2`, `<6000` → `1.3`, `<8000` → `1.4`, `<10000` → `1.5`, `<12500` → `1.6`, `<15000` → `1.725`, resto `1.85`). Se usa el **mayor** entre ese valor y el nivel de actividad declarado o automático, para no sumar dos veces el mismo gasto.
 - Calorías objetivo: TDEE × `0.85` (definición), `1.10` (volumen) o `1.0` (mantenimiento).
 - Proteína: `2.0 g/kg` en definición, `1.8 g/kg` en el resto.
 - Grasa: máximo entre `0.6 g/kg` y el `24%` de las calorías.
@@ -87,6 +88,23 @@ La ecuación femenina requiere brazo, antebrazo, cuello, abdomen y muslo.
 - Fibra: `14 g` por cada 1000 kcal.
 
 Si faltan altura, edad o sexo, la app usa valores neutros (170 cm, 30 años, constante neutra) y lo indica en las notas.
+
+## Proyección de peso y composición
+
+El peso objetivo no se limita al IMC cuando hay composición corporal:
+
+- Se fija la **masa magra objetivo** y se calcula la **masa grasa objetivo** a partir del porcentaje de grasa de referencia para sexo y edad. `peso objetivo = masa magra + masa grasa`.
+- En definición se asume una retención de masa magra del `95%` sin fuerza registrada y del `100%` con ≥12 sesiones de fuerza al mes.
+- En volumen se proyecta hasta un `1,5%` extra de masa magra con fuerza frecuente; sin fuerza, el superávit no se atribuye a músculo.
+- El IMC objetivo se sigue mostrando como referencia, pero no recorta un objetivo que la composición justifica (por ejemplo, en personas con mucha masa muscular).
+
+La fecha y los hitos futuros salen del balance energético y de un ritmo semanal limitado por seguridad:
+
+- Definición: `0,75–1,0 %` del peso por semana según la fuerza mensual (0–12 sesiones).
+- Volumen: `0,25–0,5 %` del peso por semana según la fuerza mensual.
+- El indicador de fuerza es el número de días distintos con al menos un ejercicio de tipo `fuerza` en los últimos 30 días.
+- En definición se descuenta la parte del peso perdido que podría ser masa magra: sin fuerza se asume que solo el `75%` del cambio es grasa; con fuerza frecuente, hasta el `100%`. Por eso la misma pérdida de grasa requiere más tiempo cuando no se entrena fuerza.
+- Los pasos medios y los minutos de entrenamiento cambian el TDEE, y con ello el déficit/superávit y las fechas de los hitos.
 
 ## Saciedad dual
 

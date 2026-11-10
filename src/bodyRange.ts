@@ -13,6 +13,7 @@ import type { ActivityLevel, BodyMeasures, GoalMode, Sex } from './types';
 import {
   addDays,
   bodyComposition,
+  clamp,
   computeMacros,
   todayISO,
   type BodyComposition,
@@ -36,7 +37,11 @@ export interface ProjectionMilestone {
   date: string;
   weight: number;
   bodyFat: number | null;
+  fatMass: number | null;
+  leanMass: number | null;
 }
+
+export type ProjectionTargetSource = 'composition' | 'bmi' | 'maintain' | 'none';
 
 export interface BodyProjection {
   available: boolean;
@@ -44,16 +49,34 @@ export interface BodyProjection {
   targetWeight: number | null;
   targetBodyFat: number | null;
   targetBmi: number | null;
+  /** Masa grasa que corresponde al peso objetivo. */
+  targetFatMass: number | null;
+  /** Masa magra que se espera conservar o ganar hasta el objetivo. */
+  targetLeanMass: number | null;
+  /** De dónde sale el peso objetivo: composición, IMC o mantenimiento. */
+  targetSource: ProjectionTargetSource;
+  /** Sesiones de fuerza al mes usadas en el cálculo. */
+  strengthPerMonth: number;
   weeklyRateKg: number;
   dailyKcalDelta: number;
   weeks: number | null;
   etaDate: string | null;
   safe: boolean;
   message: string;
+  /** Explica el objetivo por composición y el efecto de la fuerza. */
+  note: string;
   milestones: ProjectionMilestone[];
 }
 
 const KCAL_PER_KG_FAT = 7700;
+/** ≈3 sesiones de fuerza por semana: estímulo completo para conservar masa magra. */
+export const STRENGTH_SESSIONS_PER_MONTH_FULL = 12;
+
+/** 0 sin fuerza registrada, 1 con ≥12 sesiones al mes. */
+export function strengthFactor(perMonth: number): number {
+  if (!Number.isFinite(perMonth) || perMonth <= 0) return 0;
+  return clamp(perMonth / STRENGTH_SESSIONS_PER_MONTH_FULL, 0, 1);
+}
 
 /** IMC saludable. En mayores de 65 se acepta un margen algo mayor (22–27). */
 export function safeBmiRange(age: number, lang: Lang = 'es'): SafeRange {
@@ -204,6 +227,11 @@ function shiftDate(days: number): string {
 /**
  * Proyecta el progreso hacia el objetivo. Si faltan datos devuelve
  * `available: false` con un mensaje explicativo en vez de inventar cifras.
+ *
+ * Cuando hay composición corporal, el peso objetivo se recalcula desde la masa
+ * magra y la masa grasa, no solo desde el IMC. Las sesiones de fuerza al mes
+ * ajustan cuánta masa magra se conserva (definición) o se gana (volumen) y el
+ * ritmo seguro de cambio de peso.
  */
 export function projectBody(
   measures: BodyMeasures,
@@ -212,18 +240,26 @@ export function projectBody(
   activityLevel?: ActivityLevel,
   comp?: BodyComposition,
   lang: Lang = 'es',
+  strengthPerMonth = 0,
+  avgSteps = 0,
 ): BodyProjection {
   const composition = comp ?? bodyComposition(measures, lang);
   const bmi = composition.bmi;
   const bmiRange = safeBmiRange(measures.age, lang);
   const fatRange = safeBodyFatRange(measures.sex, measures.age, lang);
-  const macros = computeMacros(measures, weeklyMinutes, goal, activityLevel, lang);
+  const macros = computeMacros(measures, weeklyMinutes, goal, activityLevel, lang, avgSteps);
+  const strength = Number.isFinite(strengthPerMonth) ? Math.max(0, strengthPerMonth) : 0;
+  const effect = strengthFactor(strength);
   const empty: BodyProjection = {
     available: false,
     direction: goal === 'cut' ? 'lose' : goal === 'bulk' ? 'gain' : 'maintain',
     targetWeight: null,
     targetBodyFat: null,
     targetBmi: null,
+    targetFatMass: null,
+    targetLeanMass: null,
+    targetSource: 'none',
+    strengthPerMonth: Math.round(strength * 10) / 10,
     weeklyRateKg: 0,
     dailyKcalDelta: 0,
     weeks: null,
@@ -234,52 +270,99 @@ export function projectBody(
       'Añade peso, altura y, si puedes, cintura para calcular una proyección.',
       'Add weight, height and, if possible, waist to calculate a projection.',
     ),
+    note: '',
     milestones: [],
   };
   if (!macros || !measures.weight || measures.weight <= 0) return empty;
 
   const currentBmi = bmi ?? null;
   const currentFat = composition.avg;
+  const currentFatMass = composition.fatMass;
   const leanMass = composition.leanMass;
-  const targetFat = targetBodyFat(goal, measures.sex, fatRange);
+  const baseTargetFat = targetBodyFat(goal, measures.sex, fatRange);
   const delta = macros.kcal - macros.tdee;
   const maxBmi = bmiRange.max;
   const minBmi = bmiRange.min;
 
   let targetWeight: number | null = null;
+  let targetFat: number | null = null;
+  let targetFatMass: number | null = null;
+  let targetLeanMass: number | null = null;
+  let targetSource: ProjectionTargetSource = 'none';
+
   if (goal === 'maintain') {
     targetWeight = measures.weight;
-  } else if (leanMass !== null && targetFat !== null) {
-    targetWeight = leanMass / (1 - targetFat / 100);
-  } else if (currentBmi !== null && measures.height > 0) {
-    const targetBmi = goal === 'cut' ? Math.max(minBmi, Math.min(maxBmi, currentBmi - 1.5)) : Math.min(maxBmi, currentBmi + 1);
-    targetWeight = targetBmi * (measures.height / 100) ** 2;
-  }
-
-  // Nunca proyectamos fuera del rango saludable de IMC.
-  if (targetWeight !== null && measures.height > 0) {
-    const targetBmi = targetWeight / (measures.height / 100) ** 2;
-    const clampedBmi = Math.max(minBmi, Math.min(maxBmi, targetBmi));
-    if (Math.abs(clampedBmi - targetBmi) > 0.01) {
-      targetWeight = clampedBmi * (measures.height / 100) ** 2;
+    targetFat = currentFat;
+    targetFatMass = currentFatMass;
+    targetLeanMass = leanMass;
+    targetSource = 'maintain';
+  } else if (leanMass !== null && currentFatMass !== null && baseTargetFat !== null) {
+    // Objetivo por composición: se fija la masa magra que se espera conservar
+    // o ganar y se calcula la grasa necesaria para llegar al % objetivo.
+    targetSource = 'composition';
+    if (goal === 'cut') {
+      // Sin fuerza se asume una pérdida moderada de masa magra; con ≥12
+      // sesiones al mes se asume retención completa.
+      targetFat = currentFat !== null ? Math.min(baseTargetFat, currentFat) : baseTargetFat;
+      targetLeanMass = leanMass * (0.95 + 0.05 * effect);
+    } else {
+      // En volumen no se fuerza una definición encubierta: si ya se está por
+      // encima del objetivo, se mantiene la grasa actual.
+      const upperFat = fatRange ? fatRange.max : baseTargetFat;
+      targetFat = currentFat !== null
+        ? Math.max(baseTargetFat, Math.min(upperFat, currentFat))
+        : baseTargetFat;
+      // Hasta ~1,5 % más de masa magra con fuerza frecuente; sin fuerza, el
+      // superávit se reparte peor y no se proyecta ganancia magra extra.
+      targetLeanMass = leanMass * (1 + 0.015 * effect);
     }
+    targetFat = Math.min(99, Math.max(1, targetFat));
+    targetFatMass = targetLeanMass * (targetFat / (100 - targetFat));
+    targetWeight = targetLeanMass + targetFatMass;
+  } else if (currentBmi !== null && measures.height > 0) {
+    // Sin composición solo queda el IMC; se limita al rango orientativo.
+    targetSource = 'bmi';
+    const fallbackBmi =
+      goal === 'cut'
+        ? Math.max(minBmi, Math.min(maxBmi, currentBmi - 1.5))
+        : Math.min(maxBmi, currentBmi + 1);
+    targetWeight = fallbackBmi * (measures.height / 100) ** 2;
+    targetFat = baseTargetFat;
+    targetFatMass = baseTargetFat !== null ? (targetWeight * baseTargetFat) / 100 : null;
+    targetLeanMass = targetFatMass !== null ? targetWeight - targetFatMass : null;
   }
 
   // El objetivo debe ir en la dirección del modo elegido: una proyección de
-  // déficit no puede terminar pesando más que hoy (y viceversa).
+  // déficit no puede terminar pesando más que hoy (y viceversa). Si la
+  // composición ya no admite más cambio, se mantiene la composición actual.
   if (targetWeight !== null) {
+    const previousWeight = targetWeight;
     targetWeight =
       goal === 'cut'
         ? Math.min(targetWeight, measures.weight)
         : goal === 'bulk'
           ? Math.max(targetWeight, measures.weight)
           : measures.weight;
+    if (Math.abs(targetWeight - previousWeight) > 0.01) {
+      targetFat = currentFat;
+      targetFatMass = currentFatMass;
+      targetLeanMass = leanMass;
+    }
   }
 
-  // Ritmo semanal a partir del balance energético, con topes de seguridad.
+  // El IMC queda como referencia, no como límite del objetivo por composición:
+  // una persona con mucha masa muscular puede tener un IMC alto y poca grasa.
+  const targetBmi =
+    targetWeight !== null && measures.height > 0
+      ? targetWeight / (measures.height / 100) ** 2
+      : null;
+
+  // Ritmo semanal a partir del balance energético, con topes de seguridad que
+  // dependen del estímulo de fuerza: sin fuerza se avanza más despacio para no
+  // perder masa magra; con fuerza frecuente se permite el límite alto.
   const rawWeekly = (Math.abs(delta) * 7) / KCAL_PER_KG_FAT;
-  const maxCut = measures.weight * 0.01;
-  const maxBulk = measures.weight * 0.005;
+  const maxCut = measures.weight * (0.0075 + 0.0025 * effect);
+  const maxBulk = measures.weight * (0.0025 + 0.0025 * effect);
   const weeklyRateKg =
     goal === 'maintain' || !Number.isFinite(rawWeekly)
       ? 0
@@ -288,30 +371,122 @@ export function projectBody(
         : Math.min(rawWeekly, maxBulk);
 
   const difference = targetWeight !== null ? targetWeight - measures.weight : 0;
-  const weeks =
-    goal === 'maintain' || weeklyRateKg <= 0 || Math.abs(difference) < 0.2
-      ? 0
-      : Math.abs(difference) / weeklyRateKg;
+  let weeks = 0;
+  if (goal !== 'maintain' && weeklyRateKg > 0 && Math.abs(difference) >= 0.2) {
+    const weightWeeks = Math.abs(difference) / weeklyRateKg;
+    if (goal === 'cut' && targetFatMass !== null && currentFatMass !== null) {
+      // Sin fuerza, parte del peso perdido es masa magra: para perder la misma
+      // grasa hace falta más tiempo. Con fuerza, casi todo el cambio es grasa.
+      const fatShare = 0.75 + 0.25 * effect;
+      const fatWeeks = Math.abs(targetFatMass - currentFatMass) / (weeklyRateKg * fatShare);
+      weeks = Math.max(weightWeeks, fatWeeks);
+    } else {
+      weeks = weightWeeks;
+    }
+  }
+  if (!Number.isFinite(weeks)) weeks = 0;
 
   const safe =
     (goal !== 'cut' || currentBmi === null || currentBmi > minBmi) &&
     (goal !== 'bulk' || currentBmi === null || currentBmi < maxBmi);
 
-  // Hitos aproximados: 4 pasos hacia el objetivo, sin superar 12 meses.
+  // Hitos: 4 pasos con la composición interpolada, no solo el peso.
   const milestones: ProjectionMilestone[] = [];
   if (targetWeight !== null && weeks > 0) {
     const steps = 4;
     for (let index = 1; index <= steps; index += 1) {
       const fraction = index / steps;
-      const weight = measures.weight + difference * fraction;
-      const projectedFat =
-        leanMass !== null && weight > 0 ? ((weight - leanMass) / weight) * 100 : null;
+      let weight = measures.weight + difference * fraction;
+      let projectedFat: number | null = null;
+      let projectedFatMass: number | null = null;
+      let projectedLeanMass: number | null = null;
+
+      if (
+        leanMass !== null &&
+        targetLeanMass !== null &&
+        currentFatMass !== null &&
+        targetFatMass !== null
+      ) {
+        projectedLeanMass = leanMass + (targetLeanMass - leanMass) * fraction;
+        projectedFatMass = currentFatMass + (targetFatMass - currentFatMass) * fraction;
+        weight = projectedLeanMass + projectedFatMass;
+        projectedFat = weight > 0 ? (projectedFatMass / weight) * 100 : null;
+      } else if (leanMass !== null && weight > 0) {
+        projectedFat = ((weight - leanMass) / weight) * 100;
+        projectedFatMass = weight - leanMass;
+        projectedLeanMass = leanMass;
+      }
+
       milestones.push({
         date: shiftDate(weeks * 7 * fraction),
         weight,
-        bodyFat: projectedFat !== null && Number.isFinite(projectedFat) ? projectedFat : null,
+        bodyFat:
+          projectedFat !== null && Number.isFinite(projectedFat) ? projectedFat : null,
+        fatMass:
+          projectedFatMass !== null && Number.isFinite(projectedFatMass)
+            ? projectedFatMass
+            : null,
+        leanMass:
+          projectedLeanMass !== null && Number.isFinite(projectedLeanMass)
+            ? projectedLeanMass
+            : null,
       });
     }
+  }
+
+  const strengthText =
+    strength > 0
+      ? tx(
+          lang,
+          `${Math.round(strength)} sesión(es) de fuerza al mes`,
+          `${Math.round(strength)} strength session(s) per month`,
+        )
+      : tx(
+          lang,
+          'sin sesiones de fuerza registradas en los últimos 30 días',
+          'no strength sessions logged in the last 30 days',
+        );
+  const stepsText =
+    avgSteps > 0
+      ? tx(
+          lang,
+          ` y ${Math.round(avgSteps)} pasos/día de media`,
+          ` and an average of ${Math.round(avgSteps)} steps/day`,
+        )
+      : '';
+
+  let note = '';
+  if (targetSource === 'composition' && targetLeanMass !== null && targetFatMass !== null) {
+    note = tx(
+      lang,
+      `Peso objetivo recalculado con tu composición: ${targetLeanMass.toFixed(1)} kg de masa magra y ${targetFatMass.toFixed(1)} kg de masa grasa (${targetFat?.toFixed(0) ?? '—'}% grasa). ${strengthText}${stepsText}; ${
+        goal === 'bulk'
+          ? 'se proyecta una ganancia magra moderada'
+          : effect > 0
+            ? 'se asume retención de masa magra'
+            : 'se asume cierta pérdida de masa magra'
+      }.`,
+      `Target weight recalculated from your composition: ${targetLeanMass.toFixed(1)} kg lean mass and ${targetFatMass.toFixed(1)} kg fat mass (${targetFat?.toFixed(0) ?? '—'}% fat). ${strengthText}${stepsText}; ${
+        goal === 'bulk'
+          ? 'a moderate lean gain is projected'
+          : effect > 0
+            ? 'lean mass is assumed to be preserved'
+            : 'some lean mass loss is assumed'
+      }.`,
+    );
+    if (targetBmi !== null && (targetBmi < minBmi || targetBmi > maxBmi)) {
+      note += ' ' + tx(
+        lang,
+        `El IMC objetivo (${targetBmi.toFixed(1)}) queda fuera del rango orientativo: en personas con más masa muscular el IMC pierde precisión, así que prioriza la composición corporal.`,
+        `The target BMI (${targetBmi.toFixed(1)}) is outside the reference range: BMI is less accurate in people with more muscle mass, so prioritize body composition.`,
+      );
+    }
+  } else if (targetSource === 'bmi') {
+    note = tx(
+      lang,
+      'Faltan medidas de composición: el peso objetivo se estima solo con el IMC y puede ser menos preciso. Añade cuello, cintura o abdomen para recalcularlo con masa magra y grasa.',
+      'Composition measurements are missing: target weight is estimated from BMI alone and may be less accurate. Add neck, waist or abdomen measurements to recalculate it from lean and fat mass.',
+    );
   }
 
   let message: string;
@@ -360,14 +535,19 @@ export function projectBody(
     available: true,
     direction: goal === 'cut' ? 'lose' : goal === 'bulk' ? 'gain' : 'maintain',
     targetWeight,
-    targetBodyFat: goal === 'maintain' ? currentFat : targetFat,
-    targetBmi: targetWeight !== null && measures.height > 0 ? targetWeight / (measures.height / 100) ** 2 : null,
+    targetBodyFat: targetFat,
+    targetBmi,
+    targetFatMass,
+    targetLeanMass,
+    targetSource,
+    strengthPerMonth: Math.round(strength * 10) / 10,
     weeklyRateKg,
     dailyKcalDelta: Math.round(delta),
     weeks: weeks > 0 ? Math.round(weeks * 10) / 10 : 0,
     etaDate: weeks > 0 ? shiftDate(weeks * 7) : null,
     safe,
     message,
+    note,
     milestones,
   };
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   bodyComposition,
   bodyProgressSeries,
+  averageStepsFromEvents,
   computeMacros,
   computeSatiety,
   computeWaterGuidance,
@@ -14,7 +15,9 @@ import {
   reduceRoutines,
   safeNum,
   startOfWeek,
+  stepActivityMultiplier,
   todayISO,
+  trainingSummary,
   visibleTrainingEvents,
 } from './metrics';
 import type { BodyMeasures, Exercise, VaultEvent } from './types';
@@ -81,6 +84,64 @@ describe('metrics', () => {
     expect(maintain.kcal).toBe(maintain.tdee);
     expect(cut.kcal).toBeLessThan(cut.tdee);
     expect(bulk.kcal).toBeGreaterThan(bulk.tdee);
+  });
+
+  it('uses average daily steps as an activity floor without double counting', () => {
+    const sedentary = computeMacros(BODY, 0, 'maintain', 'sedentary', 'es', 0)!;
+    const walker = computeMacros(BODY, 0, 'maintain', 'sedentary', 'es', 12000)!;
+    const high = computeMacros(BODY, 0, 'maintain', 'high', 'es', 3000)!;
+
+    expect(sedentary.activity).toBeCloseTo(1.2, 2);
+    expect(stepActivityMultiplier(12000)).toBeCloseTo(1.6, 2);
+    expect(walker.activity).toBeCloseTo(1.6, 2);
+    expect(walker.tdee).toBeGreaterThan(sedentary.tdee);
+    expect(high.activity).toBeCloseTo(1.725, 2);
+  });
+
+  it('reads the latest stored average step count', () => {
+    const events = [
+      event('steps.average', { steps: 6000 }, '2026-01-01T00:00:00.000Z'),
+      event('steps.average', { steps: 9800 }, '2026-01-05T00:00:00.000Z'),
+    ];
+    expect(averageStepsFromEvents(events)).toBe(9800);
+    expect(averageStepsFromEvents([])).toBe(0);
+  });
+
+  it('counts strength sessions in the last 30 days', () => {
+    const exercises = [
+      event('exercise.upsert', { id: 'sq', name: 'Sentadilla', type: 'fuerza' }),
+      event('exercise.upsert', { id: 'run', name: 'Correr', type: 'cardio' }),
+    ];
+    const training = [
+      event('session.saved', {
+        id: 's1',
+        date: '2026-01-10',
+        duration: 3600,
+        entries: [{ exerciseId: 'sq', sets: [{ reps: 5, weight: 100 }] }],
+      }),
+      event('session.saved', {
+        id: 's2',
+        date: '2026-01-15',
+        duration: 1800,
+        entries: [{ exerciseId: 'run', sets: [] }],
+      }),
+      event('session.saved', {
+        id: 's3',
+        date: '2026-01-20',
+        duration: 3600,
+        entries: [{ exerciseId: 'sq', sets: [{ reps: 5, weight: 105 }] }],
+      }),
+      event('session.saved', {
+        id: 'old',
+        date: '2025-11-01',
+        duration: 3600,
+        entries: [{ exerciseId: 'sq', sets: [{ reps: 5, weight: 90 }] }],
+      }),
+    ];
+    const summary = trainingSummary([...exercises, ...training], reduceExercises(exercises), new Date(2026, 0, 25));
+    expect(summary.monthSessions).toBe(3);
+    expect(summary.monthStrengthSessions).toBe(2);
+    expect(summary.strengthPerMonth).toBe(2);
   });
 
 

@@ -12,6 +12,7 @@ import type {
   VaultEvent,
   WeightEntry,
   Workout,
+  WorkoutEntry,
   Mesocycle,
   Plan,
 } from './types';
@@ -207,6 +208,30 @@ export function activityOptions(lang: Lang = 'es'): ActivityOption[] {
   return [AUTO_ACTIVITY, ...ACTIVITY_LEVELS].map((option) => activityOption(option.id, lang));
 }
 
+/**
+ * Pasos diarios medios como proxy de la actividad espontánea (NEAT). Los
+ * cortes son heurísticos: no sustituyen al nivel declarado, pero evitan
+ * infravalorar el gasto cuando alguien camina mucho aunque no lo registre como
+ * entrenamiento.
+ */
+export function stepActivityMultiplier(avgSteps: number): number | null {
+  if (!Number.isFinite(avgSteps) || avgSteps <= 0) return null;
+  if (avgSteps < 4000) return 1.2;
+  if (avgSteps < 6000) return 1.3;
+  if (avgSteps < 8000) return 1.4;
+  if (avgSteps < 10000) return 1.5;
+  if (avgSteps < 12500) return 1.6;
+  if (avgSteps < 15000) return 1.725;
+  return 1.85;
+}
+
+/** Último promedio de pasos diarios guardado, o 0 si no hay dato. */
+export function averageStepsFromEvents(events: VaultEvent[]): number {
+  const last = [...events].reverse().find((e) => e.kind === 'steps.average');
+  const steps = Number(last?.payload?.steps);
+  return Number.isFinite(steps) && steps > 0 ? steps : 0;
+}
+
 export function historyCutoff(events: VaultEvent[]): string {
   const last = [...events].reverse().find((e) => e.kind === 'history.cleared');
   return typeof last?.payload?.at === 'string' ? last.payload.at : '';
@@ -368,9 +393,24 @@ export interface TrainingSummary {
   weekMinutes: number;
   weekSets: number;
   weekVolume: number;
+  /** Sesiones (entrenamientos o sesiones) registradas en los últimos 30 días. */
+  monthSessions: number;
+  /** Días distintos con al menos un ejercicio de fuerza en los últimos 30 días. */
+  monthStrengthSessions: number;
+  /** Indicador mensual de fuerza: sesiones de fuerza en los últimos 30 días. */
+  strengthPerMonth: number;
   zoneLoad: Record<ZoneId, ZoneLoad>;
   topZone: ZoneId | null;
   totalPRs: number;
+}
+
+function hasStrengthWork(entries: WorkoutEntry[], exercises: Map<string, Exercise>): boolean {
+  return entries.some((entry) => {
+    const exercise = exercises.get(entry.exerciseId);
+    // Las sesiones antiguas pueden no tener metadatos del ejercicio: en ese
+    // caso se asume fuerza, que es el tipo por defecto de la app.
+    return !exercise || !exercise.type || exercise.type === 'fuerza';
+  });
 }
 
 function emptyZoneLoad(): Record<ZoneId, ZoneLoad> {
@@ -389,7 +429,10 @@ export function trainingSummary(
   const prs = reducePRs(events);
   const exerciseMap = new Map(exercises.map((e) => [e.id, e]));
   const sevenDaysAgo = todayISO(addDays(now, -6));
+  const thirtyDaysAgo = todayISO(addDays(now, -29));
   const load = emptyZoneLoad();
+  const strengthDates = new Set<string>();
+  let monthSessions = 0;
 
   const applyEntry = (
     date: string,
@@ -417,6 +460,10 @@ export function trainingSummary(
       weekSessions += 1;
       weekMinutes += s.duration / 60;
     }
+    if (s.date >= thirtyDaysAgo) {
+      monthSessions += 1;
+      if (hasStrengthWork(s.entries, exerciseMap)) strengthDates.add(s.date);
+    }
     for (const entry of s.entries) {
       const entrySets = entry.sets?.length ?? 0;
       const share = totalSets > 0 ? (s.duration / 60) * (entrySets / totalSets) : 0;
@@ -429,6 +476,10 @@ export function trainingSummary(
   }
 
   for (const w of workouts) {
+    if (w.date >= thirtyDaysAgo) {
+      monthSessions += 1;
+      if (hasStrengthWork(w.entries, exerciseMap)) strengthDates.add(w.date);
+    }
     for (const entry of w.entries) {
       const entrySets = entry.sets?.length ?? 0;
       applyEntry(w.date, entry, entrySets * 3);
@@ -465,6 +516,9 @@ export function trainingSummary(
     weekMinutes: Math.round(weekMinutes),
     weekSets,
     weekVolume,
+    monthSessions,
+    monthStrengthSessions: strengthDates.size,
+    strengthPerMonth: strengthDates.size,
     zoneLoad: load,
     topZone,
     totalPRs: prs.length,
@@ -582,6 +636,10 @@ export interface MacroResult {
   activity: number;
   /** Nivel declarado por el usuario; `null` si se dedujo del entrenamiento. */
   activityLevel: ActivityLevel | null;
+  /** Pasos diarios medios usados para ajustar el gasto (0 si no hay dato). */
+  steps: number;
+  /** Multiplicador orientativo que sugieren esos pasos. */
+  stepActivity: number | null;
   fiber: number;
   missing: string[];
   notes: string[];
@@ -599,6 +657,7 @@ export function computeMacros(
   goal: GoalMode,
   activityLevel?: ActivityLevel,
   lang: Lang = 'es',
+  avgSteps = 0,
 ): MacroResult | null {
   if (!m.weight || m.weight <= 0) return null;
   const missing: string[] = [];
@@ -648,6 +707,31 @@ export function computeMacros(
       ),
     );
   }
+
+  // Los pasos medios cubren la actividad espontánea. Se usa el mayor de los
+  // dos multiplicadores para no sumar dos veces el mismo gasto: un nivel
+  // declarado alto puede incluir fuerza que no aparece en los pasos.
+  const stepActivity = stepActivityMultiplier(avgSteps);
+  if (stepActivity !== null) {
+    if (stepActivity > activity + 1e-9) {
+      notes.push(
+        tx(
+          lang,
+          `Pasos: ${Math.round(avgSteps)}/día (×${stepActivity.toFixed(3)}). Se toma este multiplicador porque supera al de actividad (×${activity.toFixed(3)}).`,
+          `Steps: ${Math.round(avgSteps)}/day (×${stepActivity.toFixed(3)}). This multiplier is used because it exceeds the activity one (×${activity.toFixed(3)}).`,
+        ),
+      );
+      activity = stepActivity;
+    } else {
+      notes.push(
+        tx(
+          lang,
+          `Pasos: ${Math.round(avgSteps)}/día (×${stepActivity.toFixed(3)}). Tu nivel de actividad ya cubre ese gasto (×${activity.toFixed(3)}).`,
+          `Steps: ${Math.round(avgSteps)}/day (×${stepActivity.toFixed(3)}). Your activity level already covers that expenditure (×${activity.toFixed(3)}).`,
+        ),
+      );
+    }
+  }
   const tdee = bmr * activity;
   const kcal = Math.round(tdee * (goal === 'cut' ? 0.85 : goal === 'bulk' ? 1.1 : 1));
   const proteinPerKg = goal === 'cut' ? 2.0 : 1.8;
@@ -669,6 +753,8 @@ export function computeMacros(
     tdee: Math.round(tdee),
     activity,
     activityLevel: activityLevel ?? null,
+    steps: Math.max(0, Math.round(avgSteps)),
+    stepActivity,
     fiber,
     missing,
     notes,

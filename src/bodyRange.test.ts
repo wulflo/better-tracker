@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { BodyComposition } from './metrics';
 import type { BodyMeasures } from './types';
 import { classifyValue, projectBody, safeBmiRange, safeBodyFatRange } from './bodyRange';
 
@@ -17,6 +18,26 @@ const BODY: BodyMeasures = {
   thigh: 58,
   calf: 39,
   wrist: 17,
+};
+
+const MUSCULAR: BodyComposition = {
+  methods: [],
+  avg: 16,
+  min: 16,
+  max: 16,
+  bmi: 27.78,
+  fatMass: 14.4,
+  leanMass: 75.6,
+  whr: null,
+  whtr: null,
+  bmrMifflin: null,
+  bmrKatch: null,
+  bmrCunningham: null,
+  tdee: null,
+  missing: [],
+  used: [],
+  confidence: 80,
+  coverage: 80,
 };
 
 describe('rangos corporales seguros', () => {
@@ -39,15 +60,53 @@ describe('rangos corporales seguros', () => {
     expect(classifyValue(null, range).status).toBe('unknown');
   });
 
-  it('nunca proyecta un objetivo fuera del IMC saludable', () => {
-    const projection = projectBody(BODY, 'cut', 180);
+  it('recalcula el objetivo desde la composición y no lo limita al IMC', () => {
+    const projection = projectBody(BODY, 'cut', 180, 'moderate', MUSCULAR, 'es', 12);
     expect(projection.available).toBe(true);
+    expect(projection.targetSource).toBe('composition');
     expect(projection.targetWeight).not.toBeNull();
+    expect(projection.targetFatMass).not.toBeNull();
+    expect(projection.targetLeanMass).not.toBeNull();
+    expect(projection.targetLeanMass!).toBeCloseTo(75.6, 1);
+    expect(projection.targetFatMass!).toBeCloseTo(10.3, 1);
+    expect(projection.targetWeight!).toBeCloseTo(85.9, 1);
+    expect(projection.targetBmi!).toBeGreaterThan(24.9);
+    expect(projection.note).toContain('masa magra');
+    expect(projection.milestones).toHaveLength(4);
+    expect(projection.milestones.at(-1)!.weight).toBeCloseTo(projection.targetWeight!, 1);
+    expect(projection.milestones.at(-1)!.fatMass).toBeCloseTo(projection.targetFatMass!, 1);
+  });
+
+  it('usa la fuerza mensual para conservar masa magra y ajustar el ritmo', () => {
+    const trained = projectBody(BODY, 'cut', 180, 'moderate', MUSCULAR, 'es', 12);
+    const untrained = projectBody(BODY, 'cut', 180, 'moderate', MUSCULAR, 'es', 0);
+    expect(trained.targetLeanMass!).toBeGreaterThan(untrained.targetLeanMass!);
+    expect(trained.targetWeight!).toBeGreaterThan(untrained.targetWeight!);
+    expect(trained.weeks!).toBeLessThan(untrained.weeks!);
+    expect(trained.strengthPerMonth).toBe(12);
+    expect(untrained.note).toContain('pérdida de masa magra');
+  });
+
+  it('usa los pasos medios para ajustar el gasto y las fechas futuras', () => {
+    const low = projectBody(BODY, 'cut', 0, 'sedentary', MUSCULAR, 'es', 12, 3000);
+    const high = projectBody(BODY, 'cut', 0, 'sedentary', MUSCULAR, 'es', 12, 12000);
+    expect(high.weeks!).toBeLessThan(low.weeks!);
+    expect(high.dailyKcalDelta).toBeLessThan(low.dailyKcalDelta);
+    expect(high.note).toContain('12000 pasos/día');
+    expect(high.milestones.at(-1)!.date < low.milestones.at(-1)!.date).toBe(true);
+  });
+
+  it('sin composición usa el IMC como respaldo y lo limita al rango', () => {
+    const projection = projectBody(
+      { ...BODY, sex: 'unspecified', neck: 0, waist: 0, abdomen: 0, hip: 0, arm: 0, forearm: 0, thigh: 0, wrist: 0 },
+      'cut',
+      180,
+    );
+    expect(projection.targetSource).toBe('bmi');
     expect(projection.targetBmi).not.toBeNull();
     expect(projection.targetBmi!).toBeGreaterThanOrEqual(18.5);
     expect(projection.targetBmi!).toBeLessThanOrEqual(24.9);
-    expect(projection.milestones).toHaveLength(4);
-    expect(projection.milestones.at(-1)!.weight).toBeCloseTo(projection.targetWeight!, 1);
+    expect(projection.note).toContain('solo con el IMC');
   });
 
   it('no proyecta una pérdida que en realidad suba de peso', () => {

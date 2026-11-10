@@ -66,6 +66,7 @@ On Linux the app uses GTK/WebKit and runs natively on Wayland. When the propriet
 - BMI, waist-to-hip ratio, waist-to-height ratio, fat mass, and lean mass.
 - BMR estimates using Mifflin-St Jeor, Katch-McArdle, and Cunningham when the required data is available.
 - Estimated TDEE and fat-loss trend. Body-fat percentage and waist can be tracked with measurements alone, without a scale; fat mass in kilograms appears when weight is also available.
+- Weight projection with future dates based on body composition, monthly strength sessions, and average daily steps. When composition is available, the target weight is recalculated from lean and fat mass instead of relying only on BMI.
 
 ### Nutrition
 

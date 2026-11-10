@@ -4,6 +4,7 @@ import { EMPTY_MEASURES } from './types';
 import { appendEvent, newEvent } from './vault';
 import {
   activityLevelFromEvents,
+  averageStepsFromEvents,
   computeMacros,
   computeWaterGuidance,
   formatShort,
@@ -66,12 +67,15 @@ export default function HistoryView({ deviceId, events, exercises, onRefresh, no
     [lastMeas, currentWeight],
   );
   const exerciseSummary = useMemo(() => trainingSummary(events, exercises), [events, exercises]);
+  const avgSteps = useMemo(() => averageStepsFromEvents(events), [events]);
   const nutritionTargets = useMemo<NutritionTargets | undefined>(() => {
     const macros = computeMacros(
       body,
       exerciseSummary.weekMinutes,
       goalModeFromEvents(events),
       activityLevelFromEvents(events),
+      'es',
+      avgSteps,
     );
     if (!macros) return undefined;
     const water = computeWaterGuidance(body, exerciseSummary.weekMinutes, 0);
@@ -83,7 +87,7 @@ export default function HistoryView({ deviceId, events, exercises, onRefresh, no
       fiber: macros.fiber,
       water: water.targetMl,
     };
-  }, [body, exerciseSummary.weekMinutes, events]);
+  }, [body, exerciseSummary.weekMinutes, events, avgSteps]);
   const nutrition = useMemo(
     () => nutritionDigest(nutritionEntries, 8, new Date(), nutritionTargets, currentWeight, lang),
     [nutritionEntries, nutritionTargets, currentWeight, lang],
