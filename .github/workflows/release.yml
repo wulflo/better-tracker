@@ -77,7 +77,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
+          # Linux compila en 24.04, igual que Study Planner: el AppImage
+          # empaqueta el WebKitGTK del runner, y el de 22.04 queda demasiado
+          # viejo. Contrapartida: los .deb/.rpm piden glibc 2.39 (Ubuntu 24.04+
+          # o Debian 13+).
+          - os: ubuntu-24.04
             platform: linux
           - os: windows-latest
             platform: windows

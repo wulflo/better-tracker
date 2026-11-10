@@ -211,9 +211,44 @@ const RESIZE_HANDLES: Array<{ direction: ResizeDirection; position: string }> = 
  * En Linux una ventana sin decoraciones no se puede redimensionar desde los
  * bordes. Estos tiradores invisibles llaman a `startResizeDragging` para
  * conservar el comportamiento de una ventana normal en todas las plataformas.
+ *
+ * Con la ventana maximizada no hay borde que arrastrar y, en algunos
+ * compositores, un tirador fijo pegado al borde deja artefactos de repintado al
+ * mover o arrastrar la ventana; por eso se ocultan (igual que en Study Planner).
  */
-export function WindowResizeHandles() {
-  if (!isDesktopApp()) return null;
+function WindowResizeHandlesInner() {
+  const [maximized, setMaximized] = useState(false);
+
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    let active = true;
+    let unlisten: (() => void) | undefined;
+
+    const sync = () => {
+      appWindow
+        .isMaximized()
+        .then((value) => {
+          if (active) setMaximized(value);
+        })
+        .catch(() => {});
+    };
+
+    sync();
+    appWindow
+      .onResized(sync)
+      .then((stop) => {
+        if (active) unlisten = stop;
+        else stop();
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
+
+  if (maximized) return null;
 
   const startResize = (event: React.MouseEvent, direction: ResizeDirection) => {
     if (event.button !== 0) return;
@@ -234,4 +269,9 @@ export function WindowResizeHandles() {
       ))}
     </>
   );
+}
+
+export function WindowResizeHandles() {
+  if (!isDesktopApp()) return null;
+  return <WindowResizeHandlesInner />;
 }

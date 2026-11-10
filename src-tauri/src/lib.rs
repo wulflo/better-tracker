@@ -13,7 +13,17 @@ pub fn run() {
     // La build de Store no registra plugins opcionales en escritorio, así que
     // el binding deja de necesitar `mut`; se mantiene para el resto de builds.
     #[allow(unused_mut)]
-    let mut builder = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    // Debe registrarse antes que los demás plugins: si ya hay una instancia,
+    // esta segunda se limita a enfocar la ventana existente y termina. Así no
+    // se apilan ventanas ni varios procesos escriben en la misma bóveda.
+    #[cfg(not(target_os = "android"))]
+    {
+        builder = builder.plugin(single_instance_plugin());
+    }
+
+    let mut builder = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(commands::UpdateState::default());
@@ -79,4 +89,41 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Enfoca la ventana ya abierta cuando se intenta lanzar una segunda instancia.
+#[cfg(not(target_os = "android"))]
+fn single_instance_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    let mut builder = tauri_plugin_single_instance::Builder::<R>::new();
+
+    // En Snap el nombre D-Bus lleva el prefijo del paquete. En AppImage, .deb,
+    // .rpm y Flatpak coincide con el identificador del bundle.
+    if std::env::var_os("SNAP").is_some() {
+        builder = builder.dbus_id("snap.better-tracker.better-tracker");
+    }
+
+    builder
+        .callback(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                if window.is_visible().unwrap_or(false) {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    return;
+                }
+            }
+
+            // Durante el arranque la ventana visible es el splash; si ya se
+            // cerró, mostramos la principal aunque el frontend aún cargue.
+            if let Some(splash) = app.get_webview_window("splash") {
+                let _ = splash.show();
+                let _ = splash.set_focus();
+                return;
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        })
+        .build()
 }

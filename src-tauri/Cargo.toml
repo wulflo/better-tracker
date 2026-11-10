@@ -1,6 +1,6 @@
 [package]
 name = "better-tracker"
-version = "0.9.16"
+version = "0.9.17"
 description = "Better Fitness Tracker"
 authors = ["better-tracker"]
 license = "MIT"
@@ -38,6 +38,9 @@ reqwest = { version = "0.12.28", default-features = false, features = ["json", "
 sha2 = "0.10"
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
+# Evita que dos ejecuciones simultáneas abran dos ventanas y escriban en la
+# misma bóveda. Es Rust-only: no necesita permisos en capabilities.
+tauri-plugin-single-instance = "2"
 # El actualizador nativo y el relanzado solo existen en escritorio. Son
 # opcionales para que la build de Microsoft Store pueda excluirlos por completo
 # (`--no-default-features --features microsoft-store`).

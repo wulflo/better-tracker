@@ -10,7 +10,11 @@
 # (por ejemplo io.github.wulflo.BetterTracker).
 id: com.bettertracker.desktop
 runtime: org.gnome.Platform
-runtime-version: '48'
+# GNOME 48 y anteriores traen WebKitGTK 2.48, que en algunos equipos mata con
+# SIGKILL el proceso web nada más cargar la primera página (la app "no abre").
+# Desde GNOME 49 el runtime incluye WebKitGTK 2.50, donde el fallo está
+# corregido. Ver docs/AVANCES.md.
+runtime-version: '51'
 sdk: org.gnome.Sdk
 command: better-tracker
 

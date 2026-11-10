@@ -2,7 +2,7 @@
 
 Training, body composition, nutrition, and weekly load in a local-first desktop app.
 
-Current version: **0.9.16**.
+Current version: **0.9.17**.
 
 [Leer en español](README.es.md)
 
@@ -22,7 +22,7 @@ The Microsoft Store build is produced separately with
 panel only explains that updates come from the Store. See
 [Microsoft Store (MSIX)](docs/MICROSOFT_STORE.md).
 
-On Linux the app uses GTK/WebKit and runs natively on Wayland. If a proprietary driver causes rendering issues, start it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
+On Linux the app uses GTK/WebKit and runs natively on Wayland. When the proprietary NVIDIA driver is detected, the app automatically disables WebKit's DMA-BUF renderer to avoid the `libnvidia-eglcore` crash that can freeze the desktop. Setting `WEBKIT_DISABLE_DMABUF_RENDERER`, `WEBKIT_DMABUF_RENDERER_FORCE_SHM`, `WEBKIT_DISABLE_COMPOSITING_MODE`, `__NV_DISABLE_EXPLICIT_SYNC` or `LIBGL_ALWAYS_SOFTWARE` yourself overrides that detection. Only one instance of the app runs at a time; launching it again focuses the existing window.
 
 ## Features
 
