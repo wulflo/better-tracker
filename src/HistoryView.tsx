@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { Exercise, PR, Routine, Session, VaultEvent, Workout } from './types';
 import { EMPTY_MEASURES } from './types';
 import { appendEvent, newEvent } from './vault';
@@ -7,6 +7,7 @@ import {
   averageStepsFromEvents,
   computeMacros,
   computeWaterGuidance,
+  estimateTraining,
   formatShort,
   goalModeFromEvents,
   latestMeasurement,
@@ -16,6 +17,7 @@ import {
   reduceSessions,
   reduceWeights,
   reduceWorkouts,
+  trainingFrequencyFromEvents,
   trainingSummary,
   visibleTrainingEvents,
 } from './metrics';
@@ -50,6 +52,12 @@ export default function HistoryView({ deviceId, events, exercises, onRefresh, no
   const [filter, setFilter] = useState<Filter>('all');
   const [confirm, setConfirm] = useState(false);
   const [tab, setTab] = useState<'training' | 'nutrition'>('training');
+  const [deleteTarget, setDeleteTarget] = useState<Row | null>(null);
+  const [visibleCount, setVisibleCount] = useState(50);
+
+  useEffect(() => {
+    setVisibleCount(50);
+  }, [filter, tab]);
 
   const routines = useMemo(() => reduceRoutines(events), [events]);
   const sessions = useMemo(() => reduceSessions(events), [events]);
@@ -69,16 +77,20 @@ export default function HistoryView({ deviceId, events, exercises, onRefresh, no
   const exerciseSummary = useMemo(() => trainingSummary(events, exercises), [events, exercises]);
   const avgSteps = useMemo(() => averageStepsFromEvents(events), [events]);
   const nutritionTargets = useMemo<NutritionTargets | undefined>(() => {
+    const training = estimateTraining(
+      exerciseSummary,
+      trainingFrequencyFromEvents(events)?.perWeek ?? null,
+    );
     const macros = computeMacros(
       body,
-      exerciseSummary.weekMinutes,
+      training.weeklyMinutes,
       goalModeFromEvents(events),
       activityLevelFromEvents(events),
       'es',
       avgSteps,
     );
     if (!macros) return undefined;
-    const water = computeWaterGuidance(body, exerciseSummary.weekMinutes, 0);
+    const water = computeWaterGuidance(body, training.weeklyMinutes, 0);
     return {
       kcal: macros.kcal,
       protein: macros.protein,
@@ -87,7 +99,7 @@ export default function HistoryView({ deviceId, events, exercises, onRefresh, no
       fiber: macros.fiber,
       water: water.targetMl,
     };
-  }, [body, exerciseSummary.weekMinutes, events, avgSteps]);
+  }, [body, exerciseSummary, events, avgSteps]);
   const nutrition = useMemo(
     () => nutritionDigest(nutritionEntries, 8, new Date(), nutritionTargets, currentWeight, lang),
     [nutritionEntries, nutritionTargets, currentWeight, lang],
@@ -117,6 +129,7 @@ export default function HistoryView({ deviceId, events, exercises, onRefresh, no
     if (filter === 'workouts') return r.kind === 'workout';
     return r.kind === 'pr';
   });
+  const visibleRows = filtered.slice(0, visibleCount);
 
   const totalVolume = [...sessions, ...workouts].reduce(
     (a, s) => a + s.entries.reduce((b, e) => b + e.sets.reduce((c, x) => c + x.reps * x.weight, 0), 0),
@@ -135,6 +148,28 @@ export default function HistoryView({ deviceId, events, exercises, onRefresh, no
         lang,
         'Historial vaciado. Los datos antiguos quedan archivados en la bóveda append-only.',
         'History cleared. Old data remains archived in the append-only vault.',
+      ),
+      'success',
+    );
+  };
+
+  const deleteRow = async () => {
+    if (!deleteTarget) return;
+    await appendEvent(
+      newEvent(deviceId, 'training.deleted', {
+        eventId: deleteTarget.id,
+        payloadId:
+          deleteTarget.session?.id ?? deleteTarget.workout?.id,
+        kind: deleteTarget.kind,
+      }),
+    );
+    setDeleteTarget(null);
+    await onRefresh();
+    notify(
+      tx(
+        lang,
+        'Entrenamiento borrado del historial. Deja de contar en la proyección; el original queda archivado.',
+        'Workout removed from history. It no longer counts toward the projection; the original remains archived.',
       ),
       'success',
     );
@@ -466,7 +501,7 @@ export default function HistoryView({ deviceId, events, exercises, onRefresh, no
         />
       ) : (
         <div className="stack">
-          {filtered.map((row) => {
+          {visibleRows.map((row) => {
             if (row.kind === 'pr' && row.pr) {
               return (
                 <div key={row.id} className="list-item">
@@ -474,7 +509,17 @@ export default function HistoryView({ deviceId, events, exercises, onRefresh, no
                     <span className="list-item-title"><Icon name="spark" size={12} /> {tx(lang, 'Marca personal', 'Personal record')} · {exerciseMap.get(row.pr.exerciseId)?.name ?? row.pr.name}</span>
                     <span className="list-item-sub">{formatShort(row.pr.date, lang)} · {formatNumber(row.pr.weight, lang)} kg × {formatNumber(row.pr.reps, lang)} {tx(lang, 'reps', 'reps')}</span>
                   </div>
-                  <span className="badge badge-warning">PR</span>
+                  <div className="row">
+                    <span className="badge badge-warning">PR</span>
+                    <button
+                      type="button"
+                      className="btn-icon"
+                      aria-label={tx(lang, 'Borrar marca', 'Delete record')}
+                      onClick={() => setDeleteTarget(row)}
+                    >
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </div>
                 </div>
               );
             }
@@ -495,7 +540,17 @@ export default function HistoryView({ deviceId, events, exercises, onRefresh, no
                         )}
                       </div>
                     </div>
-                    <span className="badge badge-primary">{tx(lang, 'Sesión', 'Session')}</span>
+                    <div className="row">
+                      <span className="badge badge-primary">{tx(lang, 'Sesión', 'Session')}</span>
+                      <button
+                        type="button"
+                        className="btn-icon"
+                        aria-label={tx(lang, 'Borrar sesión', 'Delete session')}
+                        onClick={() => setDeleteTarget(row)}
+                      >
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </div>
                   </div>
                   <div className="card-body">
                     <div className="chips">
@@ -528,7 +583,17 @@ export default function HistoryView({ deviceId, events, exercises, onRefresh, no
                         )}
                       </div>
                     </div>
-                    <span className="badge badge-muted">{tx(lang, 'Entrenamiento', 'Workout')}</span>
+                    <div className="row">
+                      <span className="badge badge-muted">{tx(lang, 'Entrenamiento', 'Workout')}</span>
+                      <button
+                        type="button"
+                        className="btn-icon"
+                        aria-label={tx(lang, 'Borrar entrenamiento', 'Delete workout')}
+                        onClick={() => setDeleteTarget(row)}
+                      >
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </div>
                   </div>
                   <div className="card-body">
                     <div className="chips">
@@ -547,9 +612,72 @@ export default function HistoryView({ deviceId, events, exercises, onRefresh, no
             }
             return null;
           })}
+          {filtered.length > visibleCount && (
+            <div className="row" style={{ justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="btn btn-tonal"
+                onClick={() => setVisibleCount((count) => count + 50)}
+              >
+                {tx(
+                  lang,
+                  `Mostrar más (${filtered.length - visibleCount})`,
+                  `Show more (${filtered.length - visibleCount})`,
+                )}
+              </button>
+            </div>
+          )}
         </div>
       )}
         </>
+      )}
+
+      {deleteTarget && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+          <div className="modal" style={{ width: 'min(480px, 100%)' }}>
+            <div className="modal-header">
+              <strong className="modal-title" id="delete-title">
+                {tx(lang, '¿Borrar este entrenamiento?', 'Delete this workout?')}
+              </strong>
+              <button className="btn-icon" aria-label={tx(lang, 'Cerrar', 'Close')} onClick={() => setDeleteTarget(null)}>
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="small">
+                {deleteTarget.kind === 'pr'
+                  ? tx(
+                      lang,
+                      `Se ocultará la marca de ${exerciseMap.get(deleteTarget.pr?.exerciseId ?? '')?.name ?? deleteTarget.pr?.name ?? ''}.`,
+                      `The ${exerciseMap.get(deleteTarget.pr?.exerciseId ?? '')?.name ?? deleteTarget.pr?.name ?? ''} record will be hidden.`,
+                    )
+                  : tx(
+                      lang,
+                      `Se ocultará ${deleteTarget.kind === 'session' ? 'la sesión' : 'el entrenamiento'} del ${formatShort(deleteTarget.date, lang)} del historial y dejará de contar en la proyección y en las alertas.`,
+                      `The ${deleteTarget.kind === 'session' ? 'session' : 'workout'} from ${formatShort(deleteTarget.date, lang)} will be hidden from history and will stop counting toward the projection and alerts.`,
+                    )}
+              </p>
+              <div className="notice notice-info">
+                <Icon name="info" size={16} />
+                <span>
+                  {tx(
+                    lang,
+                    'La bóveda es append-only: se guarda un evento de borrado y el entrenamiento original permanece archivado, pero deja de mostrarse y de contar.',
+                    'The vault is append-only: a deletion event is saved and the original workout remains archived, but it stops being shown and counted.',
+                  )}
+                </span>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setDeleteTarget(null)}>
+                {tx(lang, 'Cancelar', 'Cancel')}
+              </button>
+              <button className="btn btn-danger" onClick={() => void deleteRow()}>
+                <Icon name="trash" size={15} /> {tx(lang, 'Borrar entrenamiento', 'Delete workout')}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {confirm && (

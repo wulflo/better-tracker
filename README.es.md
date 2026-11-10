@@ -2,7 +2,7 @@
 
 Entrenamiento, composición corporal, nutrición y carga semanal en una app de escritorio local-first.
 
-Versión actual: **0.9.17**.
+Versión actual: **0.9.18**.
 
 [Read in English](README.md)
 
@@ -66,7 +66,7 @@ En Linux la app usa GTK/WebKit y funciona en Wayland de forma nativa. Cuando se 
 - IMC, cintura/cadera, cintura/altura, masa grasa y masa magra.
 - TMB con Mifflin-St Jeor, Katch-McArdle y Cunningham cuando hay datos suficientes.
 - TDEE estimado y tendencia de grasa. El porcentaje de grasa y la cintura se pueden seguir solo con medidas, sin báscula; la masa grasa en kg aparece cuando también hay peso.
-- Proyección de peso con fechas futuras basada en la composición corporal, las sesiones de fuerza al mes y los pasos medios diarios. Cuando hay composición, el peso objetivo se recalcula con masa magra y grasa en vez de depender solo del IMC.
+- Proyección de peso con fechas futuras basada en la composición corporal, la frecuencia de entrenamiento declarada o registrada, las sesiones de fuerza al mes, los pasos medios diarios y la ingesta media de calorías. El gasto se recalcula semana a semana con el peso simulado y el peso objetivo se recalcula con masa magra y grasa en vez de depender solo del IMC.
 
 ### Nutrición
 

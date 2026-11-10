@@ -162,12 +162,23 @@ export async function listEvents(): Promise<VaultEvent[]> {
   return invoke<VaultEvent[]>('list_events');
 }
 
+/**
+ * Aviso para que la UI añada el evento a su estado sin releer toda la bóveda.
+ * La bóveda guarda un archivo por evento: releerlos todos tras cada guardado se
+ * vuelve caro con años de historial. El evento se añade de forma optimista y la
+ * siguiente lectura completa lo confirma.
+ */
+export const EVENT_APPENDED = 'better-tracker:event-appended';
+
 export async function appendEvent(ev: VaultEvent): Promise<void> {
   if (!isTauri()) {
     saveMockEvents([...mockEvents(), ev]);
-    return;
+  } else {
+    await invoke<void>('append_event', { event: ev });
   }
-  return invoke<void>('append_event', { event: ev });
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(EVENT_APPENDED, { detail: ev }));
+  }
 }
 
 export async function getAppInfo(): Promise<AppInfo> {

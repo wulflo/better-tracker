@@ -9,6 +9,7 @@ export function NumberInput({
   step,
   className = '',
   ariaLabel,
+  style,
 }: {
   value: number;
   onChange: (n: number) => void;
@@ -18,6 +19,7 @@ export function NumberInput({
   step?: number;
   className?: string;
   ariaLabel?: string;
+  style?: React.CSSProperties;
 }) {
   return (
     <input
@@ -30,6 +32,7 @@ export function NumberInput({
       max={max}
       step={step}
       aria-label={ariaLabel}
+      style={style}
       onChange={(e) => {
         if (e.target.value === '') {
           onChange(0);

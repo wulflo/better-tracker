@@ -49,7 +49,12 @@
 ## Proyección de peso
 - El peso objetivo ya no se recorta al IMC cuando hay composición: se calcula desde la masa magra que se espera conservar o ganar y la masa grasa necesaria para el porcentaje objetivo. La tarjeta muestra ambas cantidades y avisa si el IMC objetivo queda fuera del rango orientativo.
 - Nuevo indicador mensual de fuerza: días distintos con ejercicio de tipo `fuerza` en los últimos 30 días. Ajusta la retención de masa magra, el ritmo seguro y la proporción del cambio de peso atribuible a grasa.
-- Nuevo campo opcional de **pasos promedio al día** (evento `steps.average`) en Nutrición. Se traduce a un multiplicador de actividad orientativo y se usa el mayor entre ese valor y el nivel declarado/automático, para no duplicar el gasto. Los hitos de peso en fechas futuras se recalculan con ese TDEE.
+- Nuevo campo opcional de **pasos promedio al día** (evento `steps.average`) en Figura corporal. Se traduce a un multiplicador de actividad orientativo y se usa el mayor entre ese valor y el nivel declarado/automático, para no duplicar el gasto. Los hitos de peso en fechas futuras se recalculan con ese TDEE. La actividad, la frecuencia, los pasos y la ingesta media se editan en el desplegable de la tarjeta de proyección de Figura corporal.
+- Nueva **frecuencia de entrenamiento declarada** (`training.frequency`, por semana o por mes y normalizada a semana). `estimateTraining` usa la mayor entre la declarada y la observada en 30 días, para que registrar solo algunos días no subestime el gasto; la duración media sale de las sesiones existentes y la fuerza mensual de la proporción de sesiones de fuerza.
+- Nueva **ingesta media manual** (`intake.average`): la proyección usa ese dato en lugar del objetivo. Si no existe, usa la media de los días registrados en 28 días (mínimo 3) o el objetivo de calorías. Un déficit de 500 y uno de 800 kcal ya no producen el mismo ritmo.
+- La proyección **simula el peso semana a semana** recalculando TMB/TDEE con el peso simulado, limita el ritmo según peso y fuerza y avisa si la ingesta baja de la TMB, el déficit supera ~30 % del gasto, el superávit llega al 20 % o el balance se recorta.
+- **Borrado individual** de sesiones, entrenamientos y marcas desde el historial mediante eventos `training.deleted` (append-only). El historial pagina de 50 en 50 para no renderizar años de registros de golpe.
+- **Registro incremental**: `appendEvent` avisa a la UI y esta añade el evento al estado sin releer toda la bóveda durante ~1,2 s, para que guardar un entrenamiento no se vuelva más lento con el historial acumulado.
 
 ## Interfaz y marca
 - Logo actualizado a mancuernas moradas (`public/logo.png`, iconos Tauri y Android).

@@ -12,6 +12,7 @@ import { tx } from './i18n';
 import type { ActivityLevel, BodyMeasures, GoalMode, Sex } from './types';
 import {
   addDays,
+  bmrMifflin,
   bodyComposition,
   clamp,
   computeMacros,
@@ -43,6 +44,18 @@ export interface ProjectionMilestone {
 
 export type ProjectionTargetSource = 'composition' | 'bmi' | 'maintain' | 'none';
 
+export type IntakeSource = 'manual' | 'logged' | 'target';
+
+export interface ProjectionOptions {
+  /**
+   * Ingesta media real. Si falta o es 0, la proyección usa el objetivo de
+   * calorías calculado con `computeMacros`.
+   */
+  avgIntakeKcal?: number;
+  /** Origen del dato para explicarlo en la interfaz. */
+  intakeSource?: Exclude<IntakeSource, 'target'>;
+}
+
 export interface BodyProjection {
   available: boolean;
   direction: 'lose' | 'gain' | 'maintain';
@@ -58,13 +71,25 @@ export interface BodyProjection {
   /** Sesiones de fuerza al mes usadas en el cálculo. */
   strengthPerMonth: number;
   weeklyRateKg: number;
+  /** Ritmo al final de la simulación: baja si el peso cambia el gasto. */
+  finalWeeklyRateKg: number;
   dailyKcalDelta: number;
+  /** Déficit/superávit como porcentaje del gasto (negativo = déficit). */
+  deficitPct: number | null;
+  /** Ingesta media usada en el balance. */
+  avgIntakeKcal: number | null;
+  intakeSource: IntakeSource;
+  /** El balance se recortó al máximo semanal seguro para el peso. */
+  rateCapped: boolean;
   weeks: number | null;
   etaDate: string | null;
+  targetReached: boolean;
   safe: boolean;
   message: string;
   /** Explica el objetivo por composición y el efecto de la fuerza. */
   note: string;
+  /** Avisos de seguridad del balance, además del rango de IMC. */
+  warnings: string[];
   milestones: ProjectionMilestone[];
 }
 
@@ -76,6 +101,26 @@ export const STRENGTH_SESSIONS_PER_MONTH_FULL = 12;
 export function strengthFactor(perMonth: number): number {
   if (!Number.isFinite(perMonth) || perMonth <= 0) return 0;
   return clamp(perMonth / STRENGTH_SESSIONS_PER_MONTH_FULL, 0, 1);
+}
+
+/**
+ * Duración legible para la proyección. Las proyecciones largas se muestran en
+ * meses o años: "130 semanas" no dice nada, "2,5 años" sí.
+ */
+export function formatProjectionDuration(weeks: number, lang: Lang = 'es'): string {
+  const total = Math.max(1, Math.round(weeks));
+  if (total >= 52) {
+    const rounded = Math.round((total / 52) * 10) / 10;
+    const text = Number.isInteger(rounded)
+      ? String(rounded)
+      : rounded.toFixed(1).replace('.', lang === 'en' ? '.' : ',');
+    return tx(lang, `${text} años`, `${text} years`);
+  }
+  if (total >= 12) {
+    const months = Math.max(1, Math.round(total / (52 / 12)));
+    return tx(lang, `${months} meses`, `${months} months`);
+  }
+  return tx(lang, `${total} semana(s)`, `${total} week(s)`);
 }
 
 /** IMC saludable. En mayores de 65 se acepta un margen algo mayor (22–27). */
@@ -224,6 +269,118 @@ function shiftDate(days: number): string {
   return todayISO(addDays(new Date(), Math.max(0, Math.round(days))));
 }
 
+interface WeightSimulation {
+  weeks: number;
+  initialRateKg: number;
+  finalRateKg: number;
+  rateCapped: boolean;
+  reached: boolean;
+  /** Peso al final de cada semana; el índice 0 es el peso actual. */
+  weeklyWeights: number[];
+}
+
+/**
+ * Simula el peso semana a semana. El gasto basal se recalcula con el peso
+ * simulado, así que el ritmo inicial no se mantiene constante: al bajar de peso
+ * el TDEE baja y el mismo déficit rinde menos. El tope de seguridad depende del
+ * peso y del estímulo de fuerza.
+ */
+function simulateWeight(
+  startWeight: number,
+  targetWeight: number,
+  goal: GoalMode,
+  activity: number,
+  intakeKcal: number,
+  measures: BodyMeasures,
+  effect: number,
+  maxWeeks = 520,
+): WeightSimulation {
+  const weeklyWeights = [startWeight];
+  const empty: WeightSimulation = {
+    weeks: 0,
+    initialRateKg: 0,
+    finalRateKg: 0,
+    rateCapped: false,
+    reached: goal === 'maintain',
+    weeklyWeights,
+  };
+  if (
+    goal === 'maintain' ||
+    !(targetWeight > 0) ||
+    Math.abs(targetWeight - startWeight) < 0.05
+  ) {
+    return empty;
+  }
+
+  const direction = goal === 'cut' ? -1 : 1;
+  const height = measures.height > 0 ? measures.height : 170;
+  const age = measures.age > 0 ? measures.age : 30;
+  let weight = startWeight;
+  let weeks = 0;
+  let initialRate = 0;
+  let finalRate = 0;
+  let rateCapped = false;
+  let reached = false;
+
+  for (; weeks < maxWeeks; weeks += 1) {
+    const bmr = bmrMifflin(weight, height, age, measures.sex);
+    const tdee = bmr * activity;
+    const delta = intakeKcal - tdee;
+    // Si el balance ya no empuja hacia el objetivo, la proyección se detiene.
+    if (direction < 0 ? delta >= 0 : delta <= 0) break;
+
+    let rate = (Math.abs(delta) * 7) / KCAL_PER_KG_FAT;
+    const cap =
+      direction < 0
+        ? weight * (0.0075 + 0.0025 * effect)
+        : weight * (0.0025 + 0.0025 * effect);
+    if (rate > cap) {
+      rate = cap;
+      rateCapped = true;
+    }
+    if (!Number.isFinite(rate) || rate <= 0) break;
+
+    if (weeks === 0) initialRate = rate;
+    finalRate = rate;
+    const next = weight + direction * rate;
+    weight = direction < 0 ? Math.max(targetWeight, next) : Math.min(targetWeight, next);
+    weeklyWeights.push(weight);
+
+    if (
+      (direction < 0 && weight <= targetWeight + 1e-6) ||
+      (direction > 0 && weight >= targetWeight - 1e-6)
+    ) {
+      reached = true;
+      weeks += 1;
+      break;
+    }
+  }
+
+  return {
+    weeks,
+    initialRateKg: initialRate,
+    finalRateKg: finalRate,
+    rateCapped,
+    reached,
+    weeklyWeights,
+  };
+}
+
+function interpolateWeight(weeklyWeights: number[], week: number): number {
+  if (!weeklyWeights.length) return 0;
+  const clamped = clamp(week, 0, weeklyWeights.length - 1);
+  const low = Math.floor(clamped);
+  const high = Math.min(weeklyWeights.length - 1, low + 1);
+  const fraction = clamped - low;
+  return weeklyWeights[low] + (weeklyWeights[high] - weeklyWeights[low]) * fraction;
+}
+
+function weightProgress(start: number, current: number, target: number): number {
+  const total = target - start;
+  if (Math.abs(total) < 1e-6) return 1;
+  return clamp((current - start) / total, 0, 1);
+}
+
 /**
  * Proyecta el progreso hacia el objetivo. Si faltan datos devuelve
  * `available: false` con un mensaje explicativo en vez de inventar cifras.
@@ -242,6 +399,7 @@ export function projectBody(
   lang: Lang = 'es',
   strengthPerMonth = 0,
   avgSteps = 0,
+  options: ProjectionOptions = {},
 ): BodyProjection {
   const composition = comp ?? bodyComposition(measures, lang);
   const bmi = composition.bmi;
@@ -261,9 +419,15 @@ export function projectBody(
     targetSource: 'none',
     strengthPerMonth: Math.round(strength * 10) / 10,
     weeklyRateKg: 0,
+    finalWeeklyRateKg: 0,
     dailyKcalDelta: 0,
+    deficitPct: null,
+    avgIntakeKcal: null,
+    intakeSource: 'target',
+    rateCapped: false,
     weeks: null,
     etaDate: null,
+    targetReached: false,
     safe: true,
     message: tx(
       lang,
@@ -271,6 +435,7 @@ export function projectBody(
       'Add weight, height and, if possible, waist to calculate a projection.',
     ),
     note: '',
+    warnings: [],
     milestones: [],
   };
   if (!macros || !measures.weight || measures.weight <= 0) return empty;
@@ -280,7 +445,12 @@ export function projectBody(
   const currentFatMass = composition.fatMass;
   const leanMass = composition.leanMass;
   const baseTargetFat = targetBodyFat(goal, measures.sex, fatRange);
-  const delta = macros.kcal - macros.tdee;
+  const declaredIntake = Number(options.avgIntakeKcal);
+  const hasIntake = Number.isFinite(declaredIntake) && declaredIntake > 0;
+  const intakeKcal = hasIntake ? declaredIntake : macros.kcal;
+  const intakeSource: IntakeSource = hasIntake ? (options.intakeSource ?? 'manual') : 'target';
+  const delta = intakeKcal - macros.tdee;
+  const deficitPct = macros.tdee > 0 ? (delta / macros.tdee) * 100 : null;
   const maxBmi = bmiRange.max;
   const minBmi = bmiRange.min;
 
@@ -357,59 +527,83 @@ export function projectBody(
       ? targetWeight / (measures.height / 100) ** 2
       : null;
 
-  // Ritmo semanal a partir del balance energético, con topes de seguridad que
-  // dependen del estímulo de fuerza: sin fuerza se avanza más despacio para no
-  // perder masa magra; con fuerza frecuente se permite el límite alto.
-  const rawWeekly = (Math.abs(delta) * 7) / KCAL_PER_KG_FAT;
-  const maxCut = measures.weight * (0.0075 + 0.0025 * effect);
-  const maxBulk = measures.weight * (0.0025 + 0.0025 * effect);
-  const weeklyRateKg =
-    goal === 'maintain' || !Number.isFinite(rawWeekly)
-      ? 0
-      : goal === 'cut'
-        ? Math.min(rawWeekly, maxCut)
-        : Math.min(rawWeekly, maxBulk);
-
-  const difference = targetWeight !== null ? targetWeight - measures.weight : 0;
-  let weeks = 0;
-  if (goal !== 'maintain' && weeklyRateKg > 0 && Math.abs(difference) >= 0.2) {
-    const weightWeeks = Math.abs(difference) / weeklyRateKg;
-    if (goal === 'cut' && targetFatMass !== null && currentFatMass !== null) {
-      // Sin fuerza, parte del peso perdido es masa magra: para perder la misma
-      // grasa hace falta más tiempo. Con fuerza, casi todo el cambio es grasa.
-      const fatShare = 0.75 + 0.25 * effect;
-      const fatWeeks = Math.abs(targetFatMass - currentFatMass) / (weeklyRateKg * fatShare);
-      weeks = Math.max(weightWeeks, fatWeeks);
-    } else {
-      weeks = weightWeeks;
-    }
-  }
-  if (!Number.isFinite(weeks)) weeks = 0;
+  // Simulación semanal: el TDEE se recalcula con el peso y el tope de seguridad
+  // depende del peso y del estímulo de fuerza. Así un déficit de 500 kcal no
+  // rinde lo mismo en alguien de 60 kg que en alguien de 110 kg, y el ritmo
+  // inicial no se mantiene artificialmente constante al bajar de peso.
+  const simulation = simulateWeight(
+    measures.weight,
+    targetWeight ?? measures.weight,
+    goal,
+    macros.activity,
+    intakeKcal,
+    measures,
+    effect,
+  );
+  const weeklyRateKg = simulation.initialRateKg;
+  const weeks = simulation.weeks;
 
   const safe =
     (goal !== 'cut' || currentBmi === null || currentBmi > minBmi) &&
     (goal !== 'bulk' || currentBmi === null || currentBmi < maxBmi);
 
-  // Hitos: 4 pasos con la composición interpolada, no solo el peso.
+  const warnings: string[] = [];
+  if (hasIntake && intakeKcal < macros.bmr) {
+    warnings.push(
+      tx(
+        lang,
+        `Tu ingesta media (${Math.round(intakeKcal)} kcal) está por debajo de tu gasto basal (${macros.bmr} kcal). Un déficit así no es sostenible ni seguro: sube la ingesta o consulta con un profesional.`,
+        `Your average intake (${Math.round(intakeKcal)} kcal) is below your basal expenditure (${macros.bmr} kcal). A deficit like this is not sustainable or safe: increase intake or consult a professional.`,
+      ),
+    );
+  }
+  if (goal === 'cut' && deficitPct !== null && deficitPct <= -30) {
+    warnings.push(
+      tx(
+        lang,
+        `El déficit equivale al ${Math.abs(Math.round(deficitPct))} % de tu gasto. Por encima del 25–30 % suele ser difícil mantener la masa magra y la adherencia; plantea un déficit más moderado.`,
+        `The deficit is ${Math.abs(Math.round(deficitPct))}% of your expenditure. Above 25–30% it is usually hard to preserve lean mass and adherence; consider a more moderate deficit.`,
+      ),
+    );
+  }
+  if (goal === 'bulk' && deficitPct !== null && deficitPct >= 20) {
+    warnings.push(
+      tx(
+        lang,
+        `El superávit equivale al ${Math.round(deficitPct)} % de tu gasto. Un superávit tan alto suele acumular grasa más rápido de lo que se gana músculo; prueba con un excedente menor.`,
+        `The surplus is ${Math.round(deficitPct)}% of your expenditure. Such a high surplus usually adds fat faster than muscle; try a smaller surplus.`,
+      ),
+    );
+  }
+  if (simulation.rateCapped && simulation.initialRateKg > 0) {
+    warnings.push(
+      tx(
+        lang,
+        `El balance planteado supera el ritmo seguro para tu peso; la proyección se limita a ${simulation.initialRateKg.toFixed(2)} kg/semana (${((simulation.initialRateKg / measures.weight) * 100).toFixed(2)} % del peso).`,
+        `The planned balance exceeds the safe rate for your weight; the projection is capped at ${simulation.initialRateKg.toFixed(2)} kg/week (${((simulation.initialRateKg / measures.weight) * 100).toFixed(2)}% of body weight).`,
+      ),
+    );
+  }
+
+  // Hitos: 4 pasos sobre la curva simulada. La composición se interpola con el
+  // progreso real de peso, no con una recta temporal, y el peso del hito sale
+  // de la simulación para que sea coherente con la fecha.
   const milestones: ProjectionMilestone[] = [];
   if (targetWeight !== null && weeks > 0) {
     const steps = 4;
     for (let index = 1; index <= steps; index += 1) {
       const fraction = index / steps;
-      let weight = measures.weight + difference * fraction;
+      const projectedWeek = weeks * fraction;
+      const simulatedWeight = interpolateWeight(simulation.weeklyWeights, projectedWeek);
+      const progress = weightProgress(measures.weight, simulatedWeight, targetWeight);
+      let weight = simulatedWeight;
       let projectedFat: number | null = null;
       let projectedFatMass: number | null = null;
       let projectedLeanMass: number | null = null;
 
-      if (
-        leanMass !== null &&
-        targetLeanMass !== null &&
-        currentFatMass !== null &&
-        targetFatMass !== null
-      ) {
-        projectedLeanMass = leanMass + (targetLeanMass - leanMass) * fraction;
-        projectedFatMass = currentFatMass + (targetFatMass - currentFatMass) * fraction;
-        weight = projectedLeanMass + projectedFatMass;
+      if (leanMass !== null && targetLeanMass !== null) {
+        projectedLeanMass = leanMass + (targetLeanMass - leanMass) * progress;
+        projectedFatMass = Math.max(0, weight - projectedLeanMass);
         projectedFat = weight > 0 ? (projectedFatMass / weight) * 100 : null;
       } else if (leanMass !== null && weight > 0) {
         projectedFat = ((weight - leanMass) / weight) * 100;
@@ -418,7 +612,7 @@ export function projectBody(
       }
 
       milestones.push({
-        date: shiftDate(weeks * 7 * fraction),
+        date: shiftDate(projectedWeek * 7),
         weight,
         bodyFat:
           projectedFat !== null && Number.isFinite(projectedFat) ? projectedFat : null,
@@ -454,25 +648,51 @@ export function projectBody(
           ` and an average of ${Math.round(avgSteps)} steps/day`,
         )
       : '';
+  const intakeText =
+    intakeSource === 'manual'
+      ? tx(
+          lang,
+          `Ingesta media indicada: ${Math.round(intakeKcal)} kcal/día.`,
+          `Declared average intake: ${Math.round(intakeKcal)} kcal/day.`,
+        )
+      : intakeSource === 'logged'
+        ? tx(
+            lang,
+            `Ingesta media de tus registros recientes: ${Math.round(intakeKcal)} kcal/día.`,
+            `Average intake from your recent logs: ${Math.round(intakeKcal)} kcal/day.`,
+          )
+        : tx(
+            lang,
+            `Se usa el objetivo de ${Math.round(intakeKcal)} kcal/día como ingesta; si sueles comer distinto, indica tu media.`,
+            `Your target of ${Math.round(intakeKcal)} kcal/day is used as intake; if you usually eat differently, enter your average.`,
+          );
+  const paceText =
+    weeks > 1 && simulation.finalRateKg > 0 && simulation.finalRateKg < weeklyRateKg * 0.95
+      ? tx(
+          lang,
+          ` El ritmo baja a ${simulation.finalRateKg.toFixed(2)} kg/semana al final porque el gasto disminuye con el peso.`,
+          ` The pace drops to ${simulation.finalRateKg.toFixed(2)} kg/week by the end because expenditure falls with weight.`,
+        )
+      : '';
 
   let note = '';
   if (targetSource === 'composition' && targetLeanMass !== null && targetFatMass !== null) {
     note = tx(
       lang,
-      `Peso objetivo recalculado con tu composición: ${targetLeanMass.toFixed(1)} kg de masa magra y ${targetFatMass.toFixed(1)} kg de masa grasa (${targetFat?.toFixed(0) ?? '—'}% grasa). ${strengthText}${stepsText}; ${
+      `Peso objetivo recalculado con tu composición: ${targetLeanMass.toFixed(1)} kg de masa magra y ${targetFatMass.toFixed(1)} kg de masa grasa (${targetFat?.toFixed(0) ?? '—'}% grasa). ${Math.round(weeklyMinutes)} min/semana, ${strengthText}${stepsText}; ${
         goal === 'bulk'
           ? 'se proyecta una ganancia magra moderada'
           : effect > 0
             ? 'se asume retención de masa magra'
             : 'se asume cierta pérdida de masa magra'
-      }.`,
-      `Target weight recalculated from your composition: ${targetLeanMass.toFixed(1)} kg lean mass and ${targetFatMass.toFixed(1)} kg fat mass (${targetFat?.toFixed(0) ?? '—'}% fat). ${strengthText}${stepsText}; ${
+      }. ${intakeText}${paceText}`,
+      `Target weight recalculated from your composition: ${targetLeanMass.toFixed(1)} kg lean mass and ${targetFatMass.toFixed(1)} kg fat mass (${targetFat?.toFixed(0) ?? '—'}% fat). ${Math.round(weeklyMinutes)} min/week, ${strengthText}${stepsText}; ${
         goal === 'bulk'
           ? 'a moderate lean gain is projected'
           : effect > 0
             ? 'lean mass is assumed to be preserved'
             : 'some lean mass loss is assumed'
-      }.`,
+      }. ${intakeText}${paceText}`,
     );
     if (targetBmi !== null && (targetBmi < minBmi || targetBmi > maxBmi)) {
       note += ' ' + tx(
@@ -484,10 +704,28 @@ export function projectBody(
   } else if (targetSource === 'bmi') {
     note = tx(
       lang,
-      'Faltan medidas de composición: el peso objetivo se estima solo con el IMC y puede ser menos preciso. Añade cuello, cintura o abdomen para recalcularlo con masa magra y grasa.',
-      'Composition measurements are missing: target weight is estimated from BMI alone and may be less accurate. Add neck, waist or abdomen measurements to recalculate it from lean and fat mass.',
+      `Faltan medidas de composición: el peso objetivo se estima solo con el IMC y puede ser menos preciso. Añade cuello, cintura o abdomen para recalcularlo con masa magra y grasa. ${intakeText}${paceText}`,
+      `Composition measurements are missing: target weight is estimated from BMI alone and may be less accurate. Add neck, waist or abdomen measurements to recalculate it from lean and fat mass. ${intakeText}${paceText}`,
     );
+  } else {
+    note = `${intakeText}${paceText}`;
   }
+
+  const percentageText =
+    deficitPct !== null && Math.abs(deficitPct) >= 1
+      ? tx(
+          lang,
+          ` (${Math.abs(Math.round(deficitPct))} % de tu gasto)`,
+          ` (${Math.abs(Math.round(deficitPct))}% of your expenditure)`,
+        )
+      : '';
+  const cappedText = simulation.rateCapped
+    ? tx(
+        lang,
+        ' El ritmo está limitado al máximo seguro para tu peso.',
+        ' The pace is capped at the safe maximum for your weight.',
+      )
+    : '';
 
   let message: string;
   if (!safe) {
@@ -504,30 +742,61 @@ export function projectBody(
             `No further gain is projected: your BMI (${currentBmi?.toFixed(1) ?? '—'}) is already at the upper limit. Maintain your weight or aim for a very slow gain under supervision.`,
           );
   } else if (goal === 'maintain') {
-    message = tx(
-      lang,
-      `Con ${Math.round(macros.kcal)} kcal/día mantienes el peso actual. Tu TDEE estimado es ${Math.round(macros.tdee)} kcal.`,
-      `With ${Math.round(macros.kcal)} kcal/day you maintain your current weight. Your estimated TDEE is ${Math.round(macros.tdee)} kcal.`,
-    );
+    message = hasIntake
+      ? tx(
+          lang,
+          `Con una ingesta media de ${Math.round(intakeKcal)} kcal y un gasto de ${Math.round(macros.tdee)} kcal, tu balance es ${delta > 0 ? '+' : ''}${Math.round(delta)} kcal/día. Para mantener el peso, ajusta la ingesta a unas ${Math.round(macros.tdee)} kcal/día.`,
+          `With an average intake of ${Math.round(intakeKcal)} kcal and an expenditure of ${Math.round(macros.tdee)} kcal, your balance is ${delta > 0 ? '+' : ''}${Math.round(delta)} kcal/day. To maintain your weight, adjust intake to about ${Math.round(macros.tdee)} kcal/day.`,
+        )
+      : tx(
+          lang,
+          `Con ${Math.round(macros.kcal)} kcal/día mantienes el peso actual. Tu TDEE estimado es ${Math.round(macros.tdee)} kcal.`,
+          `With ${Math.round(macros.kcal)} kcal/day you maintain your current weight. Your estimated TDEE is ${Math.round(macros.tdee)} kcal.`,
+        );
   } else if (weeks === 0) {
-    message =
-      targetWeight === null
-        ? tx(
-            lang,
-            'No hay datos suficientes para fijar un peso objetivo seguro.',
-            'There is not enough data to set a safe target weight.',
-          )
-        : tx(
-            lang,
-            'Ya estás en el rango objetivo: mantén el rumbo y prioriza la adherencia.',
-            'You are already in the target range: stay the course and prioritize adherence.',
-          );
+    if (targetWeight === null) {
+      message = tx(
+        lang,
+        'No hay datos suficientes para fijar un peso objetivo seguro.',
+        'There is not enough data to set a safe target weight.',
+      );
+    } else if (Math.abs(targetWeight - measures.weight) < 0.2) {
+      message = tx(
+        lang,
+        'Ya estás en el rango objetivo: mantén el rumbo y prioriza la adherencia.',
+        'You are already in the target range: stay the course and prioritize adherence.',
+      );
+    } else if (goal === 'cut') {
+      message = tx(
+        lang,
+        `Con tu ingesta media de ${Math.round(intakeKcal)} kcal y un gasto de ${Math.round(macros.tdee)} kcal no hay déficit: la proyección no avanza. Reduce la ingesta o aumenta la actividad; con el objetivo de ${Math.round(macros.kcal)} kcal sí habría déficit.`,
+        `With your average intake of ${Math.round(intakeKcal)} kcal and an expenditure of ${Math.round(macros.tdee)} kcal there is no deficit: the projection does not progress. Reduce intake or increase activity; with the target of ${Math.round(macros.kcal)} kcal there would be a deficit.`,
+      );
+    } else {
+      message = tx(
+        lang,
+        `Con tu ingesta media de ${Math.round(intakeKcal)} kcal y un gasto de ${Math.round(macros.tdee)} kcal no hay superávit: la proyección no avanza. Aumenta la ingesta o reduce la actividad; con el objetivo de ${Math.round(macros.kcal)} kcal sí habría superávit.`,
+        `With your average intake of ${Math.round(intakeKcal)} kcal and an expenditure of ${Math.round(macros.tdee)} kcal there is no surplus: the projection does not progress. Increase intake or reduce activity; with the target of ${Math.round(macros.kcal)} kcal there would be a surplus.`,
+      );
+    }
   } else {
-    const rateText = lang === 'en' ? weeklyRateKg.toFixed(2) : weeklyRateKg.toFixed(2).replace('.', ',');
+    const rateText =
+      lang === 'en' ? weeklyRateKg.toFixed(2) : weeklyRateKg.toFixed(2).replace('.', ',');
+    const arrivalText = simulation.reached
+      ? tx(
+          lang,
+          `Objetivo: ${targetWeight!.toFixed(1)} kg en ~${formatProjectionDuration(weeks, lang)}, siempre que la actividad y la ingesta se mantengan.`,
+          `Target: ${targetWeight!.toFixed(1)} kg in ~${formatProjectionDuration(weeks, lang)}, as long as activity and intake stay the same.`,
+        )
+      : tx(
+          lang,
+          `El objetivo de ${targetWeight!.toFixed(1)} kg no se alcanza en el horizonte simulado con este balance; revisa la ingesta o la actividad.`,
+          `The ${targetWeight!.toFixed(1)} kg target is not reached within the simulated horizon at this balance; review intake or activity.`,
+        );
     message = tx(
       lang,
-      `${goal === 'cut' ? 'Déficit' : 'Superávit'} de ${Math.abs(Math.round(delta))} kcal/día ≈ ${rateText} kg/semana. Objetivo: ${targetWeight!.toFixed(1)} kg en ~${Math.max(1, Math.round(weeks))} semana(s), siempre que la actividad se mantenga.`,
-      `${goal === 'cut' ? 'Deficit' : 'Surplus'} of ${Math.abs(Math.round(delta))} kcal/day ≈ ${rateText} kg/week. Target: ${targetWeight!.toFixed(1)} kg in ~${Math.max(1, Math.round(weeks))} week(s), as long as activity stays the same.`,
+      `${goal === 'cut' ? 'Déficit' : 'Superávit'} de ${Math.abs(Math.round(delta))} kcal/día${percentageText} ≈ ${rateText} kg/semana. ${arrivalText}${cappedText}`,
+      `${goal === 'cut' ? 'Deficit' : 'Surplus'} of ${Math.abs(Math.round(delta))} kcal/day${percentageText} ≈ ${rateText} kg/week. ${arrivalText}${cappedText}`,
     );
   }
 
@@ -542,12 +811,19 @@ export function projectBody(
     targetSource,
     strengthPerMonth: Math.round(strength * 10) / 10,
     weeklyRateKg,
+    finalWeeklyRateKg: simulation.finalRateKg,
     dailyKcalDelta: Math.round(delta),
+    deficitPct: deficitPct !== null && Number.isFinite(deficitPct) ? deficitPct : null,
+    avgIntakeKcal: hasIntake ? Math.round(intakeKcal) : null,
+    intakeSource,
+    rateCapped: simulation.rateCapped,
     weeks: weeks > 0 ? Math.round(weeks * 10) / 10 : 0,
-    etaDate: weeks > 0 ? shiftDate(weeks * 7) : null,
+    etaDate: weeks > 0 && simulation.reached ? shiftDate(weeks * 7) : null,
+    targetReached: simulation.reached,
     safe,
     message,
     note,
+    warnings,
     milestones,
   };
 }

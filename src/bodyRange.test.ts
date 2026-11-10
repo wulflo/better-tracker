@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { BodyComposition } from './metrics';
+import { computeMacros } from './metrics';
 import type { BodyMeasures } from './types';
-import { classifyValue, projectBody, safeBmiRange, safeBodyFatRange } from './bodyRange';
+import { classifyValue, formatProjectionDuration, projectBody, safeBmiRange, safeBodyFatRange } from './bodyRange';
 
 const BODY: BodyMeasures = {
   sex: 'male',
@@ -134,5 +135,107 @@ describe('rangos corporales seguros', () => {
     expect(projection.weeks).toBe(0);
     expect(projection.etaDate).toBeNull();
     expect(projection.message).toContain('mantienes el peso');
+  });
+
+  it('usa la ingesta media real y refleja el tamaño del déficit', () => {
+    const moderate = projectBody(BODY, 'cut', 180, 'moderate', MUSCULAR, 'es', 12, 0, {
+      avgIntakeKcal: 2400,
+      intakeSource: 'manual',
+    });
+    const aggressive = projectBody(BODY, 'cut', 180, 'moderate', MUSCULAR, 'es', 12, 0, {
+      avgIntakeKcal: 1900,
+      intakeSource: 'manual',
+    });
+
+    expect(moderate.intakeSource).toBe('manual');
+    expect(moderate.avgIntakeKcal).toBe(2400);
+    expect(aggressive.dailyKcalDelta).toBeLessThan(moderate.dailyKcalDelta);
+    expect(aggressive.deficitPct!).toBeLessThan(moderate.deficitPct!);
+    expect(aggressive.weeks!).toBeLessThan(moderate.weeks!);
+  });
+
+  it('distingue la ingesta registrada de la manual', () => {
+    const logged = projectBody(BODY, 'cut', 180, 'moderate', MUSCULAR, 'es', 12, 0, {
+      avgIntakeKcal: 2200,
+      intakeSource: 'logged',
+    });
+    expect(logged.intakeSource).toBe('logged');
+    expect(logged.avgIntakeKcal).toBe(2200);
+    expect(logged.note).toContain('registros recientes');
+  });
+
+  it('no avanza si la ingesta media iguala el gasto', () => {
+    const macros = computeMacros(BODY, 180, 'cut', 'moderate', 'es')!;
+    const intake = Math.ceil(macros.tdee);
+    const projection = projectBody(BODY, 'cut', 180, 'moderate', MUSCULAR, 'es', 12, 0, {
+      avgIntakeKcal: intake,
+      intakeSource: 'manual',
+    });
+
+    expect(projection.weeks).toBe(0);
+    expect(projection.targetReached).toBe(false);
+    expect(projection.etaDate).toBeNull();
+    expect(projection.avgIntakeKcal).toBe(intake);
+    expect(projection.message).toContain('no hay déficit');
+  });
+
+  it('avisa y limita el ritmo cuando el déficit es agresivo', () => {
+    const projection = projectBody(BODY, 'cut', 180, 'moderate', MUSCULAR, 'es', 12, 0, {
+      avgIntakeKcal: 1200,
+      intakeSource: 'manual',
+    });
+
+    expect(projection.rateCapped).toBe(true);
+    // Tope con fuerza completa: 0,75 % + 0,25 % del peso por semana.
+    expect(projection.weeklyRateKg).toBeLessThanOrEqual(BODY.weight * 0.01 + 1e-6);
+    expect(projection.warnings.length).toBeGreaterThanOrEqual(3);
+    const warnings = projection.warnings.join(' ');
+    expect(warnings).toMatch(/gasto basal/);
+    expect(warnings).toMatch(/30 %|30%/);
+    expect(warnings).toMatch(/ritmo seguro/);
+  });
+
+  it('no avisa de ingesta bajo la TMB si está por encima', () => {
+    const macros = computeMacros(BODY, 180, 'cut', 'moderate', 'es')!;
+    const projection = projectBody(BODY, 'cut', 180, 'moderate', MUSCULAR, 'es', 12, 0, {
+      avgIntakeKcal: macros.bmr + 100,
+      intakeSource: 'manual',
+    });
+
+    expect(projection.warnings.join(' ')).not.toMatch(/gasto basal/);
+  });
+
+  it('expresa proyecciones largas en años', () => {
+    expect(formatProjectionDuration(5, 'es')).toBe('5 semana(s)');
+    expect(formatProjectionDuration(20, 'es')).toBe('5 meses');
+    expect(formatProjectionDuration(130, 'es')).toBe('2,5 años');
+    expect(formatProjectionDuration(130, 'en')).toBe('2.5 years');
+  });
+
+  it('baja el ritmo al final porque el gasto cae con el peso', () => {
+    const heavy: BodyMeasures = {
+      ...BODY,
+      weight: 120,
+      neck: 0,
+      chest: 0,
+      waist: 0,
+      abdomen: 0,
+      hip: 0,
+      arm: 0,
+      forearm: 0,
+      thigh: 0,
+      calf: 0,
+      wrist: 0,
+    };
+    const projection = projectBody(heavy, 'cut', 180, 'moderate', undefined, 'es', 12, 0, {
+      avgIntakeKcal: 2600,
+      intakeSource: 'manual',
+    });
+
+    expect(projection.targetReached).toBe(true);
+    expect(projection.weeks!).toBeGreaterThan(20);
+    expect(projection.finalWeeklyRateKg).toBeLessThan(projection.weeklyRateKg);
+    // La composición de los hitos sigue la curva de peso simulada.
+    expect(projection.milestones.at(-1)!.weight).toBeCloseTo(projection.targetWeight!, 1);
   });
 });

@@ -9,6 +9,7 @@ import type {
   Reminder,
   Routine,
   Session,
+  Sex,
   VaultEvent,
   WeightEntry,
   Workout,
@@ -53,6 +54,19 @@ export function formatShort(date: string, lang: Lang = 'es'): string {
 export function formatLong(date: string, lang: Lang = 'es'): string {
   const d = parseISO(date);
   return d.toLocaleDateString(locale(lang), { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
+/**
+ * Fecha de una proyección: siempre incluye el año, porque los hitos pueden caer
+ * en años distintos y una fecha sin año se vuelve ambigua.
+ */
+export function formatProjectionDate(date: string, lang: Lang = 'es'): string {
+  const d = parseISO(date);
+  return d.toLocaleDateString(locale(lang), {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
 export function monthLabel(d: Date, lang: Lang = 'es'): string {
@@ -232,6 +246,63 @@ export function averageStepsFromEvents(events: VaultEvent[]): number {
   return Number.isFinite(steps) && steps > 0 ? steps : 0;
 }
 
+export type FrequencyUnit = 'week' | 'month';
+
+export interface TrainingFrequency {
+  perWeek: number;
+  /** Unidad que eligió el usuario; solo afecta a cómo se muestra el campo. */
+  unit: FrequencyUnit;
+}
+
+/**
+ * Frecuencia de entrenamiento declarada. Se guarda siempre normalizada a
+ * sesiones por semana para que la proyección no dependa de la unidad elegida.
+ */
+export function trainingFrequencyFromEvents(events: VaultEvent[]): TrainingFrequency | null {
+  const last = [...events].reverse().find((e) => e.kind === 'training.frequency');
+  if (!last) return null;
+  const raw = Number(last.payload?.perWeek);
+  if (!Number.isFinite(raw) || raw < 0) return null;
+  return {
+    perWeek: clamp(raw, 0, 21),
+    unit: last.payload?.unit === 'month' ? 'month' : 'week',
+  };
+}
+
+/** Ingesta media declarada a mano, o 0 si no hay dato. */
+export function averageIntakeFromEvents(events: VaultEvent[]): number {
+  const last = [...events].reverse().find((e) => e.kind === 'intake.average');
+  const kcal = Number(last?.payload?.kcal);
+  return Number.isFinite(kcal) && kcal > 0 ? clamp(kcal, 500, 10000) : 0;
+}
+
+/**
+ * Media de calorías de los días con log en una ventana reciente. Se usa solo
+ * como respaldo cuando el usuario no ha escrito su media habitual; los días sin
+ * registro no cuentan.
+ */
+export function loggedIntakeAverage(
+  events: VaultEvent[],
+  days = 28,
+  now = new Date(),
+): { avg: number; days: number } {
+  const windowDays = Math.max(1, Math.round(days));
+  const cutoff = todayISO(addDays(now, -(windowDays - 1)));
+  const byDate = new Map<string, number>();
+  for (const entry of reduceNutrition(events)) {
+    if (!entry?.date || entry.date < cutoff) continue;
+    const kcal = Number(entry.kcal);
+    if (!Number.isFinite(kcal) || kcal <= 0) continue;
+    byDate.set(entry.date, kcal);
+  }
+  const values = [...byDate.values()];
+  if (!values.length) return { avg: 0, days: 0 };
+  return {
+    avg: Math.round(values.reduce((total, value) => total + value, 0) / values.length),
+    days: values.length,
+  };
+}
+
 export function historyCutoff(events: VaultEvent[]): string {
   const last = [...events].reverse().find((e) => e.kind === 'history.cleared');
   return typeof last?.payload?.at === 'string' ? last.payload.at : '';
@@ -239,11 +310,34 @@ export function historyCutoff(events: VaultEvent[]): string {
 
 const TRAINING_KINDS = new Set(['session.saved', 'workout.saved', 'pr.achieved']);
 
+function deletedTrainingKeys(events: VaultEvent[]): {
+  eventIds: Set<string>;
+  payloadIds: Set<string>;
+} {
+  const eventIds = new Set<string>();
+  const payloadIds = new Set<string>();
+  for (const event of events) {
+    if (event.kind !== 'training.deleted') continue;
+    const eventId = event.payload?.eventId;
+    const payloadId = event.payload?.payloadId;
+    if (typeof eventId === 'string' && eventId) eventIds.add(eventId);
+    if (typeof payloadId === 'string' && payloadId) payloadIds.add(payloadId);
+  }
+  return { eventIds, payloadIds };
+}
+
 export function visibleTrainingEvents(events: VaultEvent[]): VaultEvent[] {
   const cutoff = historyCutoff(events);
-  return events.filter(
-    (e) => !TRAINING_KINDS.has(e.kind) || !cutoff || e.timestamp > cutoff,
-  );
+  const { eventIds, payloadIds } = deletedTrainingKeys(events);
+  return events.filter((e) => {
+    if (!TRAINING_KINDS.has(e.kind)) return true;
+    // El borrado individual se guarda como lápida append-only. Se comprueba
+    // también el id del payload para que una restauración con otro id de evento
+    // no haga reaparecer el mismo entrenamiento.
+    if (eventIds.has(e.id)) return false;
+    if (typeof e.payload?.id === 'string' && payloadIds.has(e.payload.id)) return false;
+    return !cutoff || e.timestamp > cutoff;
+  });
 }
 
 export function reduceExercises(events: VaultEvent[]): Exercise[] {
@@ -399,6 +493,16 @@ export interface TrainingSummary {
   monthStrengthSessions: number;
   /** Indicador mensual de fuerza: sesiones de fuerza en los últimos 30 días. */
   strengthPerMonth: number;
+  /** Días distintos con algún entrenamiento en los últimos 30 días. */
+  monthTrainingDays: number;
+  /** Media de minutos por día de entrenamiento en los últimos 30 días. */
+  avgSessionMinutes: number;
+  /** Días de entrenamiento por semana en los últimos 30 días. */
+  observedSessionsPerWeek: number;
+  /** Días de fuerza por semana en los últimos 30 días. */
+  observedStrengthPerWeek: number;
+  /** Proporción de días de fuerza sobre días de entrenamiento (0–1). */
+  strengthShare: number | null;
   zoneLoad: Record<ZoneId, ZoneLoad>;
   topZone: ZoneId | null;
   totalPRs: number;
@@ -432,6 +536,7 @@ export function trainingSummary(
   const thirtyDaysAgo = todayISO(addDays(now, -29));
   const load = emptyZoneLoad();
   const strengthDates = new Set<string>();
+  const trainingMinutes = new Map<string, number>();
   let monthSessions = 0;
 
   const applyEntry = (
@@ -462,6 +567,8 @@ export function trainingSummary(
     }
     if (s.date >= thirtyDaysAgo) {
       monthSessions += 1;
+      const minutes = s.duration / 60;
+      trainingMinutes.set(s.date, (trainingMinutes.get(s.date) ?? 0) + minutes);
       if (hasStrengthWork(s.entries, exerciseMap)) strengthDates.add(s.date);
     }
     for (const entry of s.entries) {
@@ -476,8 +583,10 @@ export function trainingSummary(
   }
 
   for (const w of workouts) {
+    const estimatedMinutes = w.entries.reduce((a, e) => a + (e.sets?.length ?? 0) * 3, 0);
     if (w.date >= thirtyDaysAgo) {
       monthSessions += 1;
+      trainingMinutes.set(w.date, (trainingMinutes.get(w.date) ?? 0) + estimatedMinutes);
       if (hasStrengthWork(w.entries, exerciseMap)) strengthDates.add(w.date);
     }
     for (const entry of w.entries) {
@@ -490,7 +599,7 @@ export function trainingSummary(
     }
     if (w.date >= sevenDaysAgo) {
       weekSessions += 1;
-      weekMinutes += w.entries.reduce((a, e) => a + (e.sets?.length ?? 0) * 3, 0);
+      weekMinutes += estimatedMinutes;
     }
   }
 
@@ -509,6 +618,13 @@ export function trainingSummary(
     }
   }
 
+  const monthTrainingDays = trainingMinutes.size;
+  const totalMonthMinutes = [...trainingMinutes.values()].reduce((total, value) => total + value, 0);
+  const avgSessionMinutes = monthTrainingDays > 0 ? totalMonthMinutes / monthTrainingDays : 0;
+  const observedSessionsPerWeek = monthTrainingDays > 0 ? monthTrainingDays / (30 / 7) : 0;
+  const observedStrengthPerWeek = strengthDates.size > 0 ? strengthDates.size / (30 / 7) : 0;
+  const strengthShare = monthTrainingDays > 0 ? strengthDates.size / monthTrainingDays : null;
+
   return {
     sessions,
     workouts,
@@ -519,6 +635,11 @@ export function trainingSummary(
     monthSessions,
     monthStrengthSessions: strengthDates.size,
     strengthPerMonth: strengthDates.size,
+    monthTrainingDays,
+    avgSessionMinutes: Math.round(avgSessionMinutes),
+    observedSessionsPerWeek: Math.round(observedSessionsPerWeek * 10) / 10,
+    observedStrengthPerWeek: Math.round(observedStrengthPerWeek * 10) / 10,
+    strengthShare,
     zoneLoad: load,
     topZone,
     totalPRs: prs.length,
@@ -526,6 +647,80 @@ export function trainingSummary(
 }
 
 export type AlertSeverity = 'high' | 'warn' | 'info';
+
+export interface TrainingEstimate {
+  declaredPerWeek: number | null;
+  loggedPerWeek: number;
+  effectivePerWeek: number;
+  avgSessionMinutes: number;
+  weeklyMinutes: number;
+  strengthPerMonth: number;
+  source: 'declared' | 'logged' | 'mixed' | 'none';
+  /** No hay fuerza registrada: se asume que las sesiones declaradas son de fuerza. */
+  assumedStrength: boolean;
+}
+
+/**
+ * Combina la frecuencia declarada con la observada. La declarada evita
+ * infravalorar el gasto cuando el usuario solo registra algunos días; la
+ * observada sirve de suelo cuando entrena más de lo que declara. La duración
+ * media sale de los entrenamientos existentes para no inventar minutos.
+ */
+export function estimateTraining(
+  summary: TrainingSummary,
+  declaredPerWeek: number | null,
+): TrainingEstimate {
+  const declared =
+    declaredPerWeek !== null && Number.isFinite(declaredPerWeek)
+      ? clamp(declaredPerWeek, 0, 21)
+      : null;
+  const logged = Math.max(0, summary.observedSessionsPerWeek);
+  const effective = declared !== null ? Math.max(declared, logged) : logged;
+  const avgSessionMinutes =
+    summary.avgSessionMinutes > 0
+      ? clamp(summary.avgSessionMinutes, 15, 180)
+      : effective > 0
+        ? 45
+        : 0;
+  const weeklyMinutes = clamp(
+    Math.max(effective * avgSessionMinutes, summary.weekMinutes),
+    0,
+    1500,
+  );
+  const share = summary.strengthShare;
+  const strengthPerMonth =
+    effective > 0
+      ? clamp(
+          Math.max(
+            share !== null ? effective * share * (30 / 7) : effective * (30 / 7),
+            summary.strengthPerMonth,
+          ),
+          0,
+          31,
+        )
+      : 0;
+  const source: TrainingEstimate['source'] =
+    effective <= 0
+      ? 'none'
+      : declared === null
+        ? 'logged'
+        : declared > logged
+          ? 'declared'
+          : declared < logged
+            ? 'logged'
+            : 'mixed';
+
+  return {
+    declaredPerWeek: declared,
+    loggedPerWeek: Math.round(logged * 10) / 10,
+    effectivePerWeek: Math.round(effective * 10) / 10,
+    avgSessionMinutes: Math.round(avgSessionMinutes),
+    weeklyMinutes: Math.round(weeklyMinutes),
+    strengthPerMonth: Math.round(strengthPerMonth * 10) / 10,
+    source,
+    assumedStrength: share === null && effective > 0,
+  };
+}
 
 export interface TrainingAlert {
   id: string;
@@ -646,6 +841,15 @@ export interface MacroResult {
 }
 
 /**
+ * Gasto basal con Mifflin-St Jeor. Se expone porque la proyección lo recalcula
+ * semana a semana con el peso simulado, no solo con el peso actual.
+ */
+export function bmrMifflin(weight: number, height: number, age: number, sex: Sex): number {
+  const sexConst = sex === 'male' ? 5 : sex === 'female' ? -161 : -78;
+  return 10 * weight + 6.25 * height - 5 * age + sexConst;
+}
+
+/**
  * Calcula los objetivos diarios. Si el usuario declara su nivel de actividad,
  * el gasto basal se multiplica por ese PAL (que ya incluye el ejercicio
  * habitual). Sin nivel declarado se mantiene la heurística antigua basada en
@@ -677,8 +881,7 @@ export function computeMacros(
     notes.push(tx(lang, 'Sexo sin especificar: BMR con constante neutra.', 'Sex not specified: BMR with a neutral constant.'));
   }
 
-  const sexConst = m.sex === 'male' ? 5 : m.sex === 'female' ? -161 : -78;
-  const bmr = 10 * m.weight + 6.25 * height - 5 * age + sexConst;
+  const bmr = bmrMifflin(m.weight, height, age, m.sex);
 
   let activity: number;
   if (activityLevel && activityLevel !== 'auto') {

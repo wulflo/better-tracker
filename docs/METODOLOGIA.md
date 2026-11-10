@@ -79,7 +79,10 @@ La ecuación femenina requiere brazo, antebrazo, cuello, abdomen y muslo.
 - BMR Katch-McArdle: `370 + 21.6·masa magra`.
 - BMR Cunningham: `500 + 22·masa magra`.
 - Factor de actividad según minutos semanales: `1.2` (<60), `1.375` (60–149), `1.55` (150–299), `1.725` (≥300).
+- **Frecuencia declarada**: `training.frequency` acepta sesiones por semana o por mes y se normaliza a sesiones por semana. `estimateTraining` combina la declarada con la observada en los últimos 30 días y usa la **mayor** de ambas, de modo que registrar solo 1 de 5 sesiones no subestima el gasto. Los minutos semanales observados en 7 días actúan como suelo.
+- **Duración media**: sale de las sesiones registradas; solo se asumen 45 min cuando no hay ninguna. La **fuerza mensual** se estima con la proporción de sesiones de fuerza entre las registradas y, sin registros, se asumen de fuerza las sesiones declaradas.
 - Pasos diarios medios: se traducen a un PAL orientativo (`<4000` → `1.2`, `<6000` → `1.3`, `<8000` → `1.4`, `<10000` → `1.5`, `<12500` → `1.6`, `<15000` → `1.725`, resto `1.85`). Se usa el **mayor** entre ese valor y el nivel de actividad declarado o automático, para no sumar dos veces el mismo gasto.
+- **Ingesta media** (`intake.average`): es un dato **manual**, no derivado. La proyección usa ese valor; si no existe, usa la media de los días con registro en 28 días (mínimo 3) o el objetivo de calorías. El atajo de la interfaz solo rellena el campo editable.
 - Calorías objetivo: TDEE × `0.85` (definición), `1.10` (volumen) o `1.0` (mantenimiento).
 - Proteína: `2.0 g/kg` en definición, `1.8 g/kg` en el resto.
 - Grasa: máximo entre `0.6 g/kg` y el `24%` de las calorías.
@@ -98,13 +101,19 @@ El peso objetivo no se limita al IMC cuando hay composición corporal:
 - En volumen se proyecta hasta un `1,5%` extra de masa magra con fuerza frecuente; sin fuerza, el superávit no se atribuye a músculo.
 - El IMC objetivo se sigue mostrando como referencia, pero no recorta un objetivo que la composición justifica (por ejemplo, en personas con mucha masa muscular).
 
-La fecha y los hitos futuros salen del balance energético y de un ritmo semanal limitado por seguridad:
+La fecha y los hitos futuros salen de una **simulación semana a semana** del balance energético. Cada semana se recalcula la TMB y el TDEE con el peso simulado, de modo que el ritmo no se mantiene artificialmente al bajar de peso:
 
-- Definición: `0,75–1,0 %` del peso por semana según la fuerza mensual (0–12 sesiones).
-- Volumen: `0,25–0,5 %` del peso por semana según la fuerza mensual.
+- El déficit o superávit sale de la ingesta media frente al TDEE simulado: un déficit de 500 kcal y uno de 800 kcal no producen el mismo ritmo, y al perder peso el gasto baja y el ritmo se frena.
+- El ritmo semanal está limitado por seguridad según el peso y la fuerza mensual:
+  - Definición: `0,75–1,0 %` del peso por semana según la fuerza mensual (0–12 sesiones).
+  - Volumen: `0,25–0,5 %` del peso por semana según la fuerza mensual.
 - El indicador de fuerza es el número de días distintos con al menos un ejercicio de tipo `fuerza` en los últimos 30 días.
 - En definición se descuenta la parte del peso perdido que podría ser masa magra: sin fuerza se asume que solo el `75%` del cambio es grasa; con fuerza frecuente, hasta el `100%`. Por eso la misma pérdida de grasa requiere más tiempo cuando no se entrena fuerza.
-- Los pasos medios y los minutos de entrenamiento cambian el TDEE, y con ello el déficit/superávit y las fechas de los hitos.
+- Los pasos medios, la actividad y los minutos de entrenamiento cambian el TDEE, y con ello el déficit/superávit y las fechas de los hitos.
+- La app avisa cuando la ingesta queda por debajo de la TMB, el déficit supera ~30 % del TDEE, el superávit alcanza el 20 % del TDEE o el ritmo debe recortarse por seguridad.
+- Las fechas de los hitos y de llegada incluyen siempre el año; las duraciones largas se muestran en meses o años en lugar de semanas sueltas.
+
+El **borrado individual** de una sesión, entrenamiento o marca se guarda como evento `training.deleted` con el id del evento y, cuando existe, el id del payload. La bóveda no se reescribe: la fila deja de mostrarse y deja de contar en la proyección y en las alertas.
 
 ## Saciedad dual
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  averageIntakeFromEvents,
   bodyComposition,
   bodyProgressSeries,
   averageStepsFromEvents,
@@ -7,16 +8,23 @@ import {
   computeSatiety,
   computeWaterGuidance,
   daysBetween,
+  estimateTraining,
   goalModeFromEvents,
+  formatProjectionDate,
   latestMeasurement,
   latestNutrition,
+  loggedIntakeAverage,
   reduceExercises,
   reduceNutrition,
+  reducePRs,
   reduceRoutines,
+  reduceSessions,
+  reduceWorkouts,
   safeNum,
   startOfWeek,
   stepActivityMultiplier,
   todayISO,
+  trainingFrequencyFromEvents,
   trainingSummary,
   visibleTrainingEvents,
 } from './metrics';
@@ -142,6 +150,123 @@ describe('metrics', () => {
     expect(summary.monthSessions).toBe(3);
     expect(summary.monthStrengthSessions).toBe(2);
     expect(summary.strengthPerMonth).toBe(2);
+  });
+
+  it('stores training frequency normalized and reads the last manual intake', () => {
+    const events = [
+      event('training.frequency', { perWeek: 3, unit: 'week' }, '2026-01-01T00:00:00.000Z'),
+      event('training.frequency', { perWeek: 5.7, unit: 'month' }, '2026-01-02T00:00:00.000Z'),
+      event('intake.average', { kcal: 2100 }, '2026-01-01T00:00:00.000Z'),
+      event('intake.average', { kcal: 1850 }, '2026-01-02T00:00:00.000Z'),
+    ];
+    expect(trainingFrequencyFromEvents(events)).toEqual({ perWeek: 5.7, unit: 'month' });
+    expect(trainingFrequencyFromEvents([])).toBeNull();
+    expect(averageIntakeFromEvents(events)).toBe(1850);
+    expect(averageIntakeFromEvents([])).toBe(0);
+    // Se limita a un rango razonable aunque llegue un valor corrupto.
+    expect(averageIntakeFromEvents([event('intake.average', { kcal: 99999 })])).toBe(10000);
+  });
+
+  it('averages only recent logged days for intake', () => {
+    const now = new Date(2026, 0, 25);
+    const events = [
+      event('nutrition.logged', { date: '2026-01-20', kcal: 2100 }, '2026-01-20T08:00:00.000Z'),
+      event('nutrition.logged', { date: '2026-01-24', kcal: 1900 }, '2026-01-24T08:00:00.000Z'),
+      // Vale la última entrada del mismo día.
+      event('nutrition.logged', { date: '2026-01-24', kcal: 1800 }, '2026-01-24T20:00:00.000Z'),
+      event('nutrition.logged', { date: '2025-12-01', kcal: 3000 }, '2025-12-01T08:00:00.000Z'),
+    ];
+    expect(loggedIntakeAverage(events, 28, now)).toEqual({ avg: 1950, days: 2 });
+    expect(loggedIntakeAverage([], 28, now)).toEqual({ avg: 0, days: 0 });
+  });
+
+  it('keeps declared frequency from underestimating a partially logged week', () => {
+    const exercises = [
+      event('exercise.upsert', { id: 'sq', name: 'Sentadilla', type: 'fuerza' }),
+    ];
+    const sessions = [
+      event(
+        'session.saved',
+        {
+          id: 's1',
+          date: '2026-01-24',
+          duration: 3600,
+          entries: [{ exerciseId: 'sq', sets: [{ reps: 5, weight: 100 }] }],
+        },
+        '2026-01-24T10:00:00.000Z',
+      ),
+    ];
+    const summary = trainingSummary(
+      [...exercises, ...sessions],
+      reduceExercises(exercises),
+      new Date(2026, 0, 25),
+    );
+
+    // Solo 1 sesión registrada en 30 días: no debe parecer que entrena 1 vez/mes.
+    const loggedOnly = estimateTraining(summary, null);
+    expect(loggedOnly.effectivePerWeek).toBe(0.2);
+    expect(loggedOnly.avgSessionMinutes).toBe(60);
+    expect(loggedOnly.source).toBe('logged');
+
+    const declared = estimateTraining(summary, 5);
+    expect(declared.effectivePerWeek).toBe(5);
+    expect(declared.weeklyMinutes).toBe(300);
+    expect(declared.source).toBe('declared');
+    expect(declared.assumedStrength).toBe(false);
+
+    // Si entrena más de lo que declara, manda lo registrado.
+    const moreLogged = estimateTraining(summary, 0);
+    expect(moreLogged.effectivePerWeek).toBe(0.2);
+    expect(moreLogged.source).toBe('logged');
+  });
+
+  it('assumes declared sessions are strength work when nothing is logged', () => {
+    const summary = trainingSummary([], [], new Date(2026, 0, 25));
+    const estimate = estimateTraining(summary, 4);
+    expect(estimate.avgSessionMinutes).toBe(45);
+    expect(estimate.weeklyMinutes).toBe(180);
+    expect(estimate.source).toBe('declared');
+    expect(estimate.assumedStrength).toBe(true);
+    expect(estimate.strengthPerMonth).toBeCloseTo(17.1, 1);
+
+    const none = estimateTraining(summary, null);
+    expect(none.weeklyMinutes).toBe(0);
+    expect(none.source).toBe('none');
+    expect(none.assumedStrength).toBe(false);
+  });
+
+  it('hides individually deleted workouts and personal records', () => {
+    const events = [
+      event(
+        'session.saved',
+        { id: 's1', date: '2026-01-10', duration: 3600, entries: [] },
+        '2026-01-10T10:00:00.000Z',
+      ),
+      event(
+        'workout.saved',
+        { id: 'w1', date: '2026-01-11', name: 'W', entries: [] },
+        '2026-01-11T10:00:00.000Z',
+      ),
+      event(
+        'pr.achieved',
+        { id: 'p1', date: '2026-01-12', exerciseId: 'x', weight: 100, reps: 3, name: 'x' },
+        '2026-01-12T10:00:00.000Z',
+      ),
+      event(
+        'training.deleted',
+        { eventId: 'session.saved-2026-01-10T10:00:00.000Z', kind: 'session' },
+        '2026-01-13T10:00:00.000Z',
+      ),
+      event(
+        'training.deleted',
+        { payloadId: 'w1', kind: 'workout' },
+        '2026-01-14T10:00:00.000Z',
+      ),
+    ];
+
+    expect(reduceSessions(events)).toHaveLength(0);
+    expect(reduceWorkouts(events)).toHaveLength(0);
+    expect(reducePRs(events)).toHaveLength(1);
   });
 
 

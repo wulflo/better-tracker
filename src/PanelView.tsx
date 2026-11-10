@@ -15,35 +15,38 @@ import type {
 import { EMPTY_MEASURES } from './types';
 import { appendEvent, newEvent } from './vault';
 import {
-  ACTIVITY_LEVELS,
-  AUTO_ACTIVITY,
   activityLevelFromEvents,
   activityOption,
-  averageStepsFromEvents,
   bodyComposition,
   computeMacros,
   computeSatiety,
   computeWaterGuidance,
   fmtDuration,
-  formatShort,
+  formatProjectionDate,
   goalModeFromEvents,
   latestMeasurement,
   latestNutrition,
   minutesLabel,
   reduceReminders,
   reduceWeights,
-  stepActivityMultiplier,
   todayISO,
   trainingAlerts,
   trainingSummary,
 } from './metrics';
-import { classifyValue, projectBody, safeBmiRange, safeBodyFatRange } from './bodyRange';
+import {
+  classifyValue,
+  formatProjectionDuration,
+  projectBody,
+  safeBmiRange,
+  safeBodyFatRange,
+} from './bodyRange';
+import { useProjectionInputs } from './projectionInputs';
 import { goalLabel, recipeLogItems, recommendRecipes } from './recipes';
 import { FOODS, mealGrams, mealTotals, reduceCustomFoods } from './foodDb';
 import { clearMealDraft, loadMealDraft, saveMealDraft } from './meals';
 import { zoneName } from './zones';
-import Select from './components/Select';
 import { NumberInput, Field, EmptyState, Stat } from './components/Fields';
+import Select from './components/Select';
 import { Icon } from './components/Icons';
 import { BodyHeatmap, MiniSparkline, ProgressBar } from './components/Charts';
 import FoodLog from './components/FoodLog';
@@ -108,8 +111,6 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
   const dirtyNutrition = useRef(false);
   const [goalMode, setGoalMode] = useState<GoalMode>(() => goalModeFromEvents(events));
   const [activity, setActivity] = useState<ActivityLevel>(() => activityLevelFromEvents(events));
-  const lastStepsEventId = [...events].reverse().find((e) => e.kind === 'steps.average')?.id;
-  const [steps, setSteps] = useState(() => averageStepsFromEvents(events));
   const [waterBusy, setWaterBusy] = useState(false);
   const waterSaving = useRef(false);
   const [remTitle, setRemTitle] = useState('');
@@ -124,12 +125,18 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
     setActivity(activityLevelFromEvents(events));
   }, [events]);
 
-  useEffect(() => {
-    setSteps(averageStepsFromEvents(events));
-  }, [lastStepsEventId]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const weights = useMemo(() => reduceWeights(events), [events]);
   const exerciseSummary = useMemo(() => trainingSummary(events, exercises), [events, exercises]);
+  const projectionInputs = useProjectionInputs({
+    events,
+    deviceId,
+    onRefresh,
+    notify,
+    summary: exerciseSummary,
+    lang,
+  });
+  const training = projectionInputs.training;
+  const steps = projectionInputs.steps;
   const zoneLoad = exerciseSummary.zoneLoad;
   const alerts = useMemo(() => trainingAlerts(exerciseSummary, new Date(), lang), [exerciseSummary, lang]);
   const reminders = useMemo(() => reduceReminders(events), [events]);
@@ -144,30 +151,36 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
     ...(lastMeas ?? {}),
     weight: currentWeight || lastMeas?.weight || 0,
   };
-  const macros = computeMacros(baseMeasures, exerciseSummary.weekMinutes, goalMode, activity, lang, steps);
-  const stepActivity = stepActivityMultiplier(steps);
+  const macros = computeMacros(baseMeasures, training.weeklyMinutes, goalMode, activity, lang, steps);
   const comp = bodyComposition(baseMeasures, lang);
   const projection = useMemo(
     () =>
       projectBody(
         baseMeasures,
         goalMode,
-        exerciseSummary.weekMinutes,
+        training.weeklyMinutes,
         activity,
         comp,
         lang,
-        exerciseSummary.strengthPerMonth,
+        training.strengthPerMonth,
         steps,
+        {
+          avgIntakeKcal: projectionInputs.effectiveIntake,
+          intakeSource:
+            projectionInputs.intakeSource === 'logged' ? 'logged' : 'manual',
+        },
       ),
     [
       baseMeasures,
       goalMode,
-      exerciseSummary.weekMinutes,
-      exerciseSummary.strengthPerMonth,
+      training.weeklyMinutes,
+      training.strengthPerMonth,
       activity,
       comp,
       lang,
       steps,
+      projectionInputs.effectiveIntake,
+      projectionInputs.intakeSource,
     ],
   );
   const bmiRange = safeBmiRange(baseMeasures.age, lang);
@@ -181,10 +194,10 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
     bodyFat: fatAvg,
     leanMass: comp.leanMass,
     weightKg: baseMeasures.weight,
-    weeklyMinutes: exerciseSummary.weekMinutes,
+    weeklyMinutes: training.weeklyMinutes,
   }, lang);
   const waterCurrent = Math.max(0, Math.round(Number(nutri.water) || 0));
-  const waterGuidance = computeWaterGuidance(baseMeasures, exerciseSummary.weekMinutes, waterCurrent, lang);
+  const waterGuidance = computeWaterGuidance(baseMeasures, training.weeklyMinutes, waterCurrent, lang);
   const waterTarget = waterGuidance.targetMl;
   const waterSafeMax = waterGuidance.safeMaxMl;
   const waterPct = waterTarget > 0 ? Math.round((waterCurrent / waterTarget) * 100) : 0;
@@ -286,23 +299,6 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
     setGoalMode(mode);
     await appendEvent(newEvent(deviceId, 'goal.mode', { mode }));
     await onRefresh();
-  };
-
-  const changeActivity = async (level: ActivityLevel) => {
-    setActivity(level);
-    await appendEvent(newEvent(deviceId, 'activity.level', { level }));
-    await onRefresh();
-  };
-
-  const saveSteps = async () => {
-    const value = Math.max(0, Math.round(Number(steps) || 0));
-    setSteps(value);
-    await appendEvent(newEvent(deviceId, 'steps.average', { steps: value }));
-    await onRefresh();
-    notify(
-      tx(lang, 'Pasos promedio guardados.', 'Average steps saved.'),
-      'success',
-    );
   };
 
   const remainingMacros = macros
@@ -805,8 +801,16 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
                     ? tx(lang, 'Sin déficit ni superávit', 'No deficit or surplus')
                     : tx(
                         lang,
-                        `${projection.dailyKcalDelta > 0 ? '+' : ''}${projection.dailyKcalDelta} kcal/día`,
-                        `${projection.dailyKcalDelta > 0 ? '+' : ''}${projection.dailyKcalDelta} kcal/day`,
+                        `${projection.dailyKcalDelta > 0 ? '+' : ''}${projection.dailyKcalDelta} kcal/día${
+                          projection.deficitPct !== null
+                            ? ` · ${Math.abs(Math.round(projection.deficitPct))}% del gasto`
+                            : ''
+                        }`,
+                        `${projection.dailyKcalDelta > 0 ? '+' : ''}${projection.dailyKcalDelta} kcal/day${
+                          projection.deficitPct !== null
+                            ? ` · ${Math.abs(Math.round(projection.deficitPct))}% of expenditure`
+                            : ''
+                        }`,
                       )}
                 </div>
                 <div className="metric-caption">
@@ -815,6 +819,13 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
                   {steps > 0
                     ? tx(lang, `${Math.round(steps)} pasos/día`, `${Math.round(steps)} steps/day`)
                     : tx(lang, 'Pasos: sin dato', 'Steps: no data')}
+                </div>
+                <div className="metric-caption">
+                  {tx(lang, `Entreno: ${training.effectivePerWeek}/sem`, `Training: ${training.effectivePerWeek}/wk`)}
+                  {' · '}
+                  {projection.avgIntakeKcal !== null
+                    ? tx(lang, `Ingesta: ${projection.avgIntakeKcal} kcal/día`, `Intake: ${projection.avgIntakeKcal} kcal/day`)
+                    : tx(lang, 'Ingesta: objetivo', 'Intake: target')}
                 </div>
               </div>
             </div>
@@ -826,13 +837,26 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
                 {projection.note && <div className="small">{projection.note}</div>}
                 {projection.etaDate && (
                   <div className="small">
-                    {tx(lang, 'Fecha estimada:', 'Estimated date:')} {formatShort(projection.etaDate, lang)} ·{' '}
-                    {tx(lang, `${projection.weeks} semana(s).`, `${projection.weeks} week(s).`)}
+                    {tx(lang, 'Fecha estimada:', 'Estimated date:')} {formatProjectionDate(projection.etaDate, lang)} ·{' '}
+                    {formatProjectionDuration(projection.weeks ?? 0, lang)}.
                   </div>
                 )}
                 <div className="small muted">{bmiRange.note} {fatRange?.note ?? ''}</div>
               </div>
             </div>
+
+            {projection.warnings.length > 0 && (
+              <div className="notice notice-warn">
+                <Icon name="alert" size={16} />
+                <div>
+                  {projection.warnings.map((warning, index) => (
+                    <div key={warning} className={index === 0 ? '' : 'small'}>
+                      {warning}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {projection.milestones.length > 0 && (
               <div className="projection-track">
@@ -841,7 +865,7 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
                   {projection.milestones.map((milestone) => (
                     <div key={milestone.date} className="projection-step">
                       <strong>{milestone.weight.toFixed(1)} kg</strong>
-                      <span className="small muted">{formatShort(milestone.date, lang)}</span>
+                      <span className="small muted">{formatProjectionDate(milestone.date, lang)}</span>
                       {milestone.bodyFat !== null && (
                         <span className="small">
                           ≈{milestone.bodyFat.toFixed(1)}% {tx(lang, 'grasa', 'fat')}
@@ -863,8 +887,8 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
             <p className="hint">
               {tx(
                 lang,
-                'El cálculo asume que mantienes el nivel de actividad, la fuerza, los pasos y el balance actual. Una variación de peso de 0,5–1 % por semana al perder grasa y de 0,25–0,5 % al ganar es un ritmo sostenible; con más fuerza se conserva mejor la masa magra.',
-                'The calculation assumes you keep your current activity level, strength work, steps and balance. A weight change of 0.5–1% per week when losing fat and 0.25–0.5% when gaining is a sustainable rate; more strength work preserves lean mass better.',
+                'El cálculo recalcula el gasto semana a semana con el peso simulado: al bajar de peso el mismo déficit rinde menos. Asume que mantienes la actividad, la fuerza, los pasos y la ingesta media. Una variación de 0,5–1 % por semana al perder grasa y de 0,25–0,5 % al ganar es un ritmo sostenible; con más fuerza se conserva mejor la masa magra.',
+                'The calculation recalculates expenditure week by week with the simulated weight: as you lose weight, the same deficit yields less. It assumes you keep your activity, strength work, steps and average intake. A weight change of 0.5–1% per week when losing fat and 0.25–0.5% when gaining is a sustainable rate; more strength work preserves lean mass better.',
               )}
             </p>
           </div>
@@ -900,59 +924,13 @@ export default function PanelView({ deviceId, events, exercises, onRefresh, noti
               ))}
             </div>
 
-            <label className="field">
-              <span className="field-label">{tx(lang, 'Nivel de actividad física', 'Physical activity level')}</span>
-              {/* Selector personalizado: el popup de un <select> nativo se
-                  dibuja con el tema del sistema (padding grande y colores que
-                  no combinan). El menú propio usa el tema de la app y añade la
-                  descripción de cada nivel como texto de apoyo. */}
-              <Select
-                value={activity}
-                onChange={(value) => void changeActivity(value as ActivityLevel)}
-                options={[AUTO_ACTIVITY, ...ACTIVITY_LEVELS].map((option) => ({
-                  value: option.id,
-                  label: `${activityOption(option.id, lang).label} · ${
-                    option.multiplier > 0
-                      ? `×${option.multiplier}`
-                      : tx(lang, 'según entrenamiento', 'based on training')
-                  }`,
-                  hint: activityOption(option.id, lang).description,
-                }))}
-              />
-              <span className="hint">{activityOption(activity, lang).description}</span>
-            </label>
-
-            <div className="field">
-              <span className="field-label">{tx(lang, 'Pasos promedio al día', 'Average daily steps')}</span>
-              <div className="row">
-                <NumberInput
-                  value={steps}
-                  onChange={setSteps}
-                  min={0}
-                  max={60000}
-                  step={500}
-                  className="grow"
-                  placeholder={tx(lang, 'Ej. 8000', 'E.g. 8000')}
-                  ariaLabel={tx(lang, 'Pasos promedio al día', 'Average daily steps')}
-                />
-                <button type="button" className="btn btn-tonal" onClick={() => void saveSteps()}>
-                  {tx(lang, 'Guardar', 'Save')}
-                </button>
-              </div>
-              <span className="hint">
-                {stepActivity !== null
-                  ? tx(
-                      lang,
-                      `Se usa como ×${stepActivity.toFixed(2)} de actividad si supera al nivel elegido. Ajusta el gasto y las fechas de la proyección.`,
-                      `Used as an activity multiplier of ×${stepActivity.toFixed(2)} if it exceeds the selected level. It adjusts expenditure and projection dates.`,
-                    )
-                  : tx(
-                      lang,
-                      'Opcional. Si lo indicas, el gasto y la proyección se ajustan a tu actividad diaria real.',
-                      'Optional. If set, expenditure and projection adjust to your actual daily activity.',
-                    )}
-              </span>
-            </div>
+            <span className="hint">
+              {tx(
+                lang,
+                `Nivel de actividad: ${activityOption(activity, lang).label}. La actividad, la frecuencia de entrenamiento, los pasos y la ingesta media se ajustan en Figura corporal.`,
+                `Activity level: ${activityOption(activity, lang).label}. Activity, training frequency, steps and average intake are adjusted in Body figure.`,
+              )}
+            </span>
 
             {macros ? (
               <>

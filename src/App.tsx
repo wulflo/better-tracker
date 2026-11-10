@@ -3,6 +3,7 @@ import type { AppInfo, Exercise, VaultEvent } from './types';
 import {
   appendEvent,
   deleteBackups,
+  EVENT_APPENDED,
   getAppInfo,
   getBackupStatus,
   getDeviceId,
@@ -70,6 +71,10 @@ export default function App() {
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null);
   const toastTimer = useRef<number | null>(null);
   const dropWarnedRef = useRef('');
+  // Marca del último append local. Justo después de guardar, el estado ya
+  // incluye el evento de forma optimista; evitar releer toda la bóveda durante
+  // ~1,2 s mantiene la app fluida aunque haya años de historial.
+  const lastLocalAppendRef = useRef(0);
   const { lang, setLang } = useLanguage();
   const { mode, setMode, accent, setAccent } = useTheme();
 
@@ -79,7 +84,8 @@ export default function App() {
     toastTimer.current = window.setTimeout(() => setToast(null), 3800);
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
+    if (!force && Date.now() - lastLocalAppendRef.current < 1200) return;
     try {
       const next = await listEvents();
       setEvents(next);
@@ -136,6 +142,21 @@ export default function App() {
     window.addEventListener('better-tracker:refresh', onRefresh);
     return () => window.removeEventListener('better-tracker:refresh', onRefresh);
   }, [refresh]);
+
+  // Cada guardado añade el evento al estado sin volver a listar la bóveda.
+  // Así el coste de registrar un entrenamiento no crece con el historial.
+  useEffect(() => {
+    const onAppended = (raw: Event) => {
+      const detail = (raw as CustomEvent<VaultEvent>).detail;
+      if (!detail || typeof detail.id !== 'string') return;
+      lastLocalAppendRef.current = Date.now();
+      setEvents((previous) =>
+        previous.some((event) => event.id === detail.id) ? previous : [...previous, detail],
+      );
+    };
+    window.addEventListener(EVENT_APPENDED, onAppended);
+    return () => window.removeEventListener(EVENT_APPENDED, onAppended);
+  }, []);
 
   // Copia diaria en `longlife`. La comprobación se repite cada 6 horas por si
   // la app queda abierta, y siempre es idempotente: solo crea una copia por día.
@@ -304,7 +325,7 @@ export default function App() {
     try {
       const result = await restoreSnapshot(copy.id);
       setConfirmRestore(null);
-      await refresh();
+      await refresh(true);
       try {
         setBackupStatus(await getBackupStatus());
       } catch {
@@ -414,7 +435,7 @@ export default function App() {
         ],
       }));
     }
-    await refresh();
+    await refresh(true);
     notify(tx(lang, 'Datos de ejemplo cargados.', 'Sample data loaded.'), 'success');
   };
 

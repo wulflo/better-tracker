@@ -1,14 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { BodyMeasures, MeasurementEntry, Sex, VaultEvent } from './types';
+import type { ActivityLevel, BodyMeasures, MeasurementEntry, Sex, VaultEvent } from './types';
 import { EMPTY_MEASURES } from './types';
 import { appendEvent, newEvent } from './vault';
 import {
+  ACTIVITY_LEVELS,
+  AUTO_ACTIVITY,
   activityLevelFromEvents,
   activityOption,
-  averageStepsFromEvents,
   bodyComposition,
   computeMacros,
-  formatShort,
+  formatProjectionDate,
   goalModeFromEvents,
   latestMeasurement,
   reduceExercises,
@@ -16,13 +17,15 @@ import {
   todayISO,
   trainingSummary,
 } from './metrics';
-import { classifyValue, projectBody, safeBmiRange, safeBodyFatRange } from './bodyRange';
+import { classifyValue, formatProjectionDuration, projectBody, safeBmiRange, safeBodyFatRange } from './bodyRange';
+import { useProjectionInputs } from './projectionInputs';
 import BodyFigure from './BodyFigure';
 import Select from './components/Select';
 import { NumberInput, Field, EmptyState, Stat } from './components/Fields';
 import { Icon } from './components/Icons';
 import { MiniSparkline } from './components/Charts';
 import FatTrend from './components/FatTrend';
+import ProjectionInputs from './components/ProjectionInputs';
 import { tx, useLanguage } from './i18n';
 
 interface Props {
@@ -56,33 +59,49 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
     () => trainingSummary(events, reduceExercises(events)),
     [events],
   );
-  const avgSteps = useMemo(() => averageStepsFromEvents(events), [events]);
+  const projectionInputs = useProjectionInputs({
+    events,
+    deviceId,
+    onRefresh,
+    notify,
+    summary: exerciseSummary,
+    lang,
+  });
+  const training = projectionInputs.training;
+  const steps = projectionInputs.steps;
   const projection = useMemo(
     () =>
       projectBody(
         form,
         goal,
-        exerciseSummary.weekMinutes,
+        training.weeklyMinutes,
         activity,
         comp,
         lang,
-        exerciseSummary.strengthPerMonth,
-        avgSteps,
+        training.strengthPerMonth,
+        steps,
+        {
+          avgIntakeKcal: projectionInputs.effectiveIntake,
+          intakeSource:
+            projectionInputs.intakeSource === 'logged' ? 'logged' : 'manual',
+        },
       ),
     [
       form,
       goal,
-      exerciseSummary.weekMinutes,
-      exerciseSummary.strengthPerMonth,
+      training.weeklyMinutes,
+      training.strengthPerMonth,
       activity,
       comp,
       lang,
-      avgSteps,
+      steps,
+      projectionInputs.effectiveIntake,
+      projectionInputs.intakeSource,
     ],
   );
   const macros = useMemo(
-    () => computeMacros(form, exerciseSummary.weekMinutes, goal, activity, lang, avgSteps),
-    [form, exerciseSummary.weekMinutes, goal, activity, lang, avgSteps],
+    () => computeMacros(form, training.weeklyMinutes, goal, activity, lang, steps),
+    [form, training.weeklyMinutes, goal, activity, lang, steps],
   );
   const bmiRange = safeBmiRange(form.age, lang);
   const fatRange = safeBodyFatRange(form.sex, form.age, lang);
@@ -109,6 +128,11 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
   const useLatestWeight = () => {
     if (latestWeight) set('weight', latestWeight.kg);
     else notify(tx(lang, 'Todavía no hay un peso registrado en el Panel.', 'No weight has been logged on the Dashboard yet.'), 'info');
+  };
+
+  const changeActivity = async (level: ActivityLevel) => {
+    await appendEvent(newEvent(deviceId, 'activity.level', { level }));
+    await onRefresh();
   };
 
   const estimatedFields = [
@@ -179,8 +203,8 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
             <div className="card-sub">
               {tx(
                 lang,
-                'El objetivo se recalcula con tu masa magra y grasa cuando hay medidas; el ritmo y las fechas incorporan tus sesiones de fuerza y tus pasos medios diarios.',
-                'The target is recalculated from your lean and fat mass when measurements are available; pace and dates factor in your strength sessions and average daily steps.',
+                'El objetivo se recalcula con tu masa magra y grasa cuando hay medidas; el ritmo y las fechas usan tu frecuencia de entrenamiento, tus pasos medios y tu ingesta media, y el gasto se recalcula semana a semana.',
+                'The target is recalculated from your lean and fat mass when measurements are available; pace and dates use your training frequency, average steps and average intake, and expenditure is recalculated week by week.',
               )}
             </div>
           </div>
@@ -228,14 +252,24 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
               </div>
               <div className="metric-caption">
                 {projection.weeklyRateKg > 0 ? tx(lang, 'por semana', 'per week') : tx(lang, 'sin déficit ni superávit', 'no deficit or surplus')}
-                {projection.etaDate ? ` · ${formatShort(projection.etaDate, lang)}` : ''}
+                {projection.etaDate ? ` · ${formatProjectionDate(projection.etaDate, lang)}` : ''}
+                {projection.weeks && projection.weeks > 0
+                  ? ` · ${formatProjectionDuration(projection.weeks, lang)}`
+                  : ''}
               </div>
               <div className="metric-caption">
                 {tx(lang, `Fuerza: ${projection.strengthPerMonth}/mes`, `Strength: ${projection.strengthPerMonth}/mo`)}
                 {' · '}
-                {avgSteps > 0
-                  ? tx(lang, `${Math.round(avgSteps)} pasos/día`, `${Math.round(avgSteps)} steps/day`)
+                {steps > 0
+                  ? tx(lang, `${Math.round(steps)} pasos/día`, `${Math.round(steps)} steps/day`)
                   : tx(lang, 'Pasos: sin dato', 'Steps: no data')}
+              </div>
+              <div className="metric-caption">
+                {tx(lang, `Entreno: ${training.effectivePerWeek}/sem`, `Training: ${training.effectivePerWeek}/wk`)}
+                {' · '}
+                {projection.avgIntakeKcal !== null
+                  ? tx(lang, `Ingesta: ${projection.avgIntakeKcal} kcal/día`, `Intake: ${projection.avgIntakeKcal} kcal/day`)
+                  : tx(lang, 'Ingesta: objetivo', 'Intake: target')}
               </div>
             </div>
           </div>
@@ -251,6 +285,43 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
             </div>
           </div>
 
+          {projection.warnings.length > 0 && (
+            <div className="notice notice-warn">
+              <Icon name="alert" size={16} />
+              <div>
+                {projection.warnings.map((warning, index) => (
+                  <div key={warning} className={index === 0 ? '' : 'small'}>
+                    {warning}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <details className="details">
+            <summary>{tx(lang, 'Ajustar actividad, frecuencia, pasos y calorías medias', 'Adjust activity, frequency, steps and average calories')}</summary>
+            <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
+              <label className="field">
+                <span className="field-label">{tx(lang, 'Nivel de actividad física', 'Physical activity level')}</span>
+                <Select
+                  value={activity}
+                  onChange={(value) => void changeActivity(value as ActivityLevel)}
+                  options={[AUTO_ACTIVITY, ...ACTIVITY_LEVELS].map((option) => ({
+                    value: option.id,
+                    label: `${activityOption(option.id, lang).label} · ${
+                      option.multiplier > 0
+                        ? `×${option.multiplier}`
+                        : tx(lang, 'según entrenamiento', 'based on training')
+                    }`,
+                    hint: activityOption(option.id, lang).description,
+                  }))}
+                />
+                <span className="hint">{activityOption(activity, lang).description}</span>
+              </label>
+              <ProjectionInputs controller={projectionInputs} lang={lang} />
+            </div>
+          </details>
+
           {projection.milestones.length > 0 && (
             <div className="projection-track">
               <span className="field-label">{tx(lang, 'Progreso esperado', 'Expected progress')}</span>
@@ -258,7 +329,7 @@ export default function BodyView({ deviceId, events, onRefresh, notify }: Props)
                 {projection.milestones.map((milestone) => (
                   <div key={milestone.date} className="projection-step">
                     <strong>{milestone.weight.toFixed(1)} kg</strong>
-                    <span className="small muted">{formatShort(milestone.date, lang)}</span>
+                    <span className="small muted">{formatProjectionDate(milestone.date, lang)}</span>
                     {milestone.bodyFat !== null && <span className="small">≈{milestone.bodyFat.toFixed(1)}%</span>}
                     {milestone.fatMass !== null && (
                       <span className="small muted">
